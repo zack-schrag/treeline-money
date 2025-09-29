@@ -104,3 +104,9 @@ treeline | Enter interactive mode | `treeline`
 
 # What's Next?
 TODO
+
+## Suggested Enhancements
+- Add an explicit prerequisites section (supported OSes, Python 3.13, `uv` install, DuckDB minimum version) so power users know how to prepare their environment up front.
+- Replace TODO welcome prompt with an actual sample session transcript (including `/login` hand-off to browser and `/status` output) to set expectations for the CLI experience.
+- Document how to opt into local data directory selection (`treeline init --path`) and how encryption keys are stored so the local-first story is concrete.
+- Provide short troubleshooting tips (missing keyring backend, Supabase login failure, SimpleFIN token errors) to keep onboarding smooth for early adopters.

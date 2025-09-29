@@ -10,3 +10,7 @@ Command | Description
 /tag | Enter tagging power mode
 /plugins | Manage plugins
 /sync | Run an on-demand data synchronization from your connected accounts
+
+## Suggested Enhancements
+- Add success/error examples for each command so users understand expected output and side effects.
+- Group commands by domain (session management, data ingestion, analysis, configuration) to improve scanability for new users.
