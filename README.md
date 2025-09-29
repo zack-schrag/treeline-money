@@ -1,0 +1,5 @@
+This is the initial prompt for starting the project. Here are your instructions:
+- Read through every file in this project to gain an understanding of the project's goals and context.
+- First, identify any gaps in the design and provide suggestions. The overall vision should remain unchanged, but there might be areas that need fleshing out. Provide your suggestions directly in the documentation files themselves.
+- Second, come up with a clear strategy for implementation, making sure to follow the high-level plan in [implementation_plan](./docs/internal/implementation_plan.md) and understanding the architecture principles in [architecture.md](./docs/internal/architecture.md). Put your plan in a new file in docs/internal/agent_implementation_proposal.md.
+- Anything that already has a lot of details in it can have tweaks, but should not have major overhauls. For example, the directory structure defined in [architecture.md](./docs/internal/architecture.md) can have tweaks, but should maintain close to the existing.
