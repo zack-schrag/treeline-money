@@ -476,7 +476,9 @@ def handle_sync_command() -> None:
         # Sync transactions
         with console.status(f"  Fetching transactions from {integration_name}..."):
             transactions_result = asyncio.run(
-                sync_service.sync_transactions(user_id, integration_name, integration_options)
+                sync_service.sync_transactions(
+                    user_id, integration_name, provider_options=integration_options
+                )
             )
 
             if not transactions_result.success:
@@ -490,7 +492,9 @@ def handle_sync_command() -> None:
         # Sync balances
         with console.status(f"  Fetching balance snapshots from {integration_name}..."):
             balances_result = asyncio.run(
-                sync_service.sync_balances(user_id, integration_name, integration_options)
+                sync_service.sync_balances(
+                    user_id, integration_name, provider_options=integration_options
+                )
             )
 
             if not balances_result.success:
