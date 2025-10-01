@@ -470,7 +470,7 @@ def handle_sync_command() -> None:
                 continue
 
             accounts_data = accounts_result.data
-            num_accounts = len(accounts_data.get("accounts", []))
+            num_accounts = len(accounts_data.get("ingested_accounts", []))
             console.print(f"[green]  ✓[/green] Synced {num_accounts} account(s)")
 
         # Sync transactions
@@ -486,7 +486,7 @@ def handle_sync_command() -> None:
                 continue
 
             transactions_data = transactions_result.data
-            num_transactions = len(transactions_data.get("transactions", []))
+            num_transactions = len(transactions_data.get("ingested_transactions", []))
             console.print(f"[green]  ✓[/green] Synced {num_transactions} transaction(s)")
 
         # Sync balances
@@ -502,7 +502,7 @@ def handle_sync_command() -> None:
                 continue
 
             balances_data = balances_result.data
-            num_balances = len(balances_data.get("balances", []))
+            num_balances = len(balances_data.get("ingested_balances", []))
             console.print(f"[green]  ✓[/green] Synced {num_balances} balance snapshot(s)")
 
     console.print(f"\n[green]✓[/green] Sync completed!\n")
