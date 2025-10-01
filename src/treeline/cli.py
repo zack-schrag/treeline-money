@@ -528,21 +528,7 @@ def handle_sync_command() -> None:
             num_transactions = len(transactions_data.get("ingested_transactions", []))
             console.print(f"[green]  ✓[/green] Synced {num_transactions} transaction(s)")
 
-        # Sync balances
-        with console.status(f"  Fetching balance snapshots from {integration_name}..."):
-            balances_result = asyncio.run(
-                sync_service.sync_balances(
-                    user_id, integration_name, provider_options=integration_options
-                )
-            )
-
-            if not balances_result.success:
-                console.print(f"[red]  ✗ Failed to sync balances: {balances_result.error}[/red]")
-                continue
-
-            balances_data = balances_result.data
-            num_balances = len(balances_data.get("ingested_balances", []))
-            console.print(f"[green]  ✓[/green] Synced {num_balances} balance snapshot(s)")
+        console.print(f"[dim]  Balance snapshots created automatically from account data[/dim]")
 
     console.print(f"\n[green]✓[/green] Sync completed!\n")
     console.print("[dim]Use /status to see your updated data[/dim]\n")

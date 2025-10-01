@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
 
@@ -74,6 +75,49 @@ class SyncService:
         ingested_result = await self.repository.bulk_upsert_accounts(user_id, discovered_accounts)
         if not ingested_result.success:
             return ingested_result
+
+        # Create balance snapshots for accounts with valid data, but only if no balance exists for today
+        from datetime import date
+        from uuid import uuid4
+        from treeline.domain import BalanceSnapshot
+
+        today = date.today().isoformat()  # YYYY-MM-DD format
+        balance_snapshots = []
+
+        for account in discovered_accounts:
+            if account.id and account.balance is not None:
+                # Check if a balance snapshot already exists for this account today
+                existing_snapshots_result = await self.repository.get_balance_snapshots(
+                    user_id,
+                    account_id=account.id,
+                    date=today
+                )
+
+                if not existing_snapshots_result.success:
+                    # If query failed, skip to avoid duplicates
+                    continue
+
+                existing_snapshots = existing_snapshots_result.data or []
+
+                # Only add if no snapshot exists with the same balance for today
+                has_same_balance = any(
+                    abs(snapshot.balance - account.balance) < Decimal("0.01")
+                    for snapshot in existing_snapshots
+                )
+
+                if not has_same_balance:
+                    from datetime import datetime, timezone
+                    balance_snapshots.append(BalanceSnapshot(
+                        id=uuid4(),
+                        account_id=account.id,
+                        balance=account.balance,
+                        snapshot_time=datetime.now(timezone.utc),
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    ))
+
+        if balance_snapshots:
+            await self.repository.bulk_add_balances(user_id, balance_snapshots)
 
         return Result(
             success=True,
@@ -201,34 +245,14 @@ class SyncService:
     async def sync_balances(
         self, user_id: UUID, integration_name: str, provider_options: Dict[str, Any]
     ) -> Result[Dict[str, Any]]:
-        """Sync balance snapshots from a data provider."""
-        data_provider = self._get_provider(integration_name)
-        if not data_provider:
-            return Result(success=False, error=f"Unknown integration: {integration_name}")
+        """Sync balance snapshots from a data provider.
 
-        if not data_provider.can_get_balances:
-            return Result(success=False, error="Provider does not support balances")
-
-        # Get discovered balances from provider
-        discovered_result = await data_provider.get_balances(
-            user_id, provider_account_ids=[], provider_settings=provider_options
-        )
-        if not discovered_result.success:
-            return discovered_result
-
-        discovered_balances = discovered_result.data or []
-
-        # Bulk add balances
-        ingested_result = await self.repository.bulk_add_balances(user_id, discovered_balances)
-        if not ingested_result.success:
-            return ingested_result
-
+        NOTE: This method is deprecated. Balance snapshots are now created automatically
+        during sync_accounts based on the balance field in the Account model.
+        """
         return Result(
-            success=True,
-            data={
-                "discovered_balances": discovered_balances,
-                "ingested_balances": ingested_result.data,
-            },
+            success=False,
+            error="sync_balances is deprecated - balances are synced automatically during sync_accounts"
         )
 
 

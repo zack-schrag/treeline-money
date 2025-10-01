@@ -269,46 +269,10 @@ async def test_sync_accounts_creates_balance_snapshots():
 
 
 @pytest.mark.asyncio
-async def test_sync_balances():
-    """Test syncing balance snapshots from provider."""
+async def test_sync_balances_deprecated():
+    """Test that sync_balances is deprecated."""
     mock_provider = MockDataProvider()
     mock_repository = MockRepository()
-
-    user_id = uuid4()
-    account_id = uuid4()
-
-    # Discovered balances from provider
-    balance_snapshot = BalanceSnapshot(
-        id=uuid4(),
-        account_id=account_id,
-        balance=Decimal("1500.50"),
-        snapshot_time=datetime.now(timezone.utc),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
-    )
-
-    mock_provider.get_balances.return_value = Ok([balance_snapshot])
-    mock_repository.bulk_add_balances.return_value = Ok([balance_snapshot])
-
-    provider_registry = {"plaid": mock_provider}
-    service = SyncService(provider_registry, mock_repository)
-    result = await service.sync_balances(user_id, "plaid", {})
-
-    assert result.success is True
-    assert result.data["discovered_balances"] == [balance_snapshot]
-    assert result.data["ingested_balances"] == [balance_snapshot]
-    mock_provider.get_balances.assert_called_once()
-    mock_repository.bulk_add_balances.assert_called_once_with(user_id, [balance_snapshot])
-
-
-@pytest.mark.asyncio
-async def test_sync_balances_provider_not_supported():
-    """Test sync_balances when provider doesn't support balances."""
-    mock_provider = MockDataProvider()
-    mock_repository = MockRepository()
-
-    # Disable balance support
-    mock_provider._can_get_balances = False
 
     user_id = uuid4()
     provider_registry = {"plaid": mock_provider}
@@ -316,5 +280,5 @@ async def test_sync_balances_provider_not_supported():
     result = await service.sync_balances(user_id, "plaid", {})
 
     assert result.success is False
-    assert result.error == "Provider does not support balances"
+    assert "deprecated" in result.error.lower()
     mock_repository.bulk_add_balances.assert_not_called()

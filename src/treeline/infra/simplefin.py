@@ -66,11 +66,17 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     if provider_account_ids and acc_data["id"] not in provider_account_ids:
                         continue
 
+                    # Extract balance if present
+                    balance = None
+                    if "balance" in acc_data and acc_data["balance"] is not None:
+                        balance = Decimal(str(acc_data["balance"]))
+
                     account = Account(
                         id=uuid4(),
                         name=acc_data["name"],
                         currency=acc_data.get("currency", "USD"),
                         external_ids=MappingProxyType({"simplefin": acc_data["id"]}),
+                        balance=balance,
                         institution_name=acc_data.get("org", {}).get("name"),
                         institution_url=acc_data.get("org", {}).get("url"),
                         institution_domain=acc_data.get("org", {}).get("domain"),
@@ -158,15 +164,13 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
         provider_account_ids: List[str] = [],
         provider_settings: Dict[str, Any] = {},
     ) -> Result[List[BalanceSnapshot]]:
-        """Get balance snapshots from SimpleFIN."""
-        # SimpleFIN returns balances with accounts, so we fetch accounts and extract balances
-        accounts_result = await self.get_accounts(user_id, provider_account_ids, provider_settings)
-        if not accounts_result.success:
-            return accounts_result
+        """Get balance snapshots from SimpleFIN.
 
-        # For now, return empty list as balances are included in accounts
-        # This could be enhanced to create BalanceSnapshot objects from account balance data
-        return Ok([])
+        NOTE: This method is deprecated. Balances are now returned as part of the
+        Account model in get_accounts() and balance snapshots are created automatically
+        by the sync service.
+        """
+        return Fail("get_balances is deprecated - balances are synced via get_accounts")
 
     async def create_integration(
         self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]

@@ -39,6 +39,7 @@ class Account(BaseModel):
     account_type: str | None = None
     currency: str = Field(default="USD")
     external_ids: Mapping[str, str] = Field(default_factory=dict)
+    balance: Decimal | None = None
     institution_name: str | None = None
     institution_url: str | None = None
     institution_domain: str | None = None
