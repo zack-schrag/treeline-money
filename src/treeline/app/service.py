@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
 
-from treeline.abstractions import AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository
+from treeline.abstractions import AIProvider, AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository
 from treeline.domain import Account, Result, Transaction, User
 
 
@@ -582,3 +582,76 @@ class DbService:
     def _clean_and_validate_sql(self, sql: str) -> str:
         # TODO: Implement SQL cleaning and validation
         return sql
+
+
+class AgentService:
+    """Service for AI-powered financial analysis using conversational interface."""
+
+    def __init__(self, ai_provider: "AIProvider"):  # type: ignore
+        """
+        Initialize the agent service.
+
+        Args:
+            ai_provider: AI provider (e.g., AnthropicProvider) for conversational analysis
+        """
+        self.ai_provider = ai_provider
+
+    async def ensure_session_active(self, user_id: UUID, db_path: str) -> Result:
+        """
+        Ensure there is an active session, starting one if needed or if expired.
+
+        Args:
+            user_id: User ID for the session
+            db_path: Path to user's DuckDB database
+
+        Returns:
+            Result indicating success or failure
+        """
+        if not self.ai_provider.has_active_session():
+            return await self.ai_provider.start_session(user_id, db_path)
+
+        if self.ai_provider.is_session_expired():
+            await self.ai_provider.end_session()
+            return await self.ai_provider.start_session(user_id, db_path)
+
+        return Result(success=True)
+
+    async def chat(self, user_id: UUID, db_path: str, message: str) -> Result:
+        """
+        Send a message to the AI agent and get streaming response.
+
+        Args:
+            user_id: User ID
+            db_path: Path to user's DuckDB database
+            message: User's natural language query
+
+        Returns:
+            Result containing streaming response iterator
+        """
+        # Ensure session is active
+        session_result = await self.ensure_session_active(user_id, db_path)
+        if not session_result.success:
+            return session_result
+
+        # Send message and get streaming response
+        return await self.ai_provider.send_message(message)
+
+    async def clear_session(self) -> Result:
+        """
+        Clear the current conversation session.
+
+        Useful when user wants to start a new conversation topic.
+
+        Returns:
+            Result indicating success or failure
+        """
+        return await self.ai_provider.end_session()
+
+    def has_active_session(self) -> bool:
+        """
+        Check if there is an active conversation session.
+
+        Returns:
+            True if session is active, False otherwise
+        """
+        return self.ai_provider.has_active_session()

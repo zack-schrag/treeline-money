@@ -112,6 +112,7 @@ def handle_help_command() -> None:
     table.add_row("/sync", "Run an on-demand data synchronization")
     table.add_row("/import", "Import CSV file of transactions")
     table.add_row("/tag", "Enter tagging power mode")
+    table.add_row("/clear", "Clear conversation history and start fresh")
 
     console.print(table)
     console.print("\n[dim]You can also ask questions about your financial data in natural language[/dim]\n")
@@ -327,6 +328,77 @@ def handle_tag_command() -> None:
     console.print("[yellow]Tagging power mode coming soon...[/yellow]")
 
 
+def handle_clear_command() -> None:
+    """Handle /clear command - reset conversation session."""
+    container = get_container()
+    agent_service = container.agent_service()
+
+    result = asyncio.run(agent_service.clear_session())
+
+    if result.success:
+        console.print("[green]✓[/green] Conversation cleared. Starting fresh!\n")
+    else:
+        console.print(f"[yellow]Note: {result.error}[/yellow]\n")
+
+
+def handle_chat_message(message: str) -> None:
+    """Handle natural language chat message."""
+    container = get_container()
+    config_service = container.config_service()
+    agent_service = container.agent_service()
+
+    # Check authentication
+    user_id_str = config_service.get_current_user_id()
+    if not user_id_str:
+        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        return
+
+    user_id = UUID(user_id_str)
+
+    # Get database path
+    treeline_dir = get_treeline_dir()
+    db_path = str(treeline_dir / "treeline.db")
+
+    # Send message to agent
+    with console.status("[dim]Thinking...[/dim]"):
+        result = asyncio.run(agent_service.chat(user_id, db_path, message))
+
+    if not result.success:
+        console.print(f"[red]Error: {result.error}[/red]\n")
+        return
+
+    # Stream the response
+    response_data = result.data
+    stream = response_data["stream"]
+
+    console.print()  # Blank line before response
+
+    try:
+        # Simple synchronous iteration over async stream
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Already in async context
+            async def consume_stream():
+                async for chunk in stream:
+                    # For now, just print the chunk
+                    # TODO: Add proper formatting for different chunk types
+                    console.print(chunk)
+
+            asyncio.run(consume_stream())
+        else:
+            # Not in async context, create new loop
+            async def consume_stream():
+                async for chunk in stream:
+                    console.print(chunk)
+
+            asyncio.run(consume_stream())
+
+    except Exception as e:
+        console.print(f"[red]Error streaming response: {str(e)}[/red]")
+
+    console.print()  # Blank line after response
+
+
 def process_command(user_input: str) -> bool:
     """Process a user command. Returns True to continue REPL, False to exit."""
     user_input = user_input.strip()
@@ -356,12 +428,14 @@ def process_command(user_input: str) -> bool:
             handle_import_command()
         elif command == "/tag":
             handle_tag_command()
+        elif command == "/clear":
+            handle_clear_command()
         else:
             console.print(f"[red]Unknown command: {command}[/red]")
             console.print("[dim]Type /help to see available commands[/dim]")
     else:
-        # Natural language query - TODO: implement AI integration
-        console.print("[yellow]AI integration coming soon...[/yellow]")
+        # Natural language query - send to AI agent
+        handle_chat_message(user_input)
 
     return True
 

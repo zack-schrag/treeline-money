@@ -6,13 +6,15 @@ from typing import Any, Dict
 from supabase import create_client
 
 from treeline.abstractions import (
+    AIProvider,
     AuthProvider,
     CredentialStore,
     DataAggregationProvider,
     IntegrationProvider,
     Repository,
 )
-from treeline.app.service import AuthService, ConfigService, DbService, IntegrationService, StatusService, SyncService
+from treeline.app.service import AgentService, AuthService, ConfigService, DbService, IntegrationService, StatusService, SyncService
+from treeline.infra.anthropic import AnthropicProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
 from treeline.infra.simplefin import SimpleFINProvider
@@ -98,3 +100,16 @@ class Container:
         if "db_service" not in self._instances:
             self._instances["db_service"] = DbService(self.repository())
         return self._instances["db_service"]
+
+    def ai_provider(self) -> AIProvider:
+        """Get the AI provider instance."""
+        if "ai_provider" not in self._instances:
+            # AnthropicProvider reads ANTHROPIC_API_KEY from environment
+            self._instances["ai_provider"] = AnthropicProvider()
+        return self._instances["ai_provider"]
+
+    def agent_service(self) -> AgentService:
+        """Get the agent service instance."""
+        if "agent_service" not in self._instances:
+            self._instances["agent_service"] = AgentService(self.ai_provider())
+        return self._instances["agent_service"]
