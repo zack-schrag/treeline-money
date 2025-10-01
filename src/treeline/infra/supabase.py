@@ -21,7 +21,7 @@ class SupabaseAuthProvider(AuthProvider):
     async def sign_in_with_password(self, email: str, password: str) -> Result[User]:
         """Sign in with email and password."""
         try:
-            response = await self.supabase.auth.sign_in_with_password(
+            response = self.supabase.auth.sign_in_with_password(
                 {"email": email, "password": password}
             )
 
@@ -37,7 +37,7 @@ class SupabaseAuthProvider(AuthProvider):
     async def sign_up_with_password(self, email: str, password: str) -> Result[User]:
         """Sign up with email and password."""
         try:
-            response = await self.supabase.auth.sign_up(
+            response = self.supabase.auth.sign_up(
                 {"email": email, "password": password}
             )
 
@@ -53,7 +53,7 @@ class SupabaseAuthProvider(AuthProvider):
     async def sign_out(self) -> Result:
         """Sign out the current user."""
         try:
-            await self.supabase.auth.sign_out()
+            self.supabase.auth.sign_out()
             return Ok()
 
         except Exception as e:
@@ -62,7 +62,7 @@ class SupabaseAuthProvider(AuthProvider):
     async def get_current_user(self) -> Result[User]:
         """Get the currently authenticated user."""
         try:
-            response = await self.supabase.auth.get_user()
+            response = self.supabase.auth.get_user()
 
             if not response or not response.user:
                 return Ok(None)
@@ -100,7 +100,7 @@ class SupabaseAuthProvider(AuthProvider):
             # Extract JWT token from Authorization header
             token = authorization.replace("Bearer ", "")
 
-            response = await self.supabase.auth.get_user(token)
+            response = self.supabase.auth.get_user(token)
 
             if not response or not response.user:
                 return Fail("Invalid authorization token")
