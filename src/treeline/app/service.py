@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
 
-from treeline.abstractions import AuthProvider, DataAggregationProvider, IntegrationProvider, Repository
+from treeline.abstractions import AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository
 from treeline.domain import Account, Result, Transaction, User
 
 
@@ -255,6 +255,153 @@ class SyncService:
             error="sync_balances is deprecated - balances are synced automatically during sync_accounts"
         )
 
+    async def get_integrations(self, user_id: UUID) -> Result[List[Dict[str, Any]]]:
+        """Get list of configured integrations for a user."""
+        # Ensure user DB is initialized
+        await self.repository.ensure_user_db_initialized(user_id)
+        return await self.repository.list_integrations(user_id)
+
+    async def calculate_sync_date_range(self, user_id: UUID) -> Result[Dict[str, datetime]]:
+        """Calculate the date range for syncing transactions.
+
+        Returns:
+            Result with dict containing 'start_date', 'end_date', and 'sync_type' ('initial' or 'incremental')
+        """
+        end_date = datetime.now(timezone.utc)
+
+        # Query for the latest transaction date
+        max_date_query = """
+            SELECT MAX(transaction_date) as max_date
+            FROM transactions
+        """
+        max_date_result = await self.repository.execute_query(user_id, max_date_query)
+
+        if not max_date_result.success:
+            # Fallback to 90 days if query fails
+            return Result(
+                success=True,
+                data={
+                    "start_date": end_date - timedelta(days=90),
+                    "end_date": end_date,
+                    "sync_type": "initial"
+                }
+            )
+
+        rows = max_date_result.data.get("rows", [])
+        if rows and rows[0].get("max_date"):
+            # Incremental sync: start from last transaction date minus 7 days overlap
+            max_date = rows[0]["max_date"]
+
+            # Ensure it's a datetime object and timezone-aware
+            if isinstance(max_date, datetime):
+                if max_date.tzinfo is None:
+                    max_date = max_date.replace(tzinfo=timezone.utc)
+                start_date = max_date - timedelta(days=7)
+                return Result(
+                    success=True,
+                    data={
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "sync_type": "incremental"
+                    }
+                )
+
+        # Initial sync: fetch last 90 days
+        return Result(
+            success=True,
+            data={
+                "start_date": end_date - timedelta(days=90),
+                "end_date": end_date,
+                "sync_type": "initial"
+            }
+        )
+
+    async def sync_all_integrations(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """Sync all configured integrations for a user.
+
+        Returns a summary of sync results for each integration.
+        """
+        # Get integrations
+        integrations_result = await self.get_integrations(user_id)
+        if not integrations_result.success:
+            return integrations_result
+
+        integrations = integrations_result.data or []
+
+        if not integrations:
+            return Result(
+                success=False,
+                error="No integrations configured"
+            )
+
+        sync_results = []
+
+        for integration in integrations:
+            integration_name = integration["integrationName"]
+            integration_options = integration["integrationOptions"]
+
+            # Sync accounts
+            accounts_result = await self.sync_accounts(user_id, integration_name, integration_options)
+
+            if not accounts_result.success:
+                sync_results.append({
+                    "integration": integration_name,
+                    "accounts_synced": 0,
+                    "transactions_synced": 0,
+                    "error": accounts_result.error
+                })
+                continue
+
+            num_accounts = len(accounts_result.data.get("ingested_accounts", []))
+
+            # Calculate date range for transactions
+            date_range_result = await self.calculate_sync_date_range(user_id)
+            if not date_range_result.success:
+                sync_results.append({
+                    "integration": integration_name,
+                    "accounts_synced": num_accounts,
+                    "transactions_synced": 0,
+                    "error": "Failed to calculate sync date range"
+                })
+                continue
+
+            date_range = date_range_result.data
+
+            # Sync transactions
+            transactions_result = await self.sync_transactions(
+                user_id,
+                integration_name,
+                start_date=date_range["start_date"],
+                end_date=date_range["end_date"],
+                provider_options=integration_options
+            )
+
+            if not transactions_result.success:
+                sync_results.append({
+                    "integration": integration_name,
+                    "accounts_synced": num_accounts,
+                    "transactions_synced": 0,
+                    "sync_type": date_range["sync_type"],
+                    "error": transactions_result.error
+                })
+                continue
+
+            num_transactions = len(transactions_result.data.get("ingested_transactions", []))
+
+            sync_results.append({
+                "integration": integration_name,
+                "accounts_synced": num_accounts,
+                "transactions_synced": num_transactions,
+                "sync_type": date_range["sync_type"],
+                "start_date": date_range["start_date"],
+                "end_date": date_range["end_date"]
+            })
+
+        return Result(
+            success=True,
+            data={"results": sync_results}
+        )
+
 
 class AuthService:
     """Service for authentication operations."""
@@ -300,15 +447,134 @@ class IntegrationService:
         return result
 
 
+class ConfigService:
+    """Service for managing configuration and credentials."""
+
+    def __init__(self, credential_store: CredentialStore):
+        self.credential_store = credential_store
+
+    def is_authenticated(self) -> bool:
+        """Check if user is authenticated."""
+        user_id = self.credential_store.get_credential("user_id")
+        return user_id is not None
+
+    def get_current_user_id(self) -> str | None:
+        """Get the current authenticated user ID."""
+        return self.credential_store.get_credential("user_id")
+
+    def get_current_user_email(self) -> str | None:
+        """Get the current authenticated user email."""
+        return self.credential_store.get_credential("user_email")
+
+    def save_user_credentials(self, user_id: str, email: str) -> None:
+        """Save user credentials after authentication."""
+        self.credential_store.set_credential("user_id", user_id)
+        self.credential_store.set_credential("user_email", email)
+        # TODO: Store actual access token once we implement token-based auth
+        self.credential_store.set_credential("supabase_access_token", "TODO_access_token")
+
+    def clear_credentials(self) -> None:
+        """Clear all stored credentials."""
+        self.credential_store.delete_credential("user_id")
+        self.credential_store.delete_credential("user_email")
+        self.credential_store.delete_credential("supabase_access_token")
+
+
+class StatusService:
+    """Service for retrieving financial data status and summaries."""
+
+    def __init__(self, repository: Repository):
+        self.repository = repository
+
+    async def get_status(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """Get financial data status summary."""
+        # Ensure user DB is initialized
+        await self.repository.ensure_user_db_initialized(user_id)
+
+        # Get accounts
+        accounts_result = await self.repository.get_accounts(user_id)
+        if not accounts_result.success:
+            return accounts_result
+
+        accounts = accounts_result.data or []
+
+        # Get integrations
+        integrations_result = await self.repository.list_integrations(user_id)
+        if not integrations_result.success:
+            return integrations_result
+
+        integrations = integrations_result.data or []
+
+        # Query for transaction stats
+        transaction_stats_query = """
+            SELECT
+                COUNT(*) as total_transactions,
+                MIN(transaction_date) as earliest_date,
+                MAX(transaction_date) as latest_date
+            FROM transactions
+        """
+        stats_result = await self.repository.execute_query(user_id, transaction_stats_query)
+
+        if not stats_result.success:
+            return stats_result
+
+        transaction_stats = stats_result.data
+        rows = transaction_stats.get("rows", [])
+        if rows and len(rows) > 0:
+            total_transactions = rows[0].get("total_transactions", 0)
+            earliest_date = rows[0].get("earliest_date")
+            latest_date = rows[0].get("latest_date")
+        else:
+            total_transactions = 0
+            earliest_date = None
+            latest_date = None
+
+        # Query for balance snapshots
+        balance_query = "SELECT COUNT(*) as total_snapshots FROM balance_snapshots"
+        balance_result = await self.repository.execute_query(user_id, balance_query)
+
+        if not balance_result.success:
+            total_snapshots = 0
+        else:
+            balance_data = balance_result.data
+            balance_rows = balance_data.get("rows", [])
+            total_snapshots = (
+                balance_rows[0].get("total_snapshots", 0) if balance_rows and len(balance_rows) > 0 else 0
+            )
+
+        return Result(
+            success=True,
+            data={
+                "accounts": accounts,
+                "total_transactions": total_transactions,
+                "total_snapshots": total_snapshots,
+                "integrations": integrations,
+                "earliest_date": earliest_date,
+                "latest_date": latest_date,
+            },
+        )
+
+
 class DbService:
     """Service for database operations."""
 
     def __init__(self, repository: Repository):
         self.repository = repository
 
+    async def initialize_db(self) -> Result:
+        """Initialize database directory and schema."""
+        db_result = await self.repository.ensure_db_exists()
+        if not db_result.success:
+            return db_result
+
+        return await self.repository.ensure_schema_upgraded()
+
+    async def initialize_user_db(self, user_id: UUID) -> Result:
+        """Initialize user-specific database."""
+        return await self.repository.ensure_user_db_initialized(user_id)
+
     async def execute_query(self, user_id: UUID, sql: str) -> Result:
-        await self.repository.ensure_db_exists(user_id)
-        await self.repository.ensure_schema_upgraded(user_id)
+        await self.repository.ensure_user_db_initialized(user_id)
 
         cleaned_sql = self._clean_and_validate_sql(sql)
         return await self.repository.execute_query(user_id, cleaned_sql)

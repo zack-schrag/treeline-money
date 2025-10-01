@@ -37,11 +37,18 @@ class DataAggregationProvider(ABC):
 
 class Repository(ABC):
     @abstractmethod
-    async def ensure_db_exists(self, user_id: UUID) -> Result:
+    async def ensure_db_exists(self) -> Result:
+        """Ensure database file exists. Does not require user context."""
         pass
 
     @abstractmethod
-    async def ensure_schema_upgraded(self, user_id: UUID) -> Result:
+    async def ensure_schema_upgraded(self) -> Result:
+        """Ensure schema is up to date. Does not require user context."""
+        pass
+
+    @abstractmethod
+    async def ensure_user_db_initialized(self, user_id: UUID) -> Result:
+        """Ensure user-specific database setup is complete."""
         pass
 
     @abstractmethod
@@ -134,4 +141,23 @@ class AuthProvider(ABC):
 class IntegrationProvider(ABC):
     @abstractmethod
     async def create_integration(self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]) -> Result[Any]:
+        pass
+
+
+class CredentialStore(ABC):
+    """Abstraction for storing and retrieving user credentials."""
+
+    @abstractmethod
+    def get_credential(self, key: str) -> str | None:
+        """Get a credential by key. Returns None if not found."""
+        pass
+
+    @abstractmethod
+    def set_credential(self, key: str, value: str) -> None:
+        """Set a credential value."""
+        pass
+
+    @abstractmethod
+    def delete_credential(self, key: str) -> None:
+        """Delete a credential by key."""
         pass

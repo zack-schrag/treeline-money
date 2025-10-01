@@ -1,16 +1,20 @@
 """Treeline CLI - Interactive financial data management."""
 
+import asyncio
 import sys
 from pathlib import Path
-
-from dotenv import load_dotenv
+from uuid import UUID
+import traceback
 import typer
+from dotenv import load_dotenv
+from rich.console import Console
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
+
+from treeline.app.container import Container
 
 # Load environment variables from .env file
 load_dotenv()
-from rich.console import Console
-from rich.prompt import Prompt
-from rich.table import Table
 
 app = typer.Typer(
     help="Treeline - AI-native personal finance in your terminal",
@@ -19,75 +23,56 @@ app = typer.Typer(
 )
 console = Console()
 
+# Global container instance
+_container: Container | None = None
+
 
 def get_treeline_dir() -> Path:
     """Get the treeline data directory in the current working directory."""
     return Path.cwd() / "treeline"
 
 
+# Legacy helper functions for backward compatibility with tests
 def is_authenticated() -> bool:
     """Check if user is authenticated."""
-    import keyring
-
-    try:
-        user_id = keyring.get_password("treeline", "user_id")
-        return user_id is not None
-    except Exception:
-        return False
+    return get_container().config_service().is_authenticated()
 
 
 def get_current_user_id() -> str | None:
     """Get the current authenticated user ID."""
-    import keyring
-
-    try:
-        return keyring.get_password("treeline", "user_id")
-    except Exception:
-        return None
+    return get_container().config_service().get_current_user_id()
 
 
 def get_current_user_email() -> str | None:
     """Get the current authenticated user email."""
-    import keyring
+    return get_container().config_service().get_current_user_email()
 
-    try:
-        return keyring.get_password("treeline", "user_email")
-    except Exception:
-        return None
+
+def get_container() -> Container:
+    """Get or create the dependency injection container."""
+    global _container
+    if _container is None:
+        treeline_dir = get_treeline_dir()
+        db_path = treeline_dir / "treeline.db"
+        _container = Container(str(db_path))
+    return _container
 
 
 def ensure_treeline_initialized() -> bool:
     """Ensure treeline directory and database exist. Returns True if initialization was needed."""
     treeline_dir = get_treeline_dir()
-    db_path = treeline_dir / "treeline.db"
-
-    needs_init = not (treeline_dir.exists() and db_path.exists())
+    needs_init = not treeline_dir.exists()
 
     # Create directory if it doesn't exist
     treeline_dir.mkdir(exist_ok=True)
 
-    # Initialize database with schema
-    # Note: We don't need user_id for schema initialization
-    # The repository will create the tables when we first connect
-    from treeline.infra.duckdb import DuckDBRepository
+    # Initialize database using DbService
+    container = get_container()
+    db_service = container.db_service()
 
-    repository = DuckDBRepository(str(db_path))
-
-    # Ensure schema is created - using a dummy UUID since schema is user-independent
-    import asyncio
-    from uuid import UUID
-
-    dummy_user_id = UUID("00000000-0000-0000-0000-000000000000")
-    result = asyncio.run(repository.ensure_db_exists(dummy_user_id))
-
+    result = asyncio.run(db_service.initialize_db())
     if not result.success:
         console.print(f"[red]Error initializing database: {result.error}[/red]")
-        sys.exit(1)
-
-    result = asyncio.run(repository.ensure_schema_upgraded(dummy_user_id))
-
-    if not result.success:
-        console.print(f"[red]Error initializing schema: {result.error}[/red]")
         sys.exit(1)
 
     return needs_init
@@ -100,9 +85,12 @@ def show_welcome_message(first_time: bool = False) -> None:
     if first_time:
         console.print("[dim]Initialized treeline directory in current folder[/dim]\n")
 
-    # Show authentication status
-    if is_authenticated():
-        email = get_current_user_email()
+    # Show authentication status using ConfigService
+    container = get_container()
+    config_service = container.config_service()
+
+    if config_service.is_authenticated():
+        email = config_service.get_current_user_email()
         console.print(f"[dim]Logged in as {email}[/dim]\n")
     else:
         console.print("[yellow]⚠ Not authenticated. Please use [bold]/login[/bold] to sign in.[/yellow]\n")
@@ -131,10 +119,17 @@ def handle_help_command() -> None:
 
 def handle_login_command() -> None:
     """Handle /login command."""
-    import asyncio
-    from rich.prompt import Prompt, Confirm
-
     console.print("\n[bold cyan]Login to Treeline[/bold cyan]\n")
+
+    container = get_container()
+    config_service = container.config_service()
+
+    try:
+        auth_service = container.auth_service()
+    except ValueError as e:
+        console.print(f"\n[red]Error: {str(e)}[/red]")
+        console.print("[dim]Please set SUPABASE_URL and SUPABASE_KEY in your .env file[/dim]\n")
+        return
 
     # Ask if user wants to sign in or create account
     create_account = Confirm.ask("Create a new account?", default=False)
@@ -142,29 +137,12 @@ def handle_login_command() -> None:
     email = Prompt.ask("Email")
     password = Prompt.ask("Password", password=True)
 
-    # Initialize Supabase auth provider
-    import os
-    from treeline.infra.supabase import SupabaseAuthProvider
-    from supabase import create_client
-
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_KEY")
-
-    if not supabase_url or not supabase_key:
-        console.print("\n[red]Error: SUPABASE_URL and SUPABASE_KEY environment variables must be set[/red]")
-        console.print("[dim]Please set these in your environment or .env file[/dim]\n")
-        return
-
-    supabase_client = create_client(supabase_url, supabase_key)
-    auth_provider = SupabaseAuthProvider(supabase_client)
-
-    # Sign in or sign up
     console.print()
     with console.status("[bold green]Authenticating..."):
         if create_account:
-            result = asyncio.run(auth_provider.sign_up_with_password(email, password))
+            result = asyncio.run(auth_service.sign_up_with_password(email, password))
         else:
-            result = asyncio.run(auth_provider.sign_in_with_password(email, password))
+            result = asyncio.run(auth_service.sign_in_with_password(email, password))
 
     if not result.success:
         console.print(f"[red]Authentication failed: {result.error}[/red]\n")
@@ -173,129 +151,56 @@ def handle_login_command() -> None:
     user = result.data
     console.print(f"[green]✓[/green] Successfully authenticated as [bold]{user.email}[/bold]\n")
 
-    # Store credentials in keyring
-    import keyring
-
-    keyring.set_password("treeline", "supabase_access_token", "TODO_access_token")
-    keyring.set_password("treeline", "user_id", str(user.id))
-    keyring.set_password("treeline", "user_email", user.email)
-
+    # Save credentials using config service
+    config_service.save_user_credentials(str(user.id), user.email)
     console.print("[dim]Credentials saved to system keyring[/dim]\n")
 
 
 def handle_status_command() -> None:
     """Handle /status command."""
-    import asyncio
-    from uuid import UUID
-    from rich.table import Table
+    container = get_container()
+    config_service = container.config_service()
+    status_service = container.status_service()
 
     # Check authentication
-    user_id_str = get_current_user_id()
+    user_id_str = config_service.get_current_user_id()
     if not user_id_str:
         console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
         return
 
     user_id = UUID(user_id_str)
 
-    # Get database path
-    treeline_dir = get_treeline_dir()
-    db_path = treeline_dir / "treeline.db"
-
-    if not db_path.exists():
-        console.print("[yellow]No database found. Add some data first.[/yellow]\n")
-        return
-
-    # Initialize repository
-    from treeline.infra.duckdb import DuckDBRepository
-
-    repository = DuckDBRepository(str(db_path))
-
     console.print("\n[bold cyan]📊 Financial Data Status[/bold cyan]\n")
 
     with console.status("[bold green]Loading data..."):
-        # Ensure database exists for this user
-        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
-        if not db_init_result.success:
-            console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
+        result = asyncio.run(status_service.get_status(user_id))
+
+        if not result.success:
+            console.print(f"[red]Error loading status: {result.error}[/red]\n")
             return
 
-        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
-        if not schema_result.success:
-            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
-            return
-
-        # Get accounts
-        accounts_result = asyncio.run(repository.get_accounts(user_id))
-        if not accounts_result.success:
-            console.print(f"[red]Error loading accounts: {accounts_result.error}[/red]\n")
-            return
-
-        accounts = accounts_result.data or []
-
-        # Get integrations
-        integrations_result = asyncio.run(repository.list_integrations(user_id))
-        if not integrations_result.success:
-            console.print(f"[red]Error loading integrations: {integrations_result.error}[/red]\n")
-            return
-
-        integrations = integrations_result.data or []
-
-        # Query for transaction stats
-        transaction_stats_query = """
-            SELECT
-                COUNT(*) as total_transactions,
-                MIN(transaction_date) as earliest_date,
-                MAX(transaction_date) as latest_date
-            FROM transactions
-        """
-        stats_result = asyncio.run(repository.execute_query(user_id, transaction_stats_query))
-
-        if not stats_result.success:
-            console.print(f"[red]Error loading transaction stats: {stats_result.error}[/red]\n")
-            return
-
-        transaction_stats = stats_result.data
-        rows = transaction_stats.get("rows", [])
-        if rows and len(rows) > 0:
-            total_transactions = rows[0].get("total_transactions", 0)
-            earliest_date = rows[0].get("earliest_date")
-            latest_date = rows[0].get("latest_date")
-        else:
-            total_transactions = 0
-            earliest_date = None
-            latest_date = None
-
-        # Query for balance snapshots
-        balance_query = "SELECT COUNT(*) as total_snapshots FROM balance_snapshots"
-        balance_result = asyncio.run(repository.execute_query(user_id, balance_query))
-
-        if not balance_result.success:
-            total_snapshots = 0
-        else:
-            balance_data = balance_result.data
-            balance_rows = balance_data.get("rows", [])
-            total_snapshots = balance_rows[0].get("total_snapshots", 0) if balance_rows and len(balance_rows) > 0 else 0
+        status = result.data
 
     # Display summary
     summary_table = Table(show_header=False, box=None, padding=(0, 2))
     summary_table.add_column("Metric", style="cyan")
     summary_table.add_column("Value", style="bold white")
 
-    summary_table.add_row("Accounts", str(len(accounts)))
-    summary_table.add_row("Transactions", str(total_transactions))
-    summary_table.add_row("Balance Snapshots", str(total_snapshots))
-    summary_table.add_row("Integrations", str(len(integrations)))
+    summary_table.add_row("Accounts", str(len(status["accounts"])))
+    summary_table.add_row("Transactions", str(status["total_transactions"]))
+    summary_table.add_row("Balance Snapshots", str(status["total_snapshots"]))
+    summary_table.add_row("Integrations", str(len(status["integrations"])))
 
     console.print(summary_table)
 
     # Date range
-    if earliest_date and latest_date:
-        console.print(f"\n[dim]Date range: {earliest_date} to {latest_date}[/dim]")
+    if status["earliest_date"] and status["latest_date"]:
+        console.print(f"\n[dim]Date range: {status['earliest_date']} to {status['latest_date']}[/dim]")
 
     # Show integrations
-    if integrations:
+    if status["integrations"]:
         console.print("\n[bold]Connected Integrations:[/bold]")
-        for integration in integrations:
+        for integration in status["integrations"]:
             console.print(f"  • {integration['integrationName']}")
 
     console.print()
@@ -303,12 +208,12 @@ def handle_status_command() -> None:
 
 def handle_simplefin_command() -> None:
     """Handle /simplefin command."""
-    import asyncio
-    from uuid import UUID
-    from rich.prompt import Prompt
+    container = get_container()
+    config_service = container.config_service()
+    db_service = container.db_service()
 
     # Check authentication
-    user_id_str = get_current_user_id()
+    user_id_str = config_service.get_current_user_id()
     if not user_id_str:
         console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
         return
@@ -316,7 +221,9 @@ def handle_simplefin_command() -> None:
     user_id = UUID(user_id_str)
 
     console.print("\n[bold cyan]SimpleFIN Setup[/bold cyan]\n")
-    console.print("[dim]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/dim]\n")
+    console.print(
+        "[dim]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/dim]\n"
+    )
 
     # Prompt for setup token
     setup_token = Prompt.ask("Enter your SimpleFIN setup token")
@@ -327,207 +234,83 @@ def handle_simplefin_command() -> None:
 
     setup_token = setup_token.strip()
 
-    # Get database path
-    treeline_dir = get_treeline_dir()
-    db_path = treeline_dir / "treeline.db"
-
-    # Initialize repository and provider
-    from treeline.infra.duckdb import DuckDBRepository
-    from treeline.infra.simplefin import SimpleFINProvider
-
-    repository = DuckDBRepository(str(db_path))
-    simplefin_provider = SimpleFINProvider()
+    # Use integration service
+    integration_service = container.integration_service("simplefin")
 
     console.print()
     with console.status("[bold green]Verifying token and setting up integration..."):
-        # Ensure database exists
-        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
+        # Ensure user database is initialized
+        db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
         if not db_init_result.success:
             console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
             return
 
-        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
-        if not schema_result.success:
-            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
-            return
-
-        # Create integration (exchange token for access URL)
-        integration_result = asyncio.run(
-            simplefin_provider.create_integration(
-                user_id, "simplefin", {"setupToken": setup_token}
-            )
+        # Create integration
+        result = asyncio.run(
+            integration_service.create_integration(user_id, "simplefin", {"setupToken": setup_token})
         )
 
-        if not integration_result.success:
-            console.print(f"[red]Setup failed: {integration_result.error}[/red]\n")
+        if not result.success:
+            console.print(f"[red]Setup failed: {result.error}[/red]\n")
             return
-
-        integration_settings = integration_result.data
-
-        # Store integration in database
-        upsert_result = asyncio.run(
-            repository.upsert_integration(user_id, "simplefin", integration_settings)
-        )
-
-        if not upsert_result.success:
-            console.print(f"[red]Failed to save integration: {upsert_result.error}[/red]\n")
-            return
-
-        # Fetch accounts to show preview
-        accounts_result = asyncio.run(
-            simplefin_provider.get_accounts(
-                user_id, provider_account_ids=[], provider_settings=integration_settings
-            )
-        )
-
-        if not accounts_result.success:
-            console.print(f"[red]Failed to fetch accounts: {accounts_result.error}[/red]\n")
-            return
-
-        accounts = accounts_result.data or []
 
     console.print(f"[green]✓[/green] SimpleFIN integration setup successfully!\n")
-    console.print(f"[bold]Found {len(accounts)} account(s):[/bold]")
-
-    for account in accounts:
-        institution = account.institution_name or "Unknown Institution"
-        console.print(f"  • {account.name} ({institution})")
-
     console.print("\n[dim]Use /sync to import your transactions[/dim]\n")
 
 
 def handle_sync_command() -> None:
     """Handle /sync command."""
-    import asyncio
-    from uuid import UUID
+    container = get_container()
+    config_service = container.config_service()
+    db_service = container.db_service()
+    sync_service = container.sync_service()
 
     # Check authentication
-    user_id_str = get_current_user_id()
+    user_id_str = config_service.get_current_user_id()
     if not user_id_str:
         console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
         return
 
     user_id = UUID(user_id_str)
 
-    # Get database path
-    treeline_dir = get_treeline_dir()
-    db_path = treeline_dir / "treeline.db"
-
-    # Initialize repository
-    from treeline.infra.duckdb import DuckDBRepository
-    from treeline.infra.simplefin import SimpleFINProvider
-    from treeline.app.service import SyncService
-
-    repository = DuckDBRepository(str(db_path))
-
     console.print("\n[bold cyan]Synchronizing Financial Data[/bold cyan]\n")
 
-    with console.status("[bold green]Loading integrations..."):
-        # Ensure database exists
-        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
+    # Ensure user database is initialized
+    with console.status("[bold green]Initializing..."):
+        db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
         if not db_init_result.success:
             console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
             return
 
-        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
-        if not schema_result.success:
-            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
-            return
+    # Sync all integrations using service
+    with console.status("[bold green]Syncing integrations..."):
+        result = asyncio.run(sync_service.sync_all_integrations(user_id))
 
-        # Get list of integrations
-        integrations_result = asyncio.run(repository.list_integrations(user_id))
-        if not integrations_result.success:
-            console.print(f"[red]Failed to load integrations: {integrations_result.error}[/red]\n")
-            return
-
-        integrations = integrations_result.data or []
-
-    if not integrations:
-        console.print("[yellow]No integrations configured. Use /simplefin to setup an integration first.[/yellow]\n")
+    if not result.success:
+        console.print(f"[yellow]{result.error}[/yellow]\n")
+        if result.error == "No integrations configured":
+            console.print("[dim]Use /simplefin to setup an integration first[/dim]\n")
         return
 
-    # Create provider registry
-    provider_registry = {"simplefin": SimpleFINProvider()}
-
-    # Initialize sync service
-    sync_service = SyncService(provider_registry, repository)
-
-    # Sync each integration
-    for integration in integrations:
-        integration_name = integration["integrationName"]
-        integration_options = integration["integrationOptions"]
-
+    # Display results
+    for sync_result in result.data["results"]:
+        integration_name = sync_result["integration"]
         console.print(f"[bold]Syncing {integration_name}...[/bold]")
 
-        # Sync accounts
-        with console.status(f"  Fetching accounts from {integration_name}..."):
-            accounts_result = asyncio.run(
-                sync_service.sync_accounts(user_id, integration_name, integration_options)
+        if "error" in sync_result:
+            console.print(f"[red]  ✗ {sync_result['error']}[/red]")
+            continue
+
+        console.print(f"[green]  ✓[/green] Synced {sync_result['accounts_synced']} account(s)")
+
+        if sync_result["sync_type"] == "incremental":
+            console.print(
+                f"[dim]  Syncing transactions since {sync_result['start_date'].date()} (with 7-day overlap)[/dim]"
             )
-
-            if not accounts_result.success:
-                console.print(f"[red]  ✗ Failed to sync accounts: {accounts_result.error}[/red]")
-                continue
-
-            accounts_data = accounts_result.data
-            num_accounts = len(accounts_data.get("ingested_accounts", []))
-            console.print(f"[green]  ✓[/green] Synced {num_accounts} account(s)")
-
-        # Sync transactions with smart date range
-        from datetime import datetime, timedelta, timezone
-
-        end_date = datetime.now(timezone.utc)
-
-        # Determine start date based on existing data
-        max_date_query = """
-            SELECT MAX(transaction_date) as max_date
-            FROM transactions
-        """
-        max_date_result = asyncio.run(repository.execute_query(user_id, max_date_query))
-
-        if max_date_result.success:
-            rows = max_date_result.data.get("rows", [])
-            if rows and rows[0].get("max_date"):
-                # Incremental sync: start from last transaction date minus 7 days overlap
-                max_date = rows[0]["max_date"]
-                # Ensure it's a datetime object (DuckDB returns datetime objects)
-                if isinstance(max_date, datetime):
-                    # Make sure it's timezone-aware
-                    if max_date.tzinfo is None:
-                        max_date = max_date.replace(tzinfo=timezone.utc)
-                    start_date = max_date - timedelta(days=7)
-                    console.print(f"[dim]  Syncing transactions since {start_date.date()} (with 7-day overlap)[/dim]")
-                else:
-                    # Fallback if not a datetime
-                    start_date = end_date - timedelta(days=90)
-                    console.print(f"[dim]  Fetching last 90 days of transactions[/dim]")
-            else:
-                # Initial sync: fetch last 90 days
-                start_date = end_date - timedelta(days=90)
-                console.print(f"[dim]  Initial sync: fetching last 90 days of transactions[/dim]")
         else:
-            # Fallback to 90 days if query fails
-            start_date = end_date - timedelta(days=90)
-            console.print(f"[dim]  Fetching last 90 days of transactions[/dim]")
+            console.print(f"[dim]  Initial sync: fetching last 90 days of transactions[/dim]")
 
-        with console.status(f"  Fetching transactions from {integration_name}..."):
-            transactions_result = asyncio.run(
-                sync_service.sync_transactions(
-                    user_id, integration_name,
-                    start_date=start_date,
-                    end_date=end_date,
-                    provider_options=integration_options
-                )
-            )
-
-            if not transactions_result.success:
-                console.print(f"[red]  ✗ Failed to sync transactions: {transactions_result.error}[/red]")
-                continue
-
-            transactions_data = transactions_result.data
-            num_transactions = len(transactions_data.get("ingested_transactions", []))
-            console.print(f"[green]  ✓[/green] Synced {num_transactions} transaction(s)")
-
+        console.print(f"[green]  ✓[/green] Synced {sync_result['transactions_synced']} transaction(s)")
         console.print(f"[dim]  Balance snapshots created automatically from account data[/dim]")
 
     console.print(f"\n[green]✓[/green] Sync completed!\n")
@@ -537,13 +320,11 @@ def handle_sync_command() -> None:
 def handle_import_command() -> None:
     """Handle /import command."""
     console.print("[yellow]CSV import coming soon...[/yellow]")
-    # TODO: Implement import
 
 
 def handle_tag_command() -> None:
     """Handle /tag command."""
     console.print("[yellow]Tagging power mode coming soon...[/yellow]")
-    # TODO: Implement tag
 
 
 def process_command(user_input: str) -> bool:
@@ -593,8 +374,6 @@ def run_interactive_mode() -> None:
     # Show welcome message
     show_welcome_message(first_time)
 
-    # TODO: Check authentication status and prompt for /login if needed
-
     # Main REPL loop
     try:
         while True:
@@ -610,7 +389,6 @@ def run_interactive_mode() -> None:
                 console.print("\n[dim]Goodbye! =K[/dim]")
                 break
     except Exception as e:
-        import traceback
         console.print("[red]Unexpected error:[/red]")
         # Don't use markup since error messages may contain square brackets
         console.print(str(e), markup=False)

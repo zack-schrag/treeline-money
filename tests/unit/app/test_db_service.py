@@ -16,12 +16,16 @@ class MockRepository(Repository):
     def __init__(self):
         self.ensure_db_exists = AsyncMock()
         self.ensure_schema_upgraded = AsyncMock()
+        self.ensure_user_db_initialized = AsyncMock()
         self.execute_query = AsyncMock()
 
-    async def ensure_db_exists(self, user_id):
+    async def ensure_db_exists(self):
         pass
 
-    async def ensure_schema_upgraded(self, user_id):
+    async def ensure_schema_upgraded(self):
+        pass
+
+    async def ensure_user_db_initialized(self, user_id):
         pass
 
     async def add_account(self, user_id, account):
@@ -75,7 +79,7 @@ class MockRepository(Repository):
 
 @pytest.mark.asyncio
 async def test_execute_query_ensures_db_setup():
-    """Test that execute_query ensures database exists and schema is upgraded."""
+    """Test that execute_query ensures user database is initialized."""
     mock_repository = MockRepository()
     query_result = {"columns": ["name"], "rows": [["John"]]}
     mock_repository.execute_query.return_value = Ok(query_result)
@@ -84,8 +88,7 @@ async def test_execute_query_ensures_db_setup():
     service = DbService(mock_repository)
     result = await service.execute_query(user_id, "SELECT * FROM accounts")
 
-    mock_repository.ensure_db_exists.assert_called_once_with(user_id)
-    mock_repository.ensure_schema_upgraded.assert_called_once_with(user_id)
+    mock_repository.ensure_user_db_initialized.assert_called_once_with(user_id)
     mock_repository.execute_query.assert_called_once_with(user_id, "SELECT * FROM accounts")
     assert result.success is True
     assert result.data == query_result
@@ -97,22 +100,18 @@ async def test_execute_query_calls_in_correct_order():
     mock_repository = MockRepository()
     call_order = []
 
-    async def track_ensure_db(user_id):
-        call_order.append("ensure_db")
-
-    async def track_upgrade(user_id):
-        call_order.append("upgrade")
+    async def track_init(user_id):
+        call_order.append("init_user_db")
 
     async def track_query(user_id, sql):
         call_order.append("query")
         return Ok({"result": "data"})
 
-    mock_repository.ensure_db_exists.side_effect = track_ensure_db
-    mock_repository.ensure_schema_upgraded.side_effect = track_upgrade
+    mock_repository.ensure_user_db_initialized.side_effect = track_init
     mock_repository.execute_query.side_effect = track_query
 
     user_id = uuid4()
     service = DbService(mock_repository)
     await service.execute_query(user_id, "SELECT 1")
 
-    assert call_order == ["ensure_db", "upgrade", "query"]
+    assert call_order == ["init_user_db", "query"]

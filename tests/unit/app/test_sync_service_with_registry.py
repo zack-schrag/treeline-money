@@ -79,10 +79,13 @@ class MockRepository(Repository):
         self.get_accounts = AsyncMock()
         self.bulk_upsert_accounts = AsyncMock()
 
-    async def ensure_db_exists(self, user_id):
+    async def ensure_db_exists(self):
         pass
 
-    async def ensure_schema_upgraded(self, user_id):
+    async def ensure_schema_upgraded(self):
+        pass
+
+    async def ensure_user_db_initialized(self, user_id):
         pass
 
     async def add_account(self, user_id, account):

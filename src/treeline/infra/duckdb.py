@@ -43,23 +43,28 @@ class DuckDBRepository(Repository):
             return duckdb.connect(str(db_path), read_only=True)
         return duckdb.connect(str(db_path))
 
-    async def ensure_db_exists(self, user_id: UUID) -> Result:
-        """Ensure the database file exists."""
+    async def ensure_db_exists(self) -> Result:
+        """Ensure the database directory exists."""
         try:
-            db_path = self._get_db_path(user_id)
-            # Simply opening a connection creates the database
-            conn = duckdb.connect(str(db_path))
-            conn.close()
+            self.db_dir.mkdir(parents=True, exist_ok=True)
             return Ok()
         except Exception as e:
-            return Fail(f"Failed to create database: {str(e)}")
+            return Fail(f"Failed to create database directory: {str(e)}")
 
-    async def ensure_schema_upgraded(self, user_id: UUID) -> Result:
-        """Run schema migrations."""
+    async def ensure_schema_upgraded(self) -> Result:
+        """Schema upgrades are done per-user. This is a no-op."""
+        # Schema is created per-user when ensure_user_db_initialized is called
+        return Ok()
+
+    async def ensure_user_db_initialized(self, user_id: UUID) -> Result:
+        """Ensure user-specific database is initialized with schema."""
         try:
-            conn = self._get_connection(user_id)
+            db_path = self._get_db_path(user_id)
 
-            # Read migration file
+            # Create database if it doesn't exist
+            conn = duckdb.connect(str(db_path))
+
+            # Read and execute migration
             migration_path = Path(__file__).parent / "migrations" / "001_initial_schema.sql"
             with open(migration_path, "r") as f:
                 migration_sql = f.read()
@@ -68,7 +73,7 @@ class DuckDBRepository(Repository):
             conn.close()
             return Ok()
         except Exception as e:
-            return Fail(f"Failed to upgrade schema: {str(e)}")
+            return Fail(f"Failed to initialize user database: {str(e)}")
 
     async def add_account(self, user_id: UUID, account: Account) -> Result[Account]:
         """Add a single account."""
