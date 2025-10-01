@@ -146,7 +146,8 @@ async def test_sync_accounts_maps_external_ids_to_existing_accounts():
     mock_repository.bulk_upsert_accounts.return_value = Ok([discovered_account])
     mock_repository.get_balance_snapshots.return_value = Ok([])
 
-    service = SyncService(mock_provider, mock_repository)
+    provider_registry = {"plaid": mock_provider}
+    service = SyncService(provider_registry, mock_repository)
     result = await service.sync_accounts(user_id, "plaid", {})
 
     assert result.success is True
@@ -217,7 +218,8 @@ async def test_sync_transactions_deduplicates_by_external_id():
     mock_repository.get_transactions_by_external_ids.return_value = Ok([existing_tx])
     mock_repository.bulk_upsert_transactions.return_value = Ok([discovered_tx_same, discovered_tx_new])
 
-    service = SyncService(mock_provider, mock_repository)
+    provider_registry = {"plaid": mock_provider}
+    service = SyncService(provider_registry, mock_repository)
     result = await service.sync_transactions(user_id, "plaid", provider_options={})
 
     assert result.success is True
@@ -257,7 +259,8 @@ async def test_sync_accounts_creates_balance_snapshots():
     mock_repository.bulk_upsert_accounts.return_value = Ok([account])
     mock_repository.get_balance_snapshots.return_value = Ok([])  # No existing snapshots
 
-    service = SyncService(mock_provider, mock_repository)
+    provider_registry = {"plaid": mock_provider}
+    service = SyncService(provider_registry, mock_repository)
     result = await service.sync_accounts(user_id, "plaid", {})
 
     assert result.success is True
@@ -287,7 +290,8 @@ async def test_sync_balances():
     mock_provider.get_balances.return_value = Ok([balance_snapshot])
     mock_repository.bulk_add_balances.return_value = Ok([balance_snapshot])
 
-    service = SyncService(mock_provider, mock_repository)
+    provider_registry = {"plaid": mock_provider}
+    service = SyncService(provider_registry, mock_repository)
     result = await service.sync_balances(user_id, "plaid", {})
 
     assert result.success is True
@@ -307,7 +311,8 @@ async def test_sync_balances_provider_not_supported():
     mock_provider._can_get_balances = False
 
     user_id = uuid4()
-    service = SyncService(mock_provider, mock_repository)
+    provider_registry = {"plaid": mock_provider}
+    service = SyncService(provider_registry, mock_repository)
     result = await service.sync_balances(user_id, "plaid", {})
 
     assert result.success is False

@@ -9,15 +9,27 @@ from treeline.domain import Account, Result, Transaction, User
 class SyncService:
     """Service for synchronizing financial data from providers."""
 
-    def __init__(self, data_provider: DataAggregationProvider, repository: Repository):
-        self.data_provider = data_provider
+    def __init__(
+        self,
+        provider_registry: Dict[str, DataAggregationProvider],
+        repository: Repository,
+    ):
+        self.provider_registry = provider_registry
         self.repository = repository
+
+    def _get_provider(self, integration_name: str) -> DataAggregationProvider | None:
+        """Get the provider for a given integration name."""
+        return self.provider_registry.get(integration_name.lower())
 
     async def sync_accounts(
         self, user_id: UUID, integration_name: str, provider_options: Dict[str, Any]
     ) -> Result[Dict[str, Any]]:
         """Sync accounts from a data provider."""
-        if not self.data_provider.can_get_accounts:
+        data_provider = self._get_provider(integration_name)
+        if not data_provider:
+            return Result(success=False, error=f"Unknown integration: {integration_name}")
+
+        if not data_provider.can_get_accounts:
             return Result(success=False, error="Provider does not support accounts")
 
         integration_name_lower = integration_name.lower()
@@ -30,7 +42,7 @@ class SyncService:
         existing_accounts = existing_accounts_result.data or []
 
         # Get discovered accounts from provider
-        discovered_result = await self.data_provider.get_accounts(
+        discovered_result = await data_provider.get_accounts(
             user_id, provider_account_ids=[], provider_settings=provider_options
         )
         if not discovered_result.success:
@@ -77,7 +89,11 @@ class SyncService:
         provider_options: Dict[str, Any] | None = None,
     ) -> Result[Dict[str, Any]]:
         """Sync transactions from a data provider."""
-        if not self.data_provider.can_get_transactions:
+        data_provider = self._get_provider(integration_name)
+        if not data_provider:
+            return Result(success=False, error=f"Unknown integration: {integration_name}")
+
+        if not data_provider.can_get_transactions:
             return Result(success=False, error="Provider does not support transactions")
 
         integration_name_lower = integration_name.lower()
@@ -97,7 +113,7 @@ class SyncService:
         ]
 
         # Get discovered transactions
-        discovered_result = await self.data_provider.get_transactions(
+        discovered_result = await data_provider.get_transactions(
             user_id,
             start_date or datetime.now(),
             end_date or datetime.now(),
@@ -175,11 +191,15 @@ class SyncService:
         self, user_id: UUID, integration_name: str, provider_options: Dict[str, Any]
     ) -> Result[Dict[str, Any]]:
         """Sync balance snapshots from a data provider."""
-        if not self.data_provider.can_get_balances:
+        data_provider = self._get_provider(integration_name)
+        if not data_provider:
+            return Result(success=False, error=f"Unknown integration: {integration_name}")
+
+        if not data_provider.can_get_balances:
             return Result(success=False, error="Provider does not support balances")
 
         # Get discovered balances from provider
-        discovered_result = await self.data_provider.get_balances(
+        discovered_result = await data_provider.get_balances(
             user_id, provider_account_ids=[], provider_settings=provider_options
         )
         if not discovered_result.success:
