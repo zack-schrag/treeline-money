@@ -398,8 +398,111 @@ def handle_simplefin_command() -> None:
 
 def handle_sync_command() -> None:
     """Handle /sync command."""
-    console.print("[yellow]Sync functionality coming soon...[/yellow]")
-    # TODO: Implement sync
+    import asyncio
+    from uuid import UUID
+
+    # Check authentication
+    user_id_str = get_current_user_id()
+    if not user_id_str:
+        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        return
+
+    user_id = UUID(user_id_str)
+
+    # Get database path
+    treeline_dir = get_treeline_dir()
+    db_path = treeline_dir / "treeline.db"
+
+    # Initialize repository
+    from treeline.infra.duckdb import DuckDBRepository
+    from treeline.infra.simplefin import SimpleFINProvider
+    from treeline.app.service import SyncService
+
+    repository = DuckDBRepository(str(db_path))
+
+    console.print("\n[bold cyan]Synchronizing Financial Data[/bold cyan]\n")
+
+    with console.status("[bold green]Loading integrations..."):
+        # Ensure database exists
+        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
+        if not db_init_result.success:
+            console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
+            return
+
+        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
+        if not schema_result.success:
+            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
+            return
+
+        # Get list of integrations
+        integrations_result = asyncio.run(repository.list_integrations(user_id))
+        if not integrations_result.success:
+            console.print(f"[red]Failed to load integrations: {integrations_result.error}[/red]\n")
+            return
+
+        integrations = integrations_result.data or []
+
+    if not integrations:
+        console.print("[yellow]No integrations configured. Use /simplefin to setup an integration first.[/yellow]\n")
+        return
+
+    # Create provider registry
+    provider_registry = {"simplefin": SimpleFINProvider()}
+
+    # Initialize sync service
+    sync_service = SyncService(provider_registry, repository)
+
+    # Sync each integration
+    for integration in integrations:
+        integration_name = integration["integrationName"]
+        integration_options = integration["integrationOptions"]
+
+        console.print(f"[bold]Syncing {integration_name}...[/bold]")
+
+        # Sync accounts
+        with console.status(f"  Fetching accounts from {integration_name}..."):
+            accounts_result = asyncio.run(
+                sync_service.sync_accounts(user_id, integration_name, integration_options)
+            )
+
+            if not accounts_result.success:
+                console.print(f"[red]  ✗ Failed to sync accounts: {accounts_result.error}[/red]")
+                continue
+
+            accounts_data = accounts_result.data
+            num_accounts = len(accounts_data.get("accounts", []))
+            console.print(f"[green]  ✓[/green] Synced {num_accounts} account(s)")
+
+        # Sync transactions
+        with console.status(f"  Fetching transactions from {integration_name}..."):
+            transactions_result = asyncio.run(
+                sync_service.sync_transactions(user_id, integration_name, integration_options)
+            )
+
+            if not transactions_result.success:
+                console.print(f"[red]  ✗ Failed to sync transactions: {transactions_result.error}[/red]")
+                continue
+
+            transactions_data = transactions_result.data
+            num_transactions = len(transactions_data.get("transactions", []))
+            console.print(f"[green]  ✓[/green] Synced {num_transactions} transaction(s)")
+
+        # Sync balances
+        with console.status(f"  Fetching balance snapshots from {integration_name}..."):
+            balances_result = asyncio.run(
+                sync_service.sync_balances(user_id, integration_name, integration_options)
+            )
+
+            if not balances_result.success:
+                console.print(f"[red]  ✗ Failed to sync balances: {balances_result.error}[/red]")
+                continue
+
+            balances_data = balances_result.data
+            num_balances = len(balances_data.get("balances", []))
+            console.print(f"[green]  ✓[/green] Synced {num_balances} balance snapshot(s)")
+
+    console.print(f"\n[green]✓[/green] Sync completed!\n")
+    console.print("[dim]Use /status to see your updated data[/dim]\n")
 
 
 def handle_import_command() -> None:
