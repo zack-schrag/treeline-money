@@ -473,11 +473,50 @@ def handle_sync_command() -> None:
             num_accounts = len(accounts_data.get("ingested_accounts", []))
             console.print(f"[green]  ✓[/green] Synced {num_accounts} account(s)")
 
-        # Sync transactions
+        # Sync transactions with smart date range
+        from datetime import datetime, timedelta, timezone
+
+        end_date = datetime.now(timezone.utc)
+
+        # Determine start date based on existing data
+        max_date_query = """
+            SELECT MAX(transaction_date) as max_date
+            FROM transactions
+        """
+        max_date_result = asyncio.run(repository.execute_query(user_id, max_date_query))
+
+        if max_date_result.success:
+            rows = max_date_result.data.get("rows", [])
+            if rows and rows[0].get("max_date"):
+                # Incremental sync: start from last transaction date minus 7 days overlap
+                max_date = rows[0]["max_date"]
+                # Ensure it's a datetime object (DuckDB returns datetime objects)
+                if isinstance(max_date, datetime):
+                    # Make sure it's timezone-aware
+                    if max_date.tzinfo is None:
+                        max_date = max_date.replace(tzinfo=timezone.utc)
+                    start_date = max_date - timedelta(days=7)
+                    console.print(f"[dim]  Syncing transactions since {start_date.date()} (with 7-day overlap)[/dim]")
+                else:
+                    # Fallback if not a datetime
+                    start_date = end_date - timedelta(days=90)
+                    console.print(f"[dim]  Fetching last 90 days of transactions[/dim]")
+            else:
+                # Initial sync: fetch last 90 days
+                start_date = end_date - timedelta(days=90)
+                console.print(f"[dim]  Initial sync: fetching last 90 days of transactions[/dim]")
+        else:
+            # Fallback to 90 days if query fails
+            start_date = end_date - timedelta(days=90)
+            console.print(f"[dim]  Fetching last 90 days of transactions[/dim]")
+
         with console.status(f"  Fetching transactions from {integration_name}..."):
             transactions_result = asyncio.run(
                 sync_service.sync_transactions(
-                    user_id, integration_name, provider_options=integration_options
+                    user_id, integration_name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    provider_options=integration_options
                 )
             )
 
