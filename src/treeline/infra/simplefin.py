@@ -1,0 +1,227 @@
+"""SimpleFIN infrastructure implementation."""
+
+import base64
+from datetime import datetime, timezone
+from decimal import Decimal
+from types import MappingProxyType
+from typing import Any, Dict, List
+from urllib.parse import urlparse
+from uuid import UUID, uuid4
+
+import httpx
+
+from treeline.abstractions import DataAggregationProvider, IntegrationProvider
+from treeline.domain import Account, BalanceSnapshot, Fail, Ok, Result, Transaction
+
+
+class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
+    """SimpleFIN implementation for data aggregation."""
+
+    @property
+    def can_get_accounts(self) -> bool:
+        return True
+
+    @property
+    def can_get_transactions(self) -> bool:
+        return True
+
+    @property
+    def can_get_balances(self) -> bool:
+        return True
+
+    async def get_accounts(
+        self,
+        user_id: UUID,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[Account]]:
+        """Get accounts from SimpleFIN."""
+        access_url = provider_settings.get("accessUrl")
+        if not access_url:
+            return Fail("accessUrl is required for SimpleFIN")
+
+        # Parse and validate access URL
+        parse_result = self._parse_access_url(access_url)
+        if not parse_result.success:
+            return parse_result
+
+        url_parts = parse_result.data
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{url_parts['clean_url']}/accounts",
+                    auth=(url_parts["username"], url_parts["password"]),
+                    timeout=30.0,
+                )
+
+                if response.status_code != 200:
+                    return Fail(f"SimpleFIN API error: {response.status_code}")
+
+                data = response.json()
+                accounts = []
+
+                for acc_data in data.get("accounts", []):
+                    # Filter by account IDs if specified
+                    if provider_account_ids and acc_data["id"] not in provider_account_ids:
+                        continue
+
+                    account = Account(
+                        id=uuid4(),
+                        name=acc_data["name"],
+                        currency=acc_data.get("currency", "USD"),
+                        external_ids=MappingProxyType({"simplefin": acc_data["id"]}),
+                        institution_name=acc_data.get("org", {}).get("name"),
+                        institution_url=acc_data.get("org", {}).get("url"),
+                        institution_domain=acc_data.get("org", {}).get("domain"),
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    accounts.append(account)
+
+                return Ok(accounts)
+
+        except Exception as e:
+            return Fail(f"Failed to fetch SimpleFIN accounts: {str(e)}")
+
+    async def get_transactions(
+        self,
+        user_id: UUID,
+        start_date: datetime,
+        end_date: datetime,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[Transaction]]:
+        """Get transactions from SimpleFIN."""
+        access_url = provider_settings.get("accessUrl")
+        if not access_url:
+            return Fail("accessUrl is required for SimpleFIN")
+
+        parse_result = self._parse_access_url(access_url)
+        if not parse_result.success:
+            return parse_result
+
+        url_parts = parse_result.data
+
+        try:
+            # Build query parameters
+            params = {}
+            if start_date:
+                params["start-date"] = str(int(start_date.timestamp()))
+            if end_date:
+                params["end-date"] = str(int(end_date.timestamp()))
+            if provider_account_ids:
+                params["accounts"] = ",".join(provider_account_ids)
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{url_parts['clean_url']}/accounts",
+                    auth=(url_parts["username"], url_parts["password"]),
+                    params=params,
+                    timeout=30.0,
+                )
+
+                if response.status_code != 200:
+                    return Fail(f"SimpleFIN API error: {response.status_code}")
+
+                data = response.json()
+                transactions = []
+
+                for acc_data in data.get("accounts", []):
+                    for tx_data in acc_data.get("transactions", []):
+                        transaction = Transaction(
+                            id=uuid4(),
+                            account_id=UUID(int=0),  # Placeholder, will be mapped by service
+                            external_ids=MappingProxyType({"simplefin": tx_data["id"]}),
+                            amount=Decimal(str(tx_data["amount"])),
+                            description=tx_data.get("description", ""),
+                            transaction_date=datetime.fromtimestamp(tx_data["posted"], tz=timezone.utc),
+                            posted_date=datetime.fromtimestamp(tx_data["posted"], tz=timezone.utc),
+                            tags=tuple([tx_data["extra"]["category"]]) if tx_data.get("extra", {}).get("category") else tuple(),
+                            created_at=datetime.now(timezone.utc),
+                            updated_at=datetime.now(timezone.utc),
+                        )
+                        transactions.append(transaction)
+
+                return Ok(transactions)
+
+        except Exception as e:
+            return Fail(f"Failed to fetch SimpleFIN transactions: {str(e)}")
+
+    async def get_balances(
+        self,
+        user_id: UUID,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[BalanceSnapshot]]:
+        """Get balance snapshots from SimpleFIN."""
+        # SimpleFIN returns balances with accounts, so we fetch accounts and extract balances
+        accounts_result = await self.get_accounts(user_id, provider_account_ids, provider_settings)
+        if not accounts_result.success:
+            return accounts_result
+
+        # For now, return empty list as balances are included in accounts
+        # This could be enhanced to create BalanceSnapshot objects from account balance data
+        return Ok([])
+
+    async def create_integration(
+        self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]
+    ) -> Result[Dict[str, str]]:
+        """Set up SimpleFIN integration by exchanging setup token for access URL."""
+        setup_token = integration_options.get("setupToken")
+        if not setup_token:
+            return Fail("setupToken is required for SimpleFIN integration")
+
+        try:
+            # Decode Base64 setup token to get claim URL
+            try:
+                claim_url = base64.b64decode(setup_token).decode("utf-8")
+            except Exception:
+                return Fail("Invalid setup token format")
+
+            # Exchange setup token for access URL
+            async with httpx.AsyncClient() as client:
+                response = await client.post(claim_url, timeout=30.0)
+
+                if response.status_code != 200:
+                    return Fail("Failed to verify SimpleFIN token")
+
+                access_url = response.text
+
+                if not access_url:
+                    return Fail("No access URL received from SimpleFIN")
+
+                return Ok({"accessUrl": access_url})
+
+        except Exception as e:
+            return Fail(f"Integration setup failed: {str(e)}")
+
+    def _parse_access_url(self, access_url: str) -> Result[Dict[str, str]]:
+        """Parse and validate SimpleFIN access URL."""
+        if not access_url:
+            return Fail("accessUrl is required")
+
+        try:
+            parsed = urlparse(access_url)
+        except Exception:
+            return Fail("Invalid URL format")
+
+        # Validate HTTPS
+        if parsed.scheme != "https":
+            return Fail("accessUrl must use HTTPS")
+
+        # Validate domain
+        if not parsed.hostname or not parsed.hostname.endswith("simplefin.org"):
+            return Fail("accessUrl must be from simplefin.org domain")
+
+        # Validate credentials
+        if not parsed.username or not parsed.password:
+            return Fail("accessUrl must contain username and password")
+
+        clean_url = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+
+        return Ok({
+            "clean_url": clean_url,
+            "username": parsed.username,
+            "password": parsed.password,
+        })
