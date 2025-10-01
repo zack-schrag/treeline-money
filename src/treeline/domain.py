@@ -5,11 +5,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Dict, Generic, Mapping, Type, TypeVar
 
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class User(BaseModel):
+    """Represents an authenticated user."""
+
+    model_config = ConfigDict(frozen=True, str_strip_whitespace=True, extra="forbid")
+
+    id: str
+    email: str
 
 
 def _ensure_tzinfo(value: datetime) -> datetime:
@@ -182,3 +191,21 @@ class BalanceSnapshot(BaseModel):
     @classmethod
     def _require_timezone_updated(cls, value: datetime) -> datetime:
         return _ensure_tzinfo(value)
+
+
+T = TypeVar('T')
+
+class Result(BaseModel, Generic[T]):
+    success: bool
+    data: T | None = None
+    error: str | None = None
+    context: Dict[str, Any] | None = None
+
+    def raise_for_error(self, exc_type: Type[Exception] = Exception):
+        raise exc_type(self.error or "Error has occurred")
+
+def Ok(data: T | None = None, context: Dict[str, Any] | None = None) -> Result[T]:
+    return Result(success=True, data=data, context=context)
+
+def Fail(error: str, context: Dict[str, Any] | None = None) -> Result[T]:
+    return Result(success=False, error=error, context=context)
