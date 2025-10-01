@@ -296,7 +296,7 @@ def handle_status_command() -> None:
     if integrations:
         console.print("\n[bold]Connected Integrations:[/bold]")
         for integration in integrations:
-            console.print(f"  • {integration.integration_name}")
+            console.print(f"  • {integration['integrationName']}")
 
     console.print()
 
