@@ -306,10 +306,20 @@ class AnthropicProvider(AIProvider):
                 y_data = [float(row[1]) if row[1] is not None else 0.0 for row in result]
 
                 # Convert dates to strings for plotting
-                x_data = [str(x) for x in x_data]
+                # Handle datetime objects by formatting them properly
+                formatted_x = []
+                for x in x_data:
+                    if isinstance(x, datetime):
+                        formatted_x.append(x.strftime('%m/%d/%Y'))
+                    else:
+                        formatted_x.append(str(x))
+                x_data = formatted_x
 
                 # Clear any previous plot
                 plt.clear_figure()
+
+                # Disable colors to avoid ANSI escape code issues in some terminals
+                plt.theme('clear')
 
                 # Create the appropriate chart type
                 if chart_type == "bar":
@@ -330,14 +340,8 @@ class AnthropicProvider(AIProvider):
                 if y_label:
                     plt.ylabel(y_label)
 
-                # Capture plot output
-                buffer = io.StringIO()
-                old_stdout = sys.stdout
-                sys.stdout = buffer
-                plt.show()
-                sys.stdout = old_stdout
-
-                chart_output = buffer.getvalue()
+                # Build the chart as a string - using 'clear' theme gives plain ASCII
+                chart_output = plt.build()
 
                 return f"Visualization: {title}\n\n{chart_output}"
 

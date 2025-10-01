@@ -381,6 +381,9 @@ def handle_chat_message(message: str) -> None:
                 if chunk.startswith("__TOOL_USE__:"):
                     tool_name = chunk.replace("__TOOL_USE__:", "").strip()
                     console.print(f"[dim][Using tool: {tool_name}][/dim]")
+                elif chunk.startswith("Visualization:"):
+                    # Charts contain ANSI escape codes - use raw print to let terminal render them
+                    print(chunk, end="", flush=True)
                 else:
                     # Regular content - print without markup parsing to preserve literal text
                     console.print(chunk, end="", markup=False)
