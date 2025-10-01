@@ -60,18 +60,19 @@ class AnthropicProvider(AIProvider):
 
             # Create tools - these need access to db_path and user_id
             # We'll use closures to capture these values
-            @tool
-            async def execute_sql_query(sql: str, description: str) -> Dict[str, Any]:
-                """
-                Execute a SQL query against the user's DuckDB database.
+            @tool(
+                name="execute_sql_query",
+                description="Execute a SQL query against the user's DuckDB database. Always use this to analyze financial data.",
+                input_schema={
+                    "sql": str,
+                    "description": str
+                }
+            )
+            async def execute_sql_query(args: Dict[str, Any]) -> Dict[str, Any]:
+                """Execute a SQL query against the user's DuckDB database."""
+                sql = args.get("sql", "")
+                description = args.get("description", "")
 
-                Args:
-                    sql: The SQL query to execute
-                    description: Human-readable description of what this query does
-
-                Returns:
-                    Dict with 'success', 'rows', 'columns', 'row_count', and 'description'
-                """
                 try:
                     # Open read-only connection to prevent any data modification
                     conn = duckdb.connect(db_path, read_only=True)
@@ -81,33 +82,37 @@ class AnthropicProvider(AIProvider):
                         result = conn.execute(sql).fetchall()
                         columns = [desc[0] for desc in conn.description] if conn.description else []
 
+                        # Format result as text content
+                        result_text = f"Query: {description}\n\n"
+                        result_text += f"SQL:\n{sql}\n\n"
+                        result_text += f"Results ({len(result)} rows):\n"
+                        result_text += f"Columns: {', '.join(columns)}\n"
+                        result_text += f"Data: {result}\n"
+
                         return {
-                            "success": True,
-                            "rows": result,
-                            "columns": columns,
-                            "row_count": len(result),
-                            "description": description
+                            "content": [{
+                                "type": "text",
+                                "text": result_text
+                            }]
                         }
                     finally:
                         conn.close()
 
                 except Exception as e:
                     return {
-                        "success": False,
-                        "error": str(e),
-                        "description": description
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error executing SQL: {str(e)}\nQuery: {sql}"
+                        }]
                     }
 
-            @tool
-            async def get_schema_info() -> Dict[str, Any]:
-                """
-                Get complete schema information about available tables.
-
-                Returns detailed schema including:
-                - Table names
-                - Column names and types
-                - Sample data (3 rows per table)
-                """
+            @tool(
+                name="get_schema_info",
+                description="Get complete schema information about all database tables including column names, types, and sample data.",
+                input_schema={}
+            )
+            async def get_schema_info(args: Dict[str, Any]) -> Dict[str, Any]:
+                """Get complete schema information about available tables."""
                 try:
                     conn = duckdb.connect(db_path, read_only=True)
 
@@ -143,9 +148,24 @@ class AnthropicProvider(AIProvider):
                                 }
                             }
 
+                        # Format schema as text
+                        schema_text = "Database Schema:\n\n"
+                        for table_name, table_info in schema_info.items():
+                            schema_text += f"Table: {table_name}\n"
+                            schema_text += "Columns:\n"
+                            for col in table_info["columns"]:
+                                schema_text += f"  - {col['name']}: {col['type']}\n"
+                            schema_text += f"\nSample data ({len(table_info['sample_data']['rows'])} rows):\n"
+                            schema_text += f"Columns: {', '.join(table_info['sample_data']['columns'])}\n"
+                            for row in table_info['sample_data']['rows']:
+                                schema_text += f"  {row}\n"
+                            schema_text += "\n"
+
                         return {
-                            "success": True,
-                            "tables": schema_info
+                            "content": [{
+                                "type": "text",
+                                "text": schema_text
+                            }]
                         }
 
                     finally:
@@ -153,21 +173,19 @@ class AnthropicProvider(AIProvider):
 
                 except Exception as e:
                     return {
-                        "success": False,
-                        "error": str(e)
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error getting schema: {str(e)}"
+                        }]
                     }
 
-            @tool
-            async def get_date_range_info() -> Dict[str, Any]:
-                """
-                Get information about the date ranges in the database.
-
-                Returns:
-                    - Earliest transaction date
-                    - Latest transaction date
-                    - Total number of transactions
-                    - Date range in days
-                """
+            @tool(
+                name="get_date_range_info",
+                description="Get information about the date ranges in the database (earliest/latest transaction dates, total transactions).",
+                input_schema={}
+            )
+            async def get_date_range_info(args: Dict[str, Any]) -> Dict[str, Any]:
+                """Get information about the date ranges in the database."""
                 try:
                     conn = duckdb.connect(db_path, read_only=True)
 
@@ -191,21 +209,24 @@ class AnthropicProvider(AIProvider):
                             else:
                                 days_range = None
 
+                            info_text = f"Date Range Information:\n\n"
+                            info_text += f"Earliest transaction: {earliest}\n"
+                            info_text += f"Latest transaction: {latest}\n"
+                            info_text += f"Total transactions: {total}\n"
+                            info_text += f"Date range: {days_range} days\n"
+
                             return {
-                                "success": True,
-                                "earliest_date": str(earliest),
-                                "latest_date": str(latest),
-                                "total_transactions": total,
-                                "days_range": days_range
+                                "content": [{
+                                    "type": "text",
+                                    "text": info_text
+                                }]
                             }
                         else:
                             return {
-                                "success": True,
-                                "earliest_date": None,
-                                "latest_date": None,
-                                "total_transactions": 0,
-                                "days_range": None,
-                                "message": "No transactions found in database"
+                                "content": [{
+                                    "type": "text",
+                                    "text": "No transactions found in database"
+                                }]
                             }
 
                     finally:
@@ -213,8 +234,10 @@ class AnthropicProvider(AIProvider):
 
                 except Exception as e:
                     return {
-                        "success": False,
-                        "error": str(e)
+                        "content": [{
+                            "type": "text",
+                            "text": f"Error getting date range info: {str(e)}"
+                        }]
                     }
 
             # Create ClaudeSDKClient with tools
