@@ -244,12 +244,13 @@ class AnthropicProvider(AIProvider):
             os.environ["ANTHROPIC_API_KEY"] = self.api_key
 
             # Create options for ClaudeSDKClient
+            # Note: allowed_tools should be list of tool names (strings), not tool objects
             options = ClaudeAgentOptions(
-                system_prompt=system_prompt,
-                allowed_tools=[execute_sql_query, get_schema_info, get_date_range_info]
+                system_prompt=system_prompt
             )
 
             # Create ClaudeSDKClient with options
+            # The @tool decorated functions are automatically registered
             self.client = ClaudeSDKClient(options=options)
 
             await self.client.connect()
