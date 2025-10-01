@@ -355,9 +355,9 @@ def handle_chat_message(message: str) -> None:
 
     user_id = UUID(user_id_str)
 
-    # Get database path
+    # Get database path for this specific user
     treeline_dir = get_treeline_dir()
-    db_path = str(treeline_dir / "treeline.db")
+    db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
 
     # Send message to agent
     with console.status("[dim]Thinking...[/dim]"):
@@ -377,9 +377,8 @@ def handle_chat_message(message: str) -> None:
         # Consume the async stream
         async def consume_stream():
             async for chunk in stream:
-                # For now, just print the chunk
-                # TODO: Add proper formatting for different chunk types
-                console.print(chunk)
+                # Stream yields plain text strings
+                console.print(chunk, end="")
 
         asyncio.run(consume_stream())
 

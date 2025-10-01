@@ -1,12 +1,13 @@
-"""Anthropic AI provider using Claude Agent SDK."""
+"""Anthropic AI provider using Anthropic SDK."""
 
 import os
 from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, List
 from uuid import UUID
 
 import duckdb
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, tool
+from anthropic import Anthropic, AsyncAnthropic
+from anthropic.types import Message, MessageStreamEvent
 
 from treeline.abstractions import AIProvider
 from treeline.domain import Result, Ok, Fail
@@ -14,246 +15,47 @@ from treeline.domain import Result, Ok, Fail
 
 class AnthropicProvider(AIProvider):
     """
-    AI provider implementation using Claude Agent SDK.
+    AI provider implementation using Anthropic SDK.
 
-    The ClaudeSDKClient handles:
-    - Automatic conversation context management
-    - Tool registration and execution
+    Handles:
+    - Conversation context management with message history
+    - Tool definitions and execution with read-only DuckDB access
     - Streaming message delivery
     - Session lifecycle management
-
-    We handle:
-    - Tool implementations with read-only DuckDB access
-    - System prompt generation
-    - Session state tracking
     """
 
-    def __init__(self, api_key: str | None = None):
-        """
-        Initialize the Anthropic provider.
-
-        Args:
-            api_key: Anthropic API key. If None, reads from ANTHROPIC_API_KEY env var.
-        """
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY must be set in environment or passed to constructor")
-
-        self.client: ClaudeSDKClient | None = None
+    def __init__(self):
+        """Initialize the Anthropic provider."""
+        self.client: AsyncAnthropic | None = None
         self.user_id: UUID | None = None
         self.db_path: str | None = None
         self.session_started: datetime | None = None
-        self.MAX_TOOL_RETRIES = 3
+        self.conversation_history: List[Dict[str, Any]] = []
+        self.MAX_TOOL_USE_ROUNDS = 5  # Max rounds of tool calling
+        self.MAX_TOKENS = 4096
+        self.MODEL = "claude-sonnet-4-20250514"
 
     async def start_session(self, user_id: UUID, db_path: str) -> Result[None]:
         """
         Initialize a new conversation session.
 
-        Creates ClaudeSDKClient with tools and system prompt.
+        Creates Anthropic client and initializes conversation history.
         """
         try:
             self.user_id = user_id
             self.db_path = db_path
 
-            # Build system prompt with schema info
-            system_prompt = self._build_system_prompt()
+            # Verify API key is set in environment
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY must be set in environment")
 
-            # Create tools - these need access to db_path and user_id
-            # We'll use closures to capture these values
-            @tool(
-                name="execute_sql_query",
-                description="Execute a SQL query against the user's DuckDB database. Always use this to analyze financial data.",
-                input_schema={
-                    "sql": str,
-                    "description": str
-                }
-            )
-            async def execute_sql_query(args: Dict[str, Any]) -> Dict[str, Any]:
-                """Execute a SQL query against the user's DuckDB database."""
-                sql = args.get("sql", "")
-                description = args.get("description", "")
+            # Create Anthropic client
+            self.client = AsyncAnthropic(api_key=api_key)
 
-                try:
-                    # Open read-only connection to prevent any data modification
-                    conn = duckdb.connect(db_path, read_only=True)
+            # Clear conversation history
+            self.conversation_history = []
 
-                    try:
-                        # Execute query
-                        result = conn.execute(sql).fetchall()
-                        columns = [desc[0] for desc in conn.description] if conn.description else []
-
-                        # Format result as text content
-                        result_text = f"Query: {description}\n\n"
-                        result_text += f"SQL:\n{sql}\n\n"
-                        result_text += f"Results ({len(result)} rows):\n"
-                        result_text += f"Columns: {', '.join(columns)}\n"
-                        result_text += f"Data: {result}\n"
-
-                        return {
-                            "content": [{
-                                "type": "text",
-                                "text": result_text
-                            }]
-                        }
-                    finally:
-                        conn.close()
-
-                except Exception as e:
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"Error executing SQL: {str(e)}\nQuery: {sql}"
-                        }]
-                    }
-
-            @tool(
-                name="get_schema_info",
-                description="Get complete schema information about all database tables including column names, types, and sample data.",
-                input_schema={}
-            )
-            async def get_schema_info(args: Dict[str, Any]) -> Dict[str, Any]:
-                """Get complete schema information about available tables."""
-                try:
-                    conn = duckdb.connect(db_path, read_only=True)
-
-                    try:
-                        # Get all tables
-                        tables_result = conn.execute(
-                            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-                        ).fetchall()
-
-                        schema_info = {}
-
-                        for (table_name,) in tables_result:
-                            # Get column information
-                            columns_result = conn.execute(f"""
-                                SELECT column_name, data_type
-                                FROM information_schema.columns
-                                WHERE table_name = '{table_name}'
-                                ORDER BY ordinal_position
-                            """).fetchall()
-
-                            # Get sample data
-                            sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchall()
-                            column_names = [desc[0] for desc in conn.description] if conn.description else []
-
-                            schema_info[table_name] = {
-                                "columns": [
-                                    {"name": col[0], "type": col[1]}
-                                    for col in columns_result
-                                ],
-                                "sample_data": {
-                                    "columns": column_names,
-                                    "rows": sample_result
-                                }
-                            }
-
-                        # Format schema as text
-                        schema_text = "Database Schema:\n\n"
-                        for table_name, table_info in schema_info.items():
-                            schema_text += f"Table: {table_name}\n"
-                            schema_text += "Columns:\n"
-                            for col in table_info["columns"]:
-                                schema_text += f"  - {col['name']}: {col['type']}\n"
-                            schema_text += f"\nSample data ({len(table_info['sample_data']['rows'])} rows):\n"
-                            schema_text += f"Columns: {', '.join(table_info['sample_data']['columns'])}\n"
-                            for row in table_info['sample_data']['rows']:
-                                schema_text += f"  {row}\n"
-                            schema_text += "\n"
-
-                        return {
-                            "content": [{
-                                "type": "text",
-                                "text": schema_text
-                            }]
-                        }
-
-                    finally:
-                        conn.close()
-
-                except Exception as e:
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"Error getting schema: {str(e)}"
-                        }]
-                    }
-
-            @tool(
-                name="get_date_range_info",
-                description="Get information about the date ranges in the database (earliest/latest transaction dates, total transactions).",
-                input_schema={}
-            )
-            async def get_date_range_info(args: Dict[str, Any]) -> Dict[str, Any]:
-                """Get information about the date ranges in the database."""
-                try:
-                    conn = duckdb.connect(db_path, read_only=True)
-
-                    try:
-                        result = conn.execute("""
-                            SELECT
-                                MIN(transaction_date) as earliest_date,
-                                MAX(transaction_date) as latest_date,
-                                COUNT(*) as total_transactions
-                            FROM transactions
-                        """).fetchone()
-
-                        if result and result[0] and result[1]:
-                            earliest = result[0]
-                            latest = result[1]
-                            total = result[2]
-
-                            # Calculate date range in days
-                            if isinstance(earliest, datetime) and isinstance(latest, datetime):
-                                days_range = (latest - earliest).days
-                            else:
-                                days_range = None
-
-                            info_text = f"Date Range Information:\n\n"
-                            info_text += f"Earliest transaction: {earliest}\n"
-                            info_text += f"Latest transaction: {latest}\n"
-                            info_text += f"Total transactions: {total}\n"
-                            info_text += f"Date range: {days_range} days\n"
-
-                            return {
-                                "content": [{
-                                    "type": "text",
-                                    "text": info_text
-                                }]
-                            }
-                        else:
-                            return {
-                                "content": [{
-                                    "type": "text",
-                                    "text": "No transactions found in database"
-                                }]
-                            }
-
-                    finally:
-                        conn.close()
-
-                except Exception as e:
-                    return {
-                        "content": [{
-                            "type": "text",
-                            "text": f"Error getting date range info: {str(e)}"
-                        }]
-                    }
-
-            # Set API key in environment for Claude SDK
-            os.environ["ANTHROPIC_API_KEY"] = self.api_key
-
-            # Create options for ClaudeSDKClient
-            # Note: allowed_tools should be list of tool names (strings), not tool objects
-            options = ClaudeAgentOptions(
-                system_prompt=system_prompt
-            )
-
-            # Create ClaudeSDKClient with options
-            # The @tool decorated functions are automatically registered
-            self.client = ClaudeSDKClient(options=options)
-
-            await self.client.connect()
             self.session_started = datetime.now()
 
             return Ok()
@@ -261,9 +63,188 @@ class AnthropicProvider(AIProvider):
         except Exception as e:
             return Fail(f"Failed to start session: {str(e)}")
 
+    def _get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """Get the tool definitions for the Anthropic API."""
+        return [
+            {
+                "name": "execute_sql_query",
+                "description": "Execute a SQL query against the user's DuckDB database. Always use this to analyze financial data.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": "The SQL query to execute"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "A brief description of what this query does"
+                        }
+                    },
+                    "required": ["sql", "description"]
+                }
+            },
+            {
+                "name": "get_schema_info",
+                "description": "Get complete schema information about all database tables including column names, types, and sample data.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "get_date_range_info",
+                "description": "Get information about the date ranges in the database (earliest/latest transaction dates, total transactions).",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        ]
+
+    async def _execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
+        """Execute a tool and return the result as a string."""
+        if tool_name == "execute_sql_query":
+            return await self._execute_sql_query(tool_input)
+        elif tool_name == "get_schema_info":
+            return await self._get_schema_info()
+        elif tool_name == "get_date_range_info":
+            return await self._get_date_range_info()
+        else:
+            return f"Unknown tool: {tool_name}"
+
+    async def _execute_sql_query(self, tool_input: Dict[str, Any]) -> str:
+        """Execute a SQL query against the user's DuckDB database."""
+        sql = tool_input.get("sql", "")
+        description = tool_input.get("description", "")
+
+        try:
+            # Open read-only connection to prevent any data modification
+            conn = duckdb.connect(self.db_path, read_only=True)
+
+            try:
+                # Execute query
+                result = conn.execute(sql).fetchall()
+                columns = [desc[0] for desc in conn.description] if conn.description else []
+
+                # Format result as text
+                result_text = f"Query: {description}\n\n"
+                result_text += f"SQL:\n{sql}\n\n"
+                result_text += f"Results ({len(result)} rows):\n"
+                result_text += f"Columns: {', '.join(columns)}\n"
+                result_text += f"Data: {result}\n"
+
+                return result_text
+            finally:
+                conn.close()
+
+        except Exception as e:
+            return f"Error executing SQL: {str(e)}\nQuery: {sql}"
+
+    async def _get_schema_info(self) -> str:
+        """Get complete schema information about available tables."""
+        try:
+            conn = duckdb.connect(self.db_path, read_only=True)
+
+            try:
+                # Get all tables
+                tables_result = conn.execute(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+                ).fetchall()
+
+                schema_info = {}
+
+                for (table_name,) in tables_result:
+                    # Get column information
+                    columns_result = conn.execute(f"""
+                        SELECT column_name, data_type
+                        FROM information_schema.columns
+                        WHERE table_name = '{table_name}'
+                        ORDER BY ordinal_position
+                    """).fetchall()
+
+                    # Get sample data
+                    sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchall()
+                    column_names = [desc[0] for desc in conn.description] if conn.description else []
+
+                    schema_info[table_name] = {
+                        "columns": [
+                            {"name": col[0], "type": col[1]}
+                            for col in columns_result
+                        ],
+                        "sample_data": {
+                            "columns": column_names,
+                            "rows": sample_result
+                        }
+                    }
+
+                # Format schema as text
+                schema_text = "Database Schema:\n\n"
+                for table_name, table_info in schema_info.items():
+                    schema_text += f"Table: {table_name}\n"
+                    schema_text += "Columns:\n"
+                    for col in table_info["columns"]:
+                        schema_text += f"  - {col['name']}: {col['type']}\n"
+                    schema_text += f"\nSample data ({len(table_info['sample_data']['rows'])} rows):\n"
+                    schema_text += f"Columns: {', '.join(table_info['sample_data']['columns'])}\n"
+                    for row in table_info['sample_data']['rows']:
+                        schema_text += f"  {row}\n"
+                    schema_text += "\n"
+
+                return schema_text
+
+            finally:
+                conn.close()
+
+        except Exception as e:
+            return f"Error getting schema: {str(e)}"
+
+    async def _get_date_range_info(self) -> str:
+        """Get information about the date ranges in the database."""
+        try:
+            conn = duckdb.connect(self.db_path, read_only=True)
+
+            try:
+                result = conn.execute("""
+                    SELECT
+                        MIN(transaction_date) as earliest_date,
+                        MAX(transaction_date) as latest_date,
+                        COUNT(*) as total_transactions
+                    FROM transactions
+                """).fetchone()
+
+                if result and result[0] and result[1]:
+                    earliest = result[0]
+                    latest = result[1]
+                    total = result[2]
+
+                    # Calculate date range in days
+                    if isinstance(earliest, datetime) and isinstance(latest, datetime):
+                        days_range = (latest - earliest).days
+                    else:
+                        days_range = None
+
+                    info_text = f"Date Range Information:\n\n"
+                    info_text += f"Earliest transaction: {earliest}\n"
+                    info_text += f"Latest transaction: {latest}\n"
+                    info_text += f"Total transactions: {total}\n"
+                    info_text += f"Date range: {days_range} days\n"
+
+                    return info_text
+                else:
+                    return "No transactions found in database"
+
+            finally:
+                conn.close()
+
+        except Exception as e:
+            return f"Error getting date range info: {str(e)}"
+
     async def send_message(self, message: str) -> Result[Dict[str, Any]]:
         """
-        Send a message and get response with streaming chunks.
+        Send a message and get response with tool execution and streaming.
 
         Args:
             message: User's natural language query
@@ -275,12 +256,66 @@ class AnthropicProvider(AIProvider):
             return Fail("No active session. Call start_session() first.")
 
         try:
-            # Send query to Claude
-            await self.client.query(message)
+            # Add user message to conversation history
+            self.conversation_history.append({
+                "role": "user",
+                "content": message
+            })
 
-            # Return success with streaming iterator
+            # Create async generator for streaming response
+            async def response_stream() -> AsyncIterator[str]:
+                tool_use_round = 0
+
+                while tool_use_round < self.MAX_TOOL_USE_ROUNDS:
+                    # Call Claude with conversation history
+                    response = await self.client.messages.create(
+                        model=self.MODEL,
+                        max_tokens=self.MAX_TOKENS,
+                        system=self._build_system_prompt(),
+                        messages=self.conversation_history,
+                        tools=self._get_tool_definitions()
+                    )
+
+                    # Add assistant response to history
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "content": response.content
+                    })
+
+                    # Check if there are tool uses in the response
+                    tool_uses = [block for block in response.content if block.type == "tool_use"]
+
+                    if not tool_uses:
+                        # No tool uses, yield text content and break
+                        for block in response.content:
+                            if block.type == "text":
+                                yield block.text
+                        break
+
+                    # Execute tools and add results to conversation
+                    tool_results = []
+                    for tool_use in tool_uses:
+                        yield f"\n[dim][Using tool: {tool_use.name}][/dim]\n"
+                        result = await self._execute_tool(tool_use.name, tool_use.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use.id,
+                            "content": result
+                        })
+
+                    # Add tool results to conversation
+                    self.conversation_history.append({
+                        "role": "user",
+                        "content": tool_results
+                    })
+
+                    tool_use_round += 1
+
+                if tool_use_round >= self.MAX_TOOL_USE_ROUNDS:
+                    yield "\n[Max tool use rounds reached]\n"
+
             return Ok({
-                "stream": self.client.receive_response(),
+                "stream": response_stream(),
                 "message": message
             })
 
@@ -292,13 +327,12 @@ class AnthropicProvider(AIProvider):
         End the current conversation session and cleanup resources.
         """
         try:
-            if self.client:
-                await self.client.disconnect()
-                self.client = None
-
+            # Cleanup
+            self.client = None
             self.user_id = None
             self.db_path = None
             self.session_started = None
+            self.conversation_history = []
 
             return Ok()
 
