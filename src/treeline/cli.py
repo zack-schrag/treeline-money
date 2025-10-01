@@ -374,24 +374,14 @@ def handle_chat_message(message: str) -> None:
     console.print()  # Blank line before response
 
     try:
-        # Simple synchronous iteration over async stream
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Already in async context
-            async def consume_stream():
-                async for chunk in stream:
-                    # For now, just print the chunk
-                    # TODO: Add proper formatting for different chunk types
-                    console.print(chunk)
+        # Consume the async stream
+        async def consume_stream():
+            async for chunk in stream:
+                # For now, just print the chunk
+                # TODO: Add proper formatting for different chunk types
+                console.print(chunk)
 
-            asyncio.run(consume_stream())
-        else:
-            # Not in async context, create new loop
-            async def consume_stream():
-                async for chunk in stream:
-                    console.print(chunk)
-
-            asyncio.run(consume_stream())
+        asyncio.run(consume_stream())
 
     except Exception as e:
         console.print(f"[red]Error streaming response: {str(e)}[/red]")
