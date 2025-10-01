@@ -1,11 +1,14 @@
 """Anthropic AI provider using Anthropic SDK."""
 
+import io
 import os
+import sys
 from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Dict, List
 from uuid import UUID
 
 import duckdb
+import plotext as plt
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types import Message, MessageStreamEvent
 
@@ -101,6 +104,37 @@ class AnthropicProvider(AIProvider):
                     "properties": {},
                     "required": []
                 }
+            },
+            {
+                "name": "create_visualization",
+                "description": "Create a terminal-based chart visualization using plotext. Use this when the user asks for charts, graphs, or visual representations of data. Supports bar, line, scatter, and histogram charts.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "sql": {
+                            "type": "string",
+                            "description": "SQL query to fetch data for visualization. Should return columns that map to x and y axes."
+                        },
+                        "chart_type": {
+                            "type": "string",
+                            "enum": ["bar", "line", "scatter", "histogram"],
+                            "description": "Type of chart to create"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Title for the chart"
+                        },
+                        "x_label": {
+                            "type": "string",
+                            "description": "Label for x-axis (optional)"
+                        },
+                        "y_label": {
+                            "type": "string",
+                            "description": "Label for y-axis (optional)"
+                        }
+                    },
+                    "required": ["sql", "chart_type", "title"]
+                }
             }
         ]
 
@@ -112,6 +146,8 @@ class AnthropicProvider(AIProvider):
             return await self._get_schema_info()
         elif tool_name == "get_date_range_info":
             return await self._get_date_range_info()
+        elif tool_name == "create_visualization":
+            return await self._create_visualization(tool_input)
         else:
             return f"Unknown tool: {tool_name}"
 
@@ -242,6 +278,75 @@ class AnthropicProvider(AIProvider):
         except Exception as e:
             return f"Error getting date range info: {str(e)}"
 
+    async def _create_visualization(self, tool_input: Dict[str, Any]) -> str:
+        """Create a terminal visualization using plotext."""
+        sql = tool_input.get("sql", "")
+        chart_type = tool_input.get("chart_type", "bar")
+        title = tool_input.get("title", "")
+        x_label = tool_input.get("x_label", "")
+        y_label = tool_input.get("y_label", "")
+
+        try:
+            # Execute SQL query to get data
+            conn = duckdb.connect(self.db_path, read_only=True)
+
+            try:
+                result = conn.execute(sql).fetchall()
+                columns = [desc[0] for desc in conn.description] if conn.description else []
+
+                if not result or len(result) == 0:
+                    return "No data returned from query for visualization"
+
+                # Extract x and y data from query results
+                # Assume first column is x-axis, second is y-axis
+                if len(columns) < 2:
+                    return "Query must return at least 2 columns for visualization (x, y)"
+
+                x_data = [row[0] for row in result]
+                y_data = [float(row[1]) if row[1] is not None else 0.0 for row in result]
+
+                # Convert dates to strings for plotting
+                x_data = [str(x) for x in x_data]
+
+                # Clear any previous plot
+                plt.clear_figure()
+
+                # Create the appropriate chart type
+                if chart_type == "bar":
+                    plt.bar(x_data, y_data)
+                elif chart_type == "line":
+                    plt.plot(x_data, y_data)
+                elif chart_type == "scatter":
+                    plt.scatter(x_data, y_data)
+                elif chart_type == "histogram":
+                    plt.hist(y_data)
+                else:
+                    return f"Unsupported chart type: {chart_type}"
+
+                # Set labels and title
+                plt.title(title)
+                if x_label:
+                    plt.xlabel(x_label)
+                if y_label:
+                    plt.ylabel(y_label)
+
+                # Capture plot output
+                buffer = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buffer
+                plt.show()
+                sys.stdout = old_stdout
+
+                chart_output = buffer.getvalue()
+
+                return f"Visualization: {title}\n\n{chart_output}"
+
+            finally:
+                conn.close()
+
+        except Exception as e:
+            return f"Error creating visualization: {str(e)}\nSQL: {sql}"
+
     async def send_message(self, message: str) -> Result[Dict[str, Any]]:
         """
         Send a message and get response with tool execution and streaming.
@@ -370,7 +475,8 @@ class AnthropicProvider(AIProvider):
 ## Your Capabilities
 You have access to the user's financial data stored in a DuckDB database. You can:
 1. Execute SQL queries to analyze transactions, accounts, and balances
-2. Provide insights and answer questions about spending patterns, trends, and anomalies
+2. Create terminal-based visualizations (bar charts, line charts, scatter plots, histograms)
+3. Provide insights and answer questions about spending patterns, trends, and anomalies
 
 ## Database Schema
 The database contains these tables:
@@ -390,8 +496,10 @@ Use the `get_schema_info()` tool to see the complete schema with column names an
 6. **Only use read-only SQL operations** (SELECT, WITH, etc.) - you cannot modify data
 7. When analyzing spending, consider both amount and frequency
 8. Look for outliers and unusual patterns proactively
-9. **NEVER generate ASCII charts or bar graphs in SQL** - they don't render well in terminals and break with large values
-10. For visualizations, just present the data in a clean table format - let the user decide if they want charts
+9. **NEVER generate ASCII charts or bar graphs in SQL** - they don't render well in terminals
+10. **Use the create_visualization tool for charts** - when users ask for charts, graphs, trends over time, or visual representations, use create_visualization instead of tables
+11. For time-series data (spending over time, trends, etc.), line charts work best
+12. For comparing categories or discrete values, bar charts work best
 
 ## Response Format
 When analyzing data, structure responses like this:
