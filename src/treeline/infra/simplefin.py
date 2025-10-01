@@ -128,11 +128,15 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                 transactions = []
 
                 for acc_data in data.get("accounts", []):
+                    simplefin_account_id = acc_data["id"]
                     for tx_data in acc_data.get("transactions", []):
                         transaction = Transaction(
                             id=uuid4(),
                             account_id=UUID(int=0),  # Placeholder, will be mapped by service
-                            external_ids=MappingProxyType({"simplefin": tx_data["id"]}),
+                            external_ids=MappingProxyType({
+                                "simplefin": tx_data["id"],
+                                "simplefin_account": simplefin_account_id  # Store account ID for mapping
+                            }),
                             amount=Decimal(str(tx_data["amount"])),
                             description=tx_data.get("description", ""),
                             transaction_date=datetime.fromtimestamp(tx_data["posted"], tz=timezone.utc),

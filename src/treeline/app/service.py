@@ -134,8 +134,19 @@ class SyncService:
 
         mapped_transactions = []
         for tx in discovered_transactions:
-            provider_acc_id = str(tx.account_id)
-            internal_acc_id = account_id_map.get(provider_acc_id, tx.account_id)
+            # Get provider account ID from external_ids
+            provider_acc_id = tx.external_ids.get(f"{integration_name_lower}_account")
+
+            if not provider_acc_id:
+                # Skip transactions without account mapping - provider should always provide this
+                continue
+
+            internal_acc_id = account_id_map.get(provider_acc_id)
+
+            # Skip transactions with unmapped accounts
+            if not internal_acc_id:
+                continue
+
             mapped_tx = tx.model_copy(update={"account_id": internal_acc_id})
             mapped_transactions.append(mapped_tx)
 

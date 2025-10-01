@@ -193,7 +193,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
     discovered_tx_same = Transaction(
         id=uuid4(),
         account_id=account_id,
-        external_ids=MappingProxyType({"plaid": "tx123"}),
+        external_ids=MappingProxyType({"plaid": "tx123", "plaid_account": "acc123"}),
         amount=Decimal("-55.00"),  # Amount changed
         transaction_date=datetime.now(timezone.utc),
         posted_date=datetime.now(timezone.utc),
@@ -205,7 +205,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
     discovered_tx_new = Transaction(
         id=uuid4(),
         account_id=account_id,
-        external_ids=MappingProxyType({"plaid": "tx456"}),
+        external_ids=MappingProxyType({"plaid": "tx456", "plaid_account": "acc123"}),
         amount=Decimal("-25.00"),
         transaction_date=datetime.now(timezone.utc),
         posted_date=datetime.now(timezone.utc),
