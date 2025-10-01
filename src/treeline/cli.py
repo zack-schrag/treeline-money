@@ -3,7 +3,11 @@
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 import typer
+
+# Load environment variables from .env file
+load_dotenv()
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
