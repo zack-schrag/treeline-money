@@ -303,8 +303,97 @@ def handle_status_command() -> None:
 
 def handle_simplefin_command() -> None:
     """Handle /simplefin command."""
-    console.print("[yellow]SimpleFIN setup coming soon...[/yellow]")
-    # TODO: Implement simplefin
+    import asyncio
+    from uuid import UUID
+    from rich.prompt import Prompt
+
+    # Check authentication
+    user_id_str = get_current_user_id()
+    if not user_id_str:
+        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        return
+
+    user_id = UUID(user_id_str)
+
+    console.print("\n[bold cyan]SimpleFIN Setup[/bold cyan]\n")
+    console.print("[dim]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/dim]\n")
+
+    # Prompt for setup token
+    setup_token = Prompt.ask("Enter your SimpleFIN setup token")
+
+    if not setup_token or not setup_token.strip():
+        console.print("[yellow]Setup cancelled.[/yellow]\n")
+        return
+
+    setup_token = setup_token.strip()
+
+    # Get database path
+    treeline_dir = get_treeline_dir()
+    db_path = treeline_dir / "treeline.db"
+
+    # Initialize repository and provider
+    from treeline.infra.duckdb import DuckDBRepository
+    from treeline.infra.simplefin import SimpleFINProvider
+
+    repository = DuckDBRepository(str(db_path))
+    simplefin_provider = SimpleFINProvider()
+
+    console.print()
+    with console.status("[bold green]Verifying token and setting up integration..."):
+        # Ensure database exists
+        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
+        if not db_init_result.success:
+            console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
+            return
+
+        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
+        if not schema_result.success:
+            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
+            return
+
+        # Create integration (exchange token for access URL)
+        integration_result = asyncio.run(
+            simplefin_provider.create_integration(
+                user_id, "simplefin", {"setupToken": setup_token}
+            )
+        )
+
+        if not integration_result.success:
+            console.print(f"[red]Setup failed: {integration_result.error}[/red]\n")
+            return
+
+        integration_settings = integration_result.data
+
+        # Store integration in database
+        upsert_result = asyncio.run(
+            repository.upsert_integration(user_id, "simplefin", integration_settings)
+        )
+
+        if not upsert_result.success:
+            console.print(f"[red]Failed to save integration: {upsert_result.error}[/red]\n")
+            return
+
+        # Fetch accounts to show preview
+        accounts_result = asyncio.run(
+            simplefin_provider.get_accounts(
+                user_id, provider_account_ids=[], provider_settings=integration_settings
+            )
+        )
+
+        if not accounts_result.success:
+            console.print(f"[red]Failed to fetch accounts: {accounts_result.error}[/red]\n")
+            return
+
+        accounts = accounts_result.data or []
+
+    console.print(f"[green]✓[/green] SimpleFIN integration setup successfully!\n")
+    console.print(f"[bold]Found {len(accounts)} account(s):[/bold]")
+
+    for account in accounts:
+        institution = account.institution_name or "Unknown Institution"
+        console.print(f"  • {account.name} ({institution})")
+
+    console.print("\n[dim]Use /sync to import your transactions[/dim]\n")
 
 
 def handle_sync_command() -> None:
@@ -390,8 +479,10 @@ def run_interactive_mode() -> None:
                 break
     except Exception as e:
         import traceback
-        console.print(f"[red]Unexpected error: {e}[/red]")
-        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        console.print("[red]Unexpected error:[/red]")
+        # Don't use markup since error messages may contain square brackets
+        console.print(str(e), markup=False)
+        console.print(traceback.format_exc(), markup=False)
         sys.exit(1)
 
 
