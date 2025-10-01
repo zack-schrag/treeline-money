@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Dict
 from uuid import UUID
 
 import duckdb
-from claude_agent_sdk import ClaudeSDKClient, tool
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, tool
 
 from treeline.abstractions import AIProvider
 from treeline.domain import Result, Ok, Fail
@@ -240,12 +240,17 @@ class AnthropicProvider(AIProvider):
                         }]
                     }
 
-            # Create ClaudeSDKClient with tools
-            self.client = ClaudeSDKClient(
-                api_key=self.api_key,
+            # Set API key in environment for Claude SDK
+            os.environ["ANTHROPIC_API_KEY"] = self.api_key
+
+            # Create options for ClaudeSDKClient
+            options = ClaudeAgentOptions(
                 system_prompt=system_prompt,
                 allowed_tools=[execute_sql_query, get_schema_info, get_date_range_info]
             )
+
+            # Create ClaudeSDKClient with options
+            self.client = ClaudeSDKClient(options=options)
 
             await self.client.connect()
             self.session_started = datetime.now()
