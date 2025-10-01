@@ -79,17 +79,18 @@ def test_transaction_normalizes_amount_and_tags() -> None:
     assert transaction.tags == ("groceries", "Fuel")
     assert dict(transaction.external_ids) == {"simplefin": "txn-1"}
 
-    with pytest.raises(ValidationError):
-        Transaction(
-            id=uuid4(),
-            account_id=account_id,
-            amount="0",
-            description="",
-            transaction_date=_tz_now(),
-            posted_date=_tz_now(),
-            created_at=_tz_now(),
-            updated_at=_tz_now(),
-        )
+    # Zero-amount transactions are valid (transfers, pending, corrections, etc.)
+    zero_amount_transaction = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount="0",
+        description="Transfer",
+        transaction_date=_tz_now(),
+        posted_date=_tz_now(),
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    assert zero_amount_transaction.amount == Decimal("0")
 
     with pytest.raises(ValidationError):
         Transaction(

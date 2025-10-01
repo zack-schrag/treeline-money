@@ -100,13 +100,8 @@ class Transaction(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("amount")
-    @classmethod
-    def _validate_amount(cls, value: Decimal) -> Decimal:
-        if value == 0:
-            msg = "transaction amount cannot be zero"
-            raise ValueError(msg)
-        return value
+    # Note: Zero-amount transactions are valid (transfers, pending, corrections, etc.)
+    # so we don't validate against zero amounts
 
     @field_validator("external_ids", mode="before")
     @classmethod
