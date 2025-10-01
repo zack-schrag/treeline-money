@@ -31,7 +31,7 @@ class AnthropicProvider(AIProvider):
         self.db_path: str | None = None
         self.session_started: datetime | None = None
         self.conversation_history: List[Dict[str, Any]] = []
-        self.MAX_TOOL_USE_ROUNDS = 5  # Max rounds of tool calling
+        self.MAX_TOOL_USE_ROUNDS = 10  # Max rounds of tool calling
         self.MAX_TOKENS = 4096
         self.MODEL = "claude-sonnet-4-20250514"
 
@@ -295,7 +295,8 @@ class AnthropicProvider(AIProvider):
                     # Execute tools and add results to conversation
                     tool_results = []
                     for tool_use in tool_uses:
-                        yield f"\n[dim][Using tool: {tool_use.name}][/dim]\n"
+                        # Use special marker for tool use that CLI will render with dim styling
+                        yield f"__TOOL_USE__:{tool_use.name}\n"
                         result = await self._execute_tool(tool_use.name, tool_use.input)
                         tool_results.append({
                             "type": "tool_result",
@@ -389,6 +390,8 @@ Use the `get_schema_info()` tool to see the complete schema with column names an
 6. **Only use read-only SQL operations** (SELECT, WITH, etc.) - you cannot modify data
 7. When analyzing spending, consider both amount and frequency
 8. Look for outliers and unusual patterns proactively
+9. **NEVER generate ASCII charts or bar graphs in SQL** - they don't render well in terminals and break with large values
+10. For visualizations, just present the data in a clean table format - let the user decide if they want charts
 
 ## Response Format
 When analyzing data, structure responses like this:

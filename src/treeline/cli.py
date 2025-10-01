@@ -377,8 +377,13 @@ def handle_chat_message(message: str) -> None:
         # Consume the async stream
         async def consume_stream():
             async for chunk in stream:
-                # Stream yields plain text strings
-                console.print(chunk, end="")
+                # Check if this is a tool indicator (starts with special marker)
+                if chunk.startswith("__TOOL_USE__:"):
+                    tool_name = chunk.replace("__TOOL_USE__:", "").strip()
+                    console.print(f"[dim][Using tool: {tool_name}][/dim]")
+                else:
+                    # Regular content - print without markup parsing to preserve literal text
+                    console.print(chunk, end="", markup=False)
 
         asyncio.run(consume_stream())
 
