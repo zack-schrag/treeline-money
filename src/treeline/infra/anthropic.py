@@ -403,6 +403,11 @@ class AnthropicProvider(AIProvider):
                         # Use special marker for tool use that CLI will render with dim styling
                         yield f"__TOOL_USE__:{tool_use.name}\n"
                         result = await self._execute_tool(tool_use.name, tool_use.input)
+
+                        # For visualizations, yield the chart directly to user
+                        if tool_use.name == "create_visualization":
+                            yield f"\n{result}\n"
+
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": tool_use.id,
