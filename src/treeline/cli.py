@@ -185,8 +185,120 @@ def handle_login_command() -> None:
 
 def handle_status_command() -> None:
     """Handle /status command."""
-    console.print("[yellow]Status functionality coming soon...[/yellow]")
-    # TODO: Implement status
+    import asyncio
+    from uuid import UUID
+    from rich.table import Table
+
+    # Check authentication
+    user_id_str = get_current_user_id()
+    if not user_id_str:
+        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        return
+
+    user_id = UUID(user_id_str)
+
+    # Get database path
+    treeline_dir = get_treeline_dir()
+    db_path = treeline_dir / "treeline.db"
+
+    if not db_path.exists():
+        console.print("[yellow]No database found. Add some data first.[/yellow]\n")
+        return
+
+    # Initialize repository
+    from treeline.infra.duckdb import DuckDBRepository
+
+    repository = DuckDBRepository(str(db_path))
+
+    console.print("\n[bold cyan]📊 Financial Data Status[/bold cyan]\n")
+
+    with console.status("[bold green]Loading data..."):
+        # Ensure database exists for this user
+        db_init_result = asyncio.run(repository.ensure_db_exists(user_id))
+        if not db_init_result.success:
+            console.print(f"[red]Error initializing database: {db_init_result.error}[/red]\n")
+            return
+
+        schema_result = asyncio.run(repository.ensure_schema_upgraded(user_id))
+        if not schema_result.success:
+            console.print(f"[red]Error initializing schema: {schema_result.error}[/red]\n")
+            return
+
+        # Get accounts
+        accounts_result = asyncio.run(repository.get_accounts(user_id))
+        if not accounts_result.success:
+            console.print(f"[red]Error loading accounts: {accounts_result.error}[/red]\n")
+            return
+
+        accounts = accounts_result.data or []
+
+        # Get integrations
+        integrations_result = asyncio.run(repository.list_integrations(user_id))
+        if not integrations_result.success:
+            console.print(f"[red]Error loading integrations: {integrations_result.error}[/red]\n")
+            return
+
+        integrations = integrations_result.data or []
+
+        # Query for transaction stats
+        transaction_stats_query = """
+            SELECT
+                COUNT(*) as total_transactions,
+                MIN(transaction_date) as earliest_date,
+                MAX(transaction_date) as latest_date
+            FROM transactions
+        """
+        stats_result = asyncio.run(repository.execute_query(user_id, transaction_stats_query))
+
+        if not stats_result.success:
+            console.print(f"[red]Error loading transaction stats: {stats_result.error}[/red]\n")
+            return
+
+        transaction_stats = stats_result.data
+        rows = transaction_stats.get("rows", [])
+        if rows and len(rows) > 0:
+            total_transactions = rows[0].get("total_transactions", 0)
+            earliest_date = rows[0].get("earliest_date")
+            latest_date = rows[0].get("latest_date")
+        else:
+            total_transactions = 0
+            earliest_date = None
+            latest_date = None
+
+        # Query for balance snapshots
+        balance_query = "SELECT COUNT(*) as total_snapshots FROM balance_snapshots"
+        balance_result = asyncio.run(repository.execute_query(user_id, balance_query))
+
+        if not balance_result.success:
+            total_snapshots = 0
+        else:
+            balance_data = balance_result.data
+            balance_rows = balance_data.get("rows", [])
+            total_snapshots = balance_rows[0].get("total_snapshots", 0) if balance_rows and len(balance_rows) > 0 else 0
+
+    # Display summary
+    summary_table = Table(show_header=False, box=None, padding=(0, 2))
+    summary_table.add_column("Metric", style="cyan")
+    summary_table.add_column("Value", style="bold white")
+
+    summary_table.add_row("Accounts", str(len(accounts)))
+    summary_table.add_row("Transactions", str(total_transactions))
+    summary_table.add_row("Balance Snapshots", str(total_snapshots))
+    summary_table.add_row("Integrations", str(len(integrations)))
+
+    console.print(summary_table)
+
+    # Date range
+    if earliest_date and latest_date:
+        console.print(f"\n[dim]Date range: {earliest_date} to {latest_date}[/dim]")
+
+    # Show integrations
+    if integrations:
+        console.print("\n[bold]Connected Integrations:[/bold]")
+        for integration in integrations:
+            console.print(f"  • {integration.integration_name}")
+
+    console.print()
 
 
 def handle_simplefin_command() -> None:
@@ -277,7 +389,9 @@ def run_interactive_mode() -> None:
                 console.print("\n[dim]Goodbye! =K[/dim]")
                 break
     except Exception as e:
+        import traceback
         console.print(f"[red]Unexpected error: {e}[/red]")
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
         sys.exit(1)
 
 

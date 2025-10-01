@@ -14,10 +14,10 @@ class MockSupabaseClient:
 
     def __init__(self):
         self.auth = Mock()
-        self.auth.sign_in_with_password = AsyncMock()
-        self.auth.sign_up = AsyncMock()
-        self.auth.sign_out = AsyncMock()
-        self.auth.get_user = AsyncMock()
+        self.auth.sign_in_with_password = Mock()
+        self.auth.sign_up = Mock()
+        self.auth.sign_out = Mock()
+        self.auth.get_user = Mock()
 
 
 @pytest.mark.asyncio
