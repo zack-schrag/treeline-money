@@ -5,9 +5,18 @@ requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.4.0",
     "httpx>=0.28.1",
+    "keyring>=25.6.0",
     "pydantic>=2.11.9",
+    "rich>=14.1.0",
     "supabase>=2.20.0",
+    "typer>=0.19.2",
 ]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+treeline = "treeline.cli:app"
 
 [project.optional-dependencies]
 dev = [
