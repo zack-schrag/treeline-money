@@ -17,6 +17,7 @@ from treeline.app.service import AgentService, AuthService, ConfigService, DbSer
 from treeline.infra.anthropic import AnthropicProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
+from treeline.infra.mcp import ToolRegistry
 from treeline.infra.simplefin import SimpleFINProvider
 from treeline.infra.supabase import SupabaseAuthProvider
 
@@ -101,11 +102,17 @@ class Container:
             self._instances["db_service"] = DbService(self.repository())
         return self._instances["db_service"]
 
+    def tool_registry(self) -> ToolRegistry:
+        """Get the tool registry instance."""
+        if "tool_registry" not in self._instances:
+            self._instances["tool_registry"] = ToolRegistry(self.repository())
+        return self._instances["tool_registry"]
+
     def ai_provider(self) -> AIProvider:
         """Get the AI provider instance."""
         if "ai_provider" not in self._instances:
-            # AnthropicProvider reads ANTHROPIC_API_KEY from environment
-            self._instances["ai_provider"] = AnthropicProvider()
+            # AnthropicProvider depends on ToolRegistry
+            self._instances["ai_provider"] = AnthropicProvider(self.tool_registry())
         return self._instances["ai_provider"]
 
     def agent_service(self) -> AgentService:

@@ -74,6 +74,12 @@ class MockRepository(Repository):
     async def execute_query(self, user_id, sql):
         pass
 
+    async def get_schema_info(self, user_id):
+        pass
+
+    async def get_date_range_info(self, user_id):
+        pass
+
     async def upsert_integration(self, user_id, integration_name, integration_options):
         pass
 

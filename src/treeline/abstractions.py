@@ -100,7 +100,46 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def execute_query(self, user_id: UUID, sql: str) -> Result[Any]:
+    async def execute_query(self, user_id: UUID, sql: str) -> Result[Dict[str, Any]]:
+        """
+        Execute SQL query and return structured results.
+
+        Args:
+            user_id: User context
+            sql: SQL query to execute
+
+        Returns:
+            Result containing dict with:
+              - "columns": List[str] - column names
+              - "rows": List[tuple] - result rows
+              - "row_count": int - number of rows
+        """
+        pass
+
+    @abstractmethod
+    async def get_schema_info(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """
+        Get complete schema information for all tables.
+
+        Args:
+            user_id: User context
+
+        Returns:
+            Result containing dict with table information
+        """
+        pass
+
+    @abstractmethod
+    async def get_date_range_info(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """
+        Get date range information for transactions.
+
+        Args:
+            user_id: User context
+
+        Returns:
+            Result containing dict with earliest_date, latest_date, total_transactions, days_range
+        """
         pass
 
     @abstractmethod

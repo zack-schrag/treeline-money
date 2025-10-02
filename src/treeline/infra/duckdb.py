@@ -455,21 +455,106 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to get balance snapshots: {str(e)}")
 
-    async def execute_query(self, user_id: UUID, sql: str) -> Result:
-        """Execute a SQL query."""
+    async def execute_query(self, user_id: UUID, sql: str) -> Result[Dict[str, Any]]:
+        """Execute a SQL query and return structured results."""
         try:
             conn = self._get_connection(user_id, read_only=True)
 
             result = conn.execute(sql).fetchall()
-            columns = [desc[0] for desc in conn.description]
-
-            # Convert to list of dicts
-            rows = [dict(zip(columns, row)) for row in result]
+            columns = [desc[0] for desc in conn.description] if conn.description else []
 
             conn.close()
-            return Ok({"columns": columns, "rows": rows})
+            return Ok({
+                "columns": columns,
+                "rows": result,  # Return raw tuples, not dicts
+                "row_count": len(result)
+            })
         except Exception as e:
             return Fail(f"Failed to execute query: {str(e)}")
+
+    async def get_schema_info(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """Get complete schema information for all tables."""
+        try:
+            conn = self._get_connection(user_id, read_only=True)
+
+            # Get all tables
+            tables_result = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchall()
+
+            schema_info = {}
+
+            for (table_name,) in tables_result:
+                # Get column information
+                columns_result = conn.execute(f"""
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_name = '{table_name}'
+                    ORDER BY ordinal_position
+                """).fetchall()
+
+                # Get sample data
+                sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchall()
+                column_names = [desc[0] for desc in conn.description] if conn.description else []
+
+                schema_info[table_name] = {
+                    "columns": [
+                        {"name": col[0], "type": col[1]}
+                        for col in columns_result
+                    ],
+                    "sample_data": {
+                        "columns": column_names,
+                        "rows": sample_result
+                    }
+                }
+
+            conn.close()
+            return Ok(schema_info)
+        except Exception as e:
+            return Fail(f"Failed to get schema info: {str(e)}")
+
+    async def get_date_range_info(self, user_id: UUID) -> Result[Dict[str, Any]]:
+        """Get date range information for transactions."""
+        try:
+            conn = self._get_connection(user_id, read_only=True)
+
+            result = conn.execute("""
+                SELECT
+                    MIN(transaction_date) as earliest_date,
+                    MAX(transaction_date) as latest_date,
+                    COUNT(*) as total_transactions
+                FROM transactions
+            """).fetchone()
+
+            conn.close()
+
+            if not result or not result[0] or not result[1]:
+                return Ok({
+                    "earliest_date": None,
+                    "latest_date": None,
+                    "total_transactions": 0,
+                    "days_range": None
+                })
+
+            earliest = result[0]
+            latest = result[1]
+            total = result[2]
+
+            # Calculate date range in days
+            from datetime import datetime
+            if isinstance(earliest, datetime) and isinstance(latest, datetime):
+                days_range = (latest - earliest).days
+            else:
+                days_range = None
+
+            return Ok({
+                "earliest_date": earliest,
+                "latest_date": latest,
+                "total_transactions": total,
+                "days_range": days_range
+            })
+        except Exception as e:
+            return Fail(f"Failed to get date range info: {str(e)}")
 
     async def upsert_integration(
         self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]
