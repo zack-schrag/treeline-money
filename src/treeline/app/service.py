@@ -520,10 +520,14 @@ class StatusService:
 
         transaction_stats = stats_result.data
         rows = transaction_stats.get("rows", [])
+        columns = transaction_stats.get("columns", [])
+
         if rows and len(rows) > 0:
-            total_transactions = rows[0].get("total_transactions", 0)
-            earliest_date = rows[0].get("earliest_date")
-            latest_date = rows[0].get("latest_date")
+            # Rows are tuples, use column indices
+            row = rows[0]
+            total_transactions = row[0] if len(row) > 0 else 0  # COUNT(*)
+            earliest_date = row[1] if len(row) > 1 else None     # MIN(transaction_date)
+            latest_date = row[2] if len(row) > 2 else None       # MAX(transaction_date)
         else:
             total_transactions = 0
             earliest_date = None
@@ -538,8 +542,9 @@ class StatusService:
         else:
             balance_data = balance_result.data
             balance_rows = balance_data.get("rows", [])
+            # Rows are tuples, access by index
             total_snapshots = (
-                balance_rows[0].get("total_snapshots", 0) if balance_rows and len(balance_rows) > 0 else 0
+                balance_rows[0][0] if balance_rows and len(balance_rows) > 0 else 0
             )
 
         return Result(

@@ -121,10 +121,13 @@ class AnthropicProvider(AIProvider):
                         if tool_use.name.startswith("create_"):
                             yield f"\n{result}\n"
 
+                        # Ensure content is never empty (Anthropic API requirement)
+                        content = result if result and result.strip() else "Tool executed successfully"
+
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": tool_use.id,
-                            "content": result
+                            "content": content
                         })
 
                     # Add tool results to conversation
