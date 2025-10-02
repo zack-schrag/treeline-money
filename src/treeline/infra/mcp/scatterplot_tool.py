@@ -6,6 +6,7 @@ from uuid import UUID
 from treeline.domain import Result, Fail, Ok
 from treeline.infra.mcp.base import Tool
 from treeline.pyplot import scatterplot
+from treeline.pyplot.utils.colors import strip_colors
 
 
 class ScatterplotTool(Tool):
@@ -113,9 +114,10 @@ class ScatterplotTool(Tool):
                 color=color
             )
 
-            # Render and return
+            # Render and strip ANSI color codes for clean terminal output
             rendered = chart.render()
-            return Ok(f"\n{rendered}\n")
+            clean_output = strip_colors(rendered)
+            return Ok(f"\n{clean_output}\n")
 
         except Exception as e:
             return Fail(f"Error creating scatter plot: {str(e)}")
