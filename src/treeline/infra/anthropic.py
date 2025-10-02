@@ -8,12 +8,12 @@ from typing import Any, AsyncIterator, Dict, List
 from uuid import UUID
 
 import duckdb
-import plotext as plt
 from anthropic import Anthropic, AsyncAnthropic
 from anthropic.types import Message, MessageStreamEvent
 
 from treeline.abstractions import AIProvider
 from treeline.domain import Result, Ok, Fail
+from treeline.pyplot import barplot, lineplot, histogram, scatterplot
 
 
 class AnthropicProvider(AIProvider):
@@ -106,34 +106,21 @@ class AnthropicProvider(AIProvider):
                 }
             },
             {
-                "name": "create_visualization",
-                "description": "Create a terminal-based chart visualization using plotext. Use this when the user asks for charts, graphs, or visual representations of data. Supports bar, line, scatter, and histogram charts.",
+                "name": "execute_python",
+                "description": "Execute Python code for data analysis and visualization. You have access to: conn (DuckDB connection), barplot(), lineplot(), histogram(), scatterplot() for creating terminal charts. Charts are rendered by calling .render() and printing the result. The code will be executed and any output will be captured.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "sql": {
+                        "code": {
                             "type": "string",
-                            "description": "SQL query to fetch data for visualization. Should return columns that map to x and y axes."
+                            "description": "Python code to execute. Available: conn (database), barplot(), lineplot(), histogram(), scatterplot(), datetime module."
                         },
-                        "chart_type": {
+                        "description": {
                             "type": "string",
-                            "enum": ["bar", "line", "scatter", "histogram"],
-                            "description": "Type of chart to create"
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Title for the chart"
-                        },
-                        "x_label": {
-                            "type": "string",
-                            "description": "Label for x-axis (optional)"
-                        },
-                        "y_label": {
-                            "type": "string",
-                            "description": "Label for y-axis (optional)"
+                            "description": "Brief description of what this code does"
                         }
                     },
-                    "required": ["sql", "chart_type", "title"]
+                    "required": ["code", "description"]
                 }
             }
         ]
@@ -146,8 +133,8 @@ class AnthropicProvider(AIProvider):
             return await self._get_schema_info()
         elif tool_name == "get_date_range_info":
             return await self._get_date_range_info()
-        elif tool_name == "create_visualization":
-            return await self._create_visualization(tool_input)
+        elif tool_name == "execute_python":
+            return await self._execute_python(tool_input)
         else:
             return f"Unknown tool: {tool_name}"
 
@@ -278,78 +265,51 @@ class AnthropicProvider(AIProvider):
         except Exception as e:
             return f"Error getting date range info: {str(e)}"
 
-    async def _create_visualization(self, tool_input: Dict[str, Any]) -> str:
-        """Create a terminal visualization using plotext."""
-        sql = tool_input.get("sql", "")
-        chart_type = tool_input.get("chart_type", "bar")
-        title = tool_input.get("title", "")
-        x_label = tool_input.get("x_label", "")
-        y_label = tool_input.get("y_label", "")
+    async def _execute_python(self, tool_input: Dict[str, Any]) -> str:
+        """Execute Python code with access to database and pyplot."""
+        code = tool_input.get("code", "")
+        description = tool_input.get("description", "")
 
         try:
-            # Execute SQL query to get data
+            # Create a read-only database connection
             conn = duckdb.connect(self.db_path, read_only=True)
 
+            # Capture stdout for any print statements
+            old_stdout = sys.stdout
+            sys.stdout = captured_output = io.StringIO()
+
             try:
-                result = conn.execute(sql).fetchall()
-                columns = [desc[0] for desc in conn.description] if conn.description else []
+                # Create execution context with database connection and pyplot
+                exec_globals = {
+                    "conn": conn,
+                    "barplot": barplot,
+                    "lineplot": lineplot,
+                    "histogram": histogram,
+                    "scatterplot": scatterplot,
+                    "duckdb": duckdb,
+                    "datetime": datetime,
+                }
 
-                if not result or len(result) == 0:
-                    return "No data returned from query for visualization"
+                # Execute the code
+                exec(code, exec_globals)
 
-                # Extract x and y data from query results
-                # Assume first column is x-axis, second is y-axis
-                if len(columns) < 2:
-                    return "Query must return at least 2 columns for visualization (x, y)"
+                # Get any captured output
+                output = captured_output.getvalue()
 
-                x_data = [row[0] for row in result]
-                y_data = [float(row[1]) if row[1] is not None else 0.0 for row in result]
-
-                # Convert dates to strings for plotting
-                # Handle datetime objects by formatting them properly
-                formatted_x = []
-                for x in x_data:
-                    if isinstance(x, datetime):
-                        formatted_x.append(x.strftime('%m/%d/%Y'))
-                    else:
-                        formatted_x.append(str(x))
-                x_data = formatted_x
-
-                # Clear any previous plot
-                plt.clear_figure()
-
-                # Disable colors to avoid ANSI escape code issues in some terminals
-                plt.theme('clear')
-
-                # Create the appropriate chart type
-                if chart_type == "bar":
-                    plt.bar(x_data, y_data)
-                elif chart_type == "line":
-                    plt.plot(x_data, y_data)
-                elif chart_type == "scatter":
-                    plt.scatter(x_data, y_data)
-                elif chart_type == "histogram":
-                    plt.hist(y_data)
+                if output:
+                    return f"Visualization: {description}\n\n{output}"
                 else:
-                    return f"Unsupported chart type: {chart_type}"
-
-                # Set labels and title
-                plt.title(title)
-                if x_label:
-                    plt.xlabel(x_label)
-                if y_label:
-                    plt.ylabel(y_label)
-
-                # Build the chart as a string - using 'clear' theme gives plain ASCII
-                chart_output = plt.build()
-
-                return f"Visualization: {title}\n\n{chart_output}"
+                    return f"Code executed successfully: {description}\n(No output produced)"
 
             finally:
+                # Restore stdout
+                sys.stdout = old_stdout
                 conn.close()
 
         except Exception as e:
-            return f"Error creating visualization: {str(e)}\nSQL: {sql}"
+            # Restore stdout in case of error
+            sys.stdout = old_stdout
+            return f"Error executing Python code: {str(e)}\n\nCode:\n{code}"
 
     async def send_message(self, message: str) -> Result[Dict[str, Any]]:
         """
@@ -408,8 +368,8 @@ class AnthropicProvider(AIProvider):
                         yield f"__TOOL_USE__:{tool_use.name}\n"
                         result = await self._execute_tool(tool_use.name, tool_use.input)
 
-                        # For visualizations, yield the chart directly to user
-                        if tool_use.name == "create_visualization":
+                        # For Python execution (including visualizations), yield output directly to user
+                        if tool_use.name == "execute_python":
                             yield f"\n{result}\n"
 
                         tool_results.append({
@@ -484,7 +444,7 @@ class AnthropicProvider(AIProvider):
 ## Your Capabilities
 You have access to the user's financial data stored in a DuckDB database. You can:
 1. Execute SQL queries to analyze transactions, accounts, and balances
-2. Create terminal-based visualizations (bar charts, line charts, scatter plots, histograms)
+2. Create beautiful terminal-based visualizations using pyplot (barplot, lineplot, histogram, scatterplot)
 3. Provide insights and answer questions about spending patterns, trends, and anomalies
 
 ## Database Schema
@@ -506,9 +466,11 @@ Use the `get_schema_info()` tool to see the complete schema with column names an
 7. When analyzing spending, consider both amount and frequency
 8. Look for outliers and unusual patterns proactively
 9. **NEVER generate ASCII charts or bar graphs in SQL** - they don't render well in terminals
-10. **Use the create_visualization tool for charts** - when users ask for charts, graphs, trends over time, or visual representations, use create_visualization instead of tables
-11. For time-series data (spending over time, trends, etc.), line charts work best
-12. For comparing categories or discrete values, bar charts work best
+10. **Use the execute_python tool for visualizations** - when users ask for charts, graphs, trends over time, or visual representations
+11. For visualizations, you have access to: `conn` (DuckDB connection), `barplot()`, `lineplot()`, `histogram()`, `scatterplot()`, `datetime`
+12. Always call `.render()` on charts and print the result - this displays the chart to the user
+13. For time-series data (spending over time, trends, etc.), use lineplot() for smooth curves
+14. For comparing categories or discrete values, use barplot() for horizontal bars
 
 ## Response Format
 When analyzing data, structure responses like this:
@@ -527,7 +489,9 @@ When analyzing data, structure responses like this:
 - [Key insight 1]
 - [Key insight 2]
 
-## Example Interaction
+## Example Interactions
+
+### Example 1: Simple Query
 User: "Show me my spending last week"
 
 You:
@@ -552,6 +516,38 @@ ORDER BY 1;
 - Total spending: $X
 - Highest spending day: Monday with $Y
 - Average daily spending: $Z
+
+### Example 2: Visualization Request
+User: "Show me a chart of my weekly spending over the last 90 days"
+
+You:
+**Analysis:** I'll create a bar chart showing your weekly spending for the last 90 days.
+
+[Use execute_python tool with code like:]
+```python
+# Query weekly spending
+result = conn.execute('''
+    SELECT
+        DATE_TRUNC('week', transaction_date) as week,
+        SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as spending
+    FROM transactions
+    WHERE transaction_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND amount < 0
+    GROUP BY 1
+    ORDER BY 1
+''').fetchall()
+
+# Format data
+weeks = [row[0].strftime('%m/%d') for row in result]
+spending = [float(row[1]) for row in result]
+
+# Create and display chart
+chart = barplot(labels=weeks, values=spending, title="Weekly Spending - Last 90 Days", xlabel="Week")
+print(chart.render())
+```
+
+**Insights:**
+[Describe trends you observe in the chart]
 
 ## Tips
 - Use `get_date_range_info()` to understand what time period the data covers
