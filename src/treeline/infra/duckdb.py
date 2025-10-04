@@ -643,7 +643,7 @@ class DuckDBRepository(Repository):
             return Fail(f"Failed to get tag statistics: {str(e)}")
 
     async def get_transactions_for_tagging(
-        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100
+        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100, offset: int = 0
     ) -> Result[List[Transaction]]:
         """Get transactions for tagging session."""
         try:
@@ -675,8 +675,8 @@ class DuckDBRepository(Repository):
                 FROM transactions
                 WHERE {where_sql}
                 ORDER BY transaction_date DESC
-                LIMIT ?
-            """, params + [limit]).fetchall()
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset]).fetchall()
 
             transactions = []
             for row in result:

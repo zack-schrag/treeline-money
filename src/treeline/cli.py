@@ -350,28 +350,46 @@ def handle_tag_command() -> None:
     tag_suggester = CombinedTagSuggester(frequency_suggester, common_suggester)
     tagging_service = container.tagging_service(tag_suggester)
 
-    # Get untagged transactions
-    console.print("[dim]Loading untagged transactions...[/dim]")
-    result = asyncio.run(tagging_service.get_untagged_transactions(UUID(user_id), limit=500))
-
-    if not result.success:
-        console.print(f"[red]Error: {result.error}[/red]\n")
-        return
-
-    transactions = result.data
-
-    if not transactions:
-        console.print("[green]✓[/green] All transactions are tagged! 🎉\n")
-        return
-
+    # Pagination and filtering state
     current_index = 0
     page_size = 10
+    batch_size = 100
+    current_offset = 0
+    show_untagged_only = False
+    transactions = []
+
+    def load_transactions():
+        """Load transactions with current filter and offset."""
+        nonlocal transactions
+        filters = {"has_tags": False} if show_untagged_only else {}
+        result = asyncio.run(tagging_service.get_transactions_for_tagging(
+            UUID(user_id),
+            filters=filters,
+            limit=batch_size,
+            offset=current_offset
+        ))
+        if result.success:
+            transactions = result.data
+            return True
+        return False
+
+    # Load initial transactions
+    console.print("[dim]Loading transactions...[/dim]")
+    if not load_transactions():
+        console.print(f"[red]Error loading transactions[/red]\n")
+        return
+
+    if not transactions:
+        console.print("[yellow]No transactions found![/yellow]\n")
+        return
 
     def render_view():
         """Render transaction list and selected transaction details."""
         console.clear()
-        console.print(f"\n[green]Tagging Power Mode[/green] - {len(transactions)} untagged transactions")
-        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear tags | q: quit[/dim]\n")
+        filter_text = "untagged only" if show_untagged_only else "all transactions"
+        page_info = f"(showing {current_offset + 1}-{current_offset + len(transactions)})"
+        console.print(f"\n[green]Tagging Power Mode[/green] - {filter_text} {page_info}")
+        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear | f: filter | n/p: next/prev page | q: quit[/dim]\n")
 
         # Transaction list
         list_table = Table(show_header=True, box=None, padding=(0, 1))
@@ -488,6 +506,30 @@ def handle_tag_command() -> None:
 
                     if result.success:
                         transactions[current_index] = result.data
+
+            elif key == 'f':
+                # Toggle filter
+                show_untagged_only = not show_untagged_only
+                current_offset = 0
+                current_index = 0
+                load_transactions()
+
+            elif key == 'n':
+                # Next page
+                if len(transactions) == batch_size:  # Might be more results
+                    current_offset += batch_size
+                    current_index = 0
+                    if not load_transactions() or not transactions:
+                        # No more results, go back
+                        current_offset -= batch_size
+                        load_transactions()
+
+            elif key == 'p':
+                # Previous page
+                if current_offset > 0:
+                    current_offset = max(0, current_offset - batch_size)
+                    current_index = 0
+                    load_transactions()
 
             elif key == 'q':
                 console.clear()

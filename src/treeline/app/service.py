@@ -694,7 +694,7 @@ class TaggingService:
         )
 
     async def get_transactions_for_tagging(
-        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100
+        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100, offset: int = 0
     ) -> Result[List[Transaction]]:
         """
         Get transactions matching filters for tagging session.
@@ -703,12 +703,13 @@ class TaggingService:
             user_id: User context
             filters: Optional filters (e.g., {"has_tags": False} for untagged only)
             limit: Maximum number of transactions to return
+            offset: Number of transactions to skip (for pagination)
 
         Returns:
             Result containing list of Transaction objects
         """
         return await self.repository.get_transactions_for_tagging(
-            user_id, filters=filters, limit=limit
+            user_id, filters=filters, limit=limit, offset=offset
         )
 
     async def update_transaction_tags(

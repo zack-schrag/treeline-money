@@ -84,7 +84,7 @@ class MockRepository(Repository):
     async def get_tag_statistics(self, user_id):
         pass
 
-    async def get_transactions_for_tagging(self, user_id, filters={}, limit=100):
+    async def get_transactions_for_tagging(self, user_id, filters={}, limit=100, offset=0):
         pass
 
     async def update_transaction_tags(self, user_id, transaction_id, tags):
@@ -181,7 +181,7 @@ async def test_get_transactions_for_tagging_with_filters():
     assert result.success
     assert len(result.data) == 1
     mock_repository.get_transactions_for_tagging.assert_called_once_with(
-        user_id, filters=custom_filters, limit=50
+        user_id, filters=custom_filters, limit=50, offset=0
     )
 
 
