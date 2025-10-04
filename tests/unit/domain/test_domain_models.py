@@ -128,3 +128,52 @@ def test_balance_snapshot_requires_timezone_aware_datetime() -> None:
             created_at=_tz_now(),
             updated_at=_tz_now(),
         )
+
+
+def test_transaction_auto_generates_dedup_key() -> None:
+    """Test that Transaction automatically generates dedup_key."""
+    account_id = uuid4()
+
+    # Create transaction without providing dedup_key
+    tx = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("25.50"),
+        description="Coffee at Starbucks",
+        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+
+    # dedup_key should be auto-generated
+    assert tx.dedup_key
+    assert tx.dedup_key.startswith("fingerprint:")
+
+    # Same transaction data should generate same fingerprint
+    tx2 = Transaction(
+        id=uuid4(),  # Different ID
+        account_id=account_id,  # Same account
+        amount=Decimal("25.50"),  # Same amount
+        description="Coffee at Starbucks",  # Same description
+        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),  # Same date
+        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+
+    assert tx.dedup_key == tx2.dedup_key
+
+    # Different description should generate different fingerprint
+    tx3 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("25.50"),
+        description="Coffee at Peet's",  # Different description
+        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+
+    assert tx.dedup_key != tx3.dedup_key

@@ -1,114 +1,255 @@
-# CSV Import Design Proposal
+# Bulk Import Design Proposal
 
 ## Overview
-This document outlines the design for implementing CSV transaction imports in Treeline. The implementation must support deduplication across different providers (CSV and SimpleFIN) while adhering to hexagonal architecture principles.
+This document outlines the design for implementing bulk transaction imports in Treeline from various sources (CSV files, YNAB, Mint exports, etc.). The implementation must support deduplication across different import sources and existing synced data (SimpleFIN) while adhering to hexagonal architecture principles.
 
 ## Problem Statement
-Users need to import transactions from CSV files, which could come from various financial institutions. The challenge is:
-1. CSV files don't have consistent external IDs like SimpleFIN
-2. Deduplication must work across different import sources (CSV file A, CSV file B, SimpleFIN)
+Users need to import historical transactions from various sources:
+1. CSV files from financial institutions
+2. Export files from other finance apps (YNAB, Mint, etc.)
+3. One-time bulk loads that may overlap with existing SimpleFIN data
+
+The challenges are:
+1. Import sources don't have consistent external IDs like SimpleFIN
+2. Deduplication must work across different import sources and existing synced data
 3. The same transaction might be imported multiple times from different sources
-4. The architecture must remain provider-agnostic
+4. The architecture must remain provider-agnostic and extensible
 
 ## Current State Analysis
 
-### Existing Deduplication Logic
-SimpleFIN currently uses `external_ids` for deduplication:
+### Existing Deduplication Logic (SyncService)
+SimpleFIN currently uses `external_ids` for deduplication in `SyncService`:
 - Transactions have `external_ids: Mapping[str, str]` field
 - SimpleFIN stores: `{"simplefin": "tx_123", "simplefin_account": "acc_456"}`
 - Deduplication queries by `external_ids.simplefin` to find existing transactions
+- **Use case**: Incremental, ongoing synchronization
 - **Limitation**: This only works when providers supply stable external IDs
 
 ### Architecture Pattern
 The codebase follows hexagonal architecture:
 - **Abstraction**: `DataAggregationProvider` defines provider interface
-- **Service Layer**: `SyncService` contains deduplication logic
+- **Service Layer**: `SyncService` handles incremental sync logic
 - **Adapter**: `SimpleFINProvider` implements the abstraction
 
 ## Proposed Solution
 
-### 1. Multi-Strategy Deduplication Service
+### 1. Separate Import and Sync Concerns
 
-Create a dedicated deduplication abstraction and service that supports multiple strategies:
+**Key Design Decision**: Create a new `ImportService` separate from `SyncService`
 
-```python
-# src/treeline/abstractions.py
-class DeduplicationStrategy(ABC):
-    @abstractmethod
-    def generate_dedup_key(self, transaction: Transaction) -> str:
-        """Generate a deduplication key for a transaction."""
-        pass
+- **SyncService** (existing): Incremental, ongoing sync with external_id deduplication
+- **ImportService** (new): One-time bulk imports with fingerprint-based deduplication
 
-    @abstractmethod
-    def find_duplicates(
-        self,
-        user_id: UUID,
-        transactions: List[Transaction],
-        repository: Repository
-    ) -> Result[Dict[str, Transaction]]:
-        """Find existing transactions that match the given transactions.
+This separation provides:
+- Clear separation of concerns (sync vs import are different operations)
+- Different deduplication strategies for different use cases
+- Reusability for future import sources (YNAB, Mint, QFX, OFX, etc.)
+- Simpler testing and error handling
 
-        Returns a map of dedup_key -> existing_transaction
-        """
-        pass
-```
+### 2. Fingerprint-Based Deduplication
 
-### 2. Deduplication Strategies
+For bulk imports, use count-based fingerprint deduplication:
 
-#### Strategy 1: External ID (for SimpleFIN)
-- Uses provider-supplied external IDs
-- Current implementation, no changes needed
-- Key format: `"external_id:{provider}:{id}"`
+**Fingerprint Components:**
+- Treeline account ID
+- Transaction date (date only, not time)
+- Amount (normalized to 2 decimal places)
+- Description (normalized: lowercase, whitespace removed, special chars removed)
 
-#### Strategy 2: Fingerprint (for CSV and cross-provider)
-- Generate fingerprint from transaction attributes
-- Key format: `"fingerprint:{hash}"`
-- Hash components:
-  - Account external ID (from CSV account mapping)
-  - Transaction date (normalized to date only, not time)
-  - Amount (normalized to 2 decimal places)
-  - Description (normalized: lowercase, trimmed, special chars removed)
+**How It Works:**
+1. Group incoming transactions by fingerprint
+2. Query count of existing transactions per fingerprint
+3. Import only the difference (new_count = discovered_count - existing_count)
+
+**Example:**
+- CSV A imports 5 identical transactions → fingerprint `abc123` → all 5 imported
+- CSV B has 4 transactions with `abc123` → 4 ≤ 5 existing → skip all ✅
+- CSV C has 6 transactions with `abc123` → 6 > 5 existing → import 1 new ✅
+
+**Why This Works:**
+- Re-importing same CSV → same counts → no duplicates
+- SimpleFIN (90 days) then CSV (years) → CSV has higher counts → imports difference
+- Identical transactions are fungible → picking arbitrary ones is fine
+- Account-scoped → no cross-account collisions
 
 ```python
-def generate_fingerprint(tx: Transaction, integration_name: str) -> str:
-    """Generate a stable fingerprint for deduplication."""
-    # Get account's external ID for this provider
-    account_ext_id = tx.external_ids.get(f"{integration_name}_account", "")
-
-    # Normalize components
+def _generate_fingerprint(self, tx: Transaction, account_id: UUID) -> str:
+    """Generate fingerprint hash for deduplication."""
     tx_date = tx.transaction_date.date().isoformat()
     amount_normalized = f"{tx.amount:.2f}"
-    desc_normalized = re.sub(r'[^a-z0-9]', '', (tx.description or "").lower())
 
-    # Create fingerprint
-    fingerprint_str = f"{account_ext_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
+    # Normalize description: lowercase, remove whitespace and special chars
+    desc_normalized = re.sub(r'\s+', '', (tx.description or "").lower())
+    desc_normalized = re.sub(r'[^a-z0-9]', '', desc_normalized)
+
+    fingerprint_str = f"{account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
     fingerprint_hash = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
 
     return f"fingerprint:{fingerprint_hash}"
 ```
 
-#### Strategy 3: Composite (Use both)
-- Try external ID first, fall back to fingerprint
-- Prevents duplicates even when CSV re-imports overlap with SimpleFIN
+### 3. Enhanced Transaction Model with Auto-Generated Dedup Key
 
-### 3. Enhanced Transaction Model
+**Key Design Decision**: The `dedup_key` is auto-generated by the Transaction domain model itself.
 
-Add a `dedup_key` field to store the deduplication key:
+**Why domain model?**
+- Deduplication is a **domain concern**, not an adapter/infrastructure concern
+- The dedup logic is the same across all providers (SimpleFIN, CSV, YNAB, etc.)
+- Prevents forgetting to set it - every Transaction automatically gets a dedup_key
+- Keeps services clean - they don't need to know about fingerprint generation
+
+**Implementation**:
 
 ```python
 # src/treeline/domain.py
 class Transaction(BaseModel):
     # ... existing fields ...
-    dedup_key: str | None = None  # Store computed deduplication key
+    dedup_key: str = Field(default="")  # Auto-generated fingerprint
+
+    @model_validator(mode='after')
+    def _generate_dedup_key_if_missing(self) -> 'Transaction':
+        """Auto-generate dedup_key from transaction attributes if not provided."""
+        if not self.dedup_key:
+            dedup_key = self._calculate_fingerprint()
+            object.__setattr__(self, 'dedup_key', dedup_key)
+        return self
+
+    def _calculate_fingerprint(self) -> str:
+        """Generate fingerprint hash for deduplication."""
+        import hashlib
+        import re
+
+        tx_date = self.transaction_date.date().isoformat()
+        amount_normalized = f"{self.amount:.2f}"
+
+        # Normalize description: lowercase, remove whitespace and special chars
+        desc_normalized = re.sub(r'\s+', '', (self.description or "").lower())
+        desc_normalized = re.sub(r'[^a-z0-9]', '', desc_normalized)
+
+        fingerprint_str = f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
+        fingerprint_hash = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
+
+        return f"fingerprint:{fingerprint_hash}"
 ```
+
+**Benefits**:
+- SimpleFIN transactions automatically get dedup_key when created
+- CSV imports automatically get dedup_key when created
+- Cross-provider deduplication "just works"
+- No service needs to remember to generate fingerprints
 
 Update database schema:
 ```sql
-ALTER TABLE transactions ADD COLUMN dedup_key VARCHAR;
+ALTER TABLE transactions ADD COLUMN dedup_key VARCHAR NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_transactions_dedup_key ON transactions(dedup_key);
 ```
 
-### 4. CSV Provider Implementation
+### 4. ImportService Implementation
+
+```python
+# src/treeline/app/service.py
+
+class ImportService:
+    """Service for one-time bulk imports from files or external sources."""
+
+    def __init__(self, repository: Repository, provider_registry: Dict[str, DataAggregationProvider]):
+        self.repository = repository
+        self.provider_registry = provider_registry
+
+    async def import_transactions(
+        self,
+        user_id: UUID,
+        source_type: str,  # "csv", "ynab", etc.
+        account_id: UUID,  # Which Treeline account to import into
+        source_options: Dict[str, Any],  # Source-specific options
+    ) -> Result[Dict[str, Any]]:
+        """
+        Import transactions from a one-time source using fingerprint deduplication.
+
+        Args:
+            user_id: User context
+            source_type: Type of import source ("csv", "ynab", etc.)
+            account_id: Treeline account to import transactions into
+            source_options: Provider-specific options (e.g., {"filePath": "/path/to/file.csv"})
+
+        Returns:
+            Result with stats: {"discovered": 150, "imported": 120, "skipped": 30}
+        """
+        # Get provider
+        provider = self.provider_registry.get(source_type.lower())
+        if not provider:
+            return Result(success=False, error=f"Unknown source type: {source_type}")
+
+        # Get discovered transactions from source
+        discovered_result = await provider.get_transactions(
+            user_id,
+            start_date=datetime.min,
+            end_date=datetime.now(timezone.utc),
+            provider_account_ids=[],
+            provider_settings=source_options
+        )
+        if not discovered_result.success:
+            return discovered_result
+
+        discovered_transactions = discovered_result.data or []
+
+        # Map all transactions to the specified account
+        # Note: dedup_key is auto-generated by Transaction domain model when account_id is set
+        mapped_transactions = [
+            tx.model_copy(update={"account_id": account_id})
+            for tx in discovered_transactions
+        ]
+
+        # Group by fingerprint (dedup_key is already set by domain model)
+        discovered_by_fingerprint: Dict[str, List[Transaction]] = {}
+        for tx in mapped_transactions:
+            discovered_by_fingerprint.setdefault(tx.dedup_key, []).append(tx)
+
+        # Query existing counts per fingerprint
+        fingerprints = list(discovered_by_fingerprint.keys())
+        existing_counts_result = await self.repository.get_transaction_counts_by_fingerprint(
+            user_id, fingerprints
+        )
+        if not existing_counts_result.success:
+            return existing_counts_result
+
+        existing_counts = existing_counts_result.data or {}
+
+        # Determine which transactions to import
+        transactions_to_import = []
+        skipped_count = 0
+
+        for fingerprint, discovered_txs in discovered_by_fingerprint.items():
+            existing_count = existing_counts.get(fingerprint, 0)
+            discovered_count = len(discovered_txs)
+
+            # Import the difference (if any new transactions)
+            new_count = max(0, discovered_count - existing_count)
+            transactions_to_import.extend(discovered_txs[:new_count])
+            skipped_count += discovered_count - new_count
+
+        # Bulk insert (not upsert, these are all new)
+        if transactions_to_import:
+            import_result = await self.repository.bulk_upsert_transactions(
+                user_id, transactions_to_import
+            )
+            if not import_result.success:
+                return import_result
+
+        return Result(
+            success=True,
+            data={
+                "discovered": len(discovered_transactions),
+                "imported": len(transactions_to_import),
+                "skipped": skipped_count,
+                "fingerprints_checked": len(fingerprints)
+            }
+        )
+```
+
+**Note**: No fingerprint generation needed in ImportService - the Transaction domain model automatically generates dedup_key when created/updated.
+
+### 5. CSV Provider Implementation
 
 ```python
 # src/treeline/infra/csv_provider.py
@@ -136,224 +277,217 @@ class CSVProvider(DataAggregationProvider):
         provider_settings: Dict[str, Any] = {},
     ) -> Result[List[Transaction]]:
         """Parse CSV file and return transactions."""
-        csv_path = provider_settings.get("csvPath")
-        account_mapping = provider_settings.get("accountMapping", {})
+        file_path = provider_settings.get("filePath")
+        column_mapping = provider_settings.get("columnMapping", {})
 
         # Parse CSV with flexible column mapping
-        # Generate fingerprint-based dedup keys
-        # Return Transaction objects
+        # Return Transaction objects (account_id will be set by ImportService)
 ```
 
-### 5. Updated Sync Service Logic
+### 6. Repository Addition
 
 ```python
-# src/treeline/app/service.py
-class SyncService:
-    def __init__(
-        self,
-        provider_registry: Dict[str, DataAggregationProvider],
-        repository: Repository,
-        dedup_strategy: DeduplicationStrategy,  # NEW
-    ):
-        self.provider_registry = provider_registry
-        self.repository = repository
-        self.dedup_strategy = dedup_strategy
+# src/treeline/abstractions.py
 
-    async def sync_transactions(
-        self,
-        user_id: UUID,
-        integration_name: str,
-        start_date: datetime | None = None,
-        end_date: datetime | None = None,
-        provider_options: Dict[str, Any] | None = None,
-    ) -> Result[Dict[str, Any]]:
-        # ... get provider and discovered transactions ...
+@abstractmethod
+async def get_transaction_counts_by_fingerprint(
+    self, user_id: UUID, fingerprints: List[str]
+) -> Result[Dict[str, int]]:
+    """
+    Get count of existing transactions for each fingerprint.
 
-        # NEW: Generate dedup keys for discovered transactions
-        for tx in discovered_transactions:
-            tx.dedup_key = self.dedup_strategy.generate_dedup_key(tx)
+    Args:
+        user_id: User context
+        fingerprints: List of fingerprint strings to check
 
-        # NEW: Find duplicates using strategy
-        duplicates_result = await self.dedup_strategy.find_duplicates(
-            user_id, discovered_transactions, self.repository
-        )
-        if not duplicates_result.success:
-            return duplicates_result
-
-        existing_by_dedup_key = duplicates_result.data
-
-        # Separate new vs updated transactions
-        transactions_to_upsert = []
-        for discovered_tx in discovered_transactions:
-            if discovered_tx.dedup_key in existing_by_dedup_key:
-                # Update: preserve existing transaction ID
-                existing_tx = existing_by_dedup_key[discovered_tx.dedup_key]
-                updated_tx = discovered_tx.model_copy(update={"id": existing_tx.id})
-                transactions_to_upsert.append(updated_tx)
-            else:
-                # New transaction
-                transactions_to_upsert.append(discovered_tx)
-
-        # Bulk upsert
-        # ...
+    Returns:
+        Result containing dict mapping fingerprint -> count
+        Example: {"fingerprint:abc123": 5, "fingerprint:def456": 3}
+    """
+    pass
 ```
 
-### 6. CSV Import User Flow
+### 7. CLI Implementation (Generic Import Command)
 
-1. **File Selection**
-   ```bash
-   tl import csv /path/to/transactions.csv
-   ```
+```python
+# src/treeline/cli.py
 
-2. **Column Mapping** (interactive)
-   - Detect columns automatically where possible
-   - Prompt user to map: date, amount, description, account
-   - Save mapping template for reuse
+@app.command()
+def import_data(
+    source_type: str = typer.Argument(..., help="Import source type (csv, ynab, etc.)"),
+    file_path: str = typer.Argument(..., help="Path to import file"),
+    account_id: str = typer.Option(..., "--account", help="Account ID to import into"),
+):
+    """Import transactions from various sources (CSV, YNAB, etc.)."""
+    # ... auth checks ...
 
-3. **Account Mapping** (interactive)
-   - Show unique account identifiers found in CSV
-   - Let user map to existing Treeline accounts
-   - Option to create new accounts if needed
+    # Source-specific options
+    source_options = {"filePath": file_path}
 
-4. **Preview & Confirm**
-   - Show first 5 transactions to be imported
-   - Show deduplication stats (X new, Y duplicates)
-   - Confirm before importing
+    # For CSV, may need column mapping (interactive or from saved config)
+    if source_type == "csv":
+        source_options["columnMapping"] = get_or_create_column_mapping(file_path)
 
-5. **Import & Deduplicate**
-   - Use fingerprint-based deduplication
-   - Store dedup_key with each transaction
-   - Report results
+    result = await import_service.import_transactions(
+        user_id=UUID(user_id),
+        source_type=source_type,
+        account_id=UUID(account_id),
+        source_options=source_options
+    )
 
-### 7. Storage of CSV Import Settings
-
-Store CSV import configuration in integrations table:
-```json
-{
-  "integrationName": "csv",
-  "integrationOptions": {
-    "imports": [
-      {
-        "id": "uuid",
-        "name": "Chase Checking",
-        "columnMapping": {
-          "date": "Transaction Date",
-          "amount": "Amount",
-          "description": "Description"
-        },
-        "accountMapping": {
-          "csv_account_id": "treeline_account_uuid"
-        },
-        "lastImportedAt": "2025-10-01T00:00:00Z"
-      }
-    ]
-  }
-}
+    if result.success:
+        stats = result.data
+        console.print(f"✓ Imported {stats['imported']} transactions")
+        console.print(f"  Skipped {stats['skipped']} duplicates")
+        console.print(f"  Total discovered: {stats['discovered']}")
 ```
 
 ## Implementation Plan
 
-### Phase 1: Core Deduplication Infrastructure
-1. Add `DeduplicationStrategy` abstraction
-2. Implement `FingerprintDeduplicationStrategy`
-3. Add `dedup_key` field to Transaction model and DB schema
-4. Update `SyncService` to use deduplication strategy
+### Phase 1: Core Infrastructure
+1. Add `dedup_key` field to Transaction model
+2. Update database schema (migration script)
+3. Add `get_transaction_counts_by_fingerprint()` to Repository abstraction
+4. Implement repository method in DuckDB adapter
 
-### Phase 2: CSV Provider
-1. Implement `CSVProvider` class
-2. Add CSV parsing with flexible column detection
-3. Implement account mapping logic
-4. Generate fingerprint-based dedup keys
+### Phase 2: ImportService
+1. Create `ImportService` class in `src/treeline/app/service.py`
+2. Implement `import_transactions()` method
+3. Implement `_generate_fingerprint()` helper
+4. Unit tests for fingerprint generation and count-based deduplication
 
-### Phase 3: CLI Integration
-1. Add `tl import csv` command
-2. Implement interactive column mapping
-3. Implement interactive account mapping
-4. Add preview and confirmation steps
+### Phase 3: CSV Provider
+1. Create `CSVProvider` class in `src/treeline/infra/csv_provider.py`
+2. Implement CSV parsing with flexible column detection
+3. Handle date format variations
+4. Unit tests for CSV parsing
 
-### Phase 4: Testing
-1. Unit tests for fingerprint generation
-2. Unit tests for deduplication logic
-3. Smoke tests for CSV import flow
-4. Test cross-provider deduplication (CSV + SimpleFIN)
+### Phase 4: CLI Integration
+1. Add generic `import` command to CLI
+2. Implement column mapping (interactive or from config)
+3. Add account selection
+4. Add preview and confirmation
+5. Smoke tests for end-to-end import flow
+
+### Phase 5: Testing & Polish
+1. Test CSV re-import (no duplicates)
+2. Test SimpleFIN + CSV overlap (correct deduplication)
+3. Test multiple identical transactions (count-based works)
+4. Error handling and user feedback
 
 ## Edge Cases & Considerations
 
-### 1. Same Transaction, Different Sources
-- SimpleFIN transaction with external_id
-- Same transaction in CSV file
-- **Solution**: Composite strategy checks both external_id and fingerprint
+### 1. Multiple Identical Transactions Same Day
+- Example: Buy 2 beers at same bar, same amount, same day
+- **Solution**: Count-based deduplication handles this perfectly
+- If CSV has 5 identical transactions, all 5 are imported
+- Re-importing same CSV: 5 existing, 5 discovered → 0 imported ✅
 
-### 2. CSV Re-imports
+### 2. SimpleFIN + CSV Overlap
+- SimpleFIN syncs 90 days, CSV has years of history including those 90 days
+- **Solution**: Count-based deduplication
+- SimpleFIN imports 100 transactions, CSV has those same 100 plus 10,000 more
+- CSV import: 10,100 discovered, 100 existing → 10,000 imported ✅
+
+### 3. CSV Re-imports
 - User imports same CSV file twice
-- **Solution**: Fingerprint deduplication prevents duplicates
+- **Solution**: Count-based prevents duplicates
+- First import: 0 existing → all imported
+- Second import: same counts → 0 imported ✅
 
-### 3. Pending vs Posted Transactions
-- CSV might have pending transactions that later post with different amounts
-- **Solution**: Include transaction date in fingerprint; pending transactions will have different dates when they post
+### 4. Pending vs Posted Transactions
+- CSV might have pending transactions that later post with different amounts/dates
+- **Limitation**: Different dates/amounts = different fingerprints = separate transactions
+- **Workaround**: User can manually delete/merge if needed
 
-### 4. Date Format Variations
+### 5. Description Variations Between Providers
+- SimpleFIN: "STARBUCKS #1234", CSV: "Starbucks"
+- **Limitation**: Different descriptions = different fingerprints = separate transactions
+- **Acceptable**: Description normalization helps but won't catch all variations
+- Users experiencing this can manually dedupe if needed
+
+### 6. Date Format Variations
 - Different CSV date formats
-- **Solution**: Support common formats, let user specify if auto-detection fails
+- **Solution**: Support common formats (MM/DD/YYYY, YYYY-MM-DD, etc.)
+- Let user specify format if auto-detection fails
 
-### 5. Account Identification
-- CSV files may not have consistent account identifiers
-- **Solution**: Interactive mapping, save templates for reuse
+### 7. Account Scoping
+- CSV imports are scoped to a single account
+- **Benefit**: Prevents cross-account collisions
+- **Future**: May support multi-account CSV files with account column
 
-### 6. Currency Handling
+### 8. Currency Handling
 - CSV files may have different currencies
-- **Solution**: Default to USD, allow user override during account mapping
+- **Solution**: Default to USD, allow user override during account selection
 
 ## Migration Strategy
 
 ### Backward Compatibility
-- Existing SimpleFIN integrations continue to work
+- Existing SimpleFIN integrations continue to work unchanged
+- `SyncService` remains unchanged (uses external_ids)
 - `external_ids` field remains unchanged
 - `dedup_key` is optional (nullable field)
 
 ### Data Migration
 - No migration needed for existing data
 - New imports will populate `dedup_key`
-- Old transactions without `dedup_key` will use legacy external_ids logic
+- Existing transactions without `dedup_key` are fine (not used by SyncService)
 
 ### Gradual Rollout
-1. Deploy deduplication infrastructure (no user impact)
-2. Deploy CSV provider (opt-in feature)
-3. Migrate existing SimpleFIN to use dedup_key (background job)
+1. Deploy database schema change (`dedup_key` column)
+2. Deploy `ImportService` (new feature, no user impact)
+3. Deploy CSV provider (opt-in feature)
+4. Deploy CLI import command
 
 ## Alternative Approaches Considered
 
-### Alternative 1: Fuzzy Matching
+### Alternative 1: Single Deduplication Strategy for Both Sync and Import
+- Use fingerprint for everything (SimpleFIN and CSV)
+- **Rejected**: SimpleFIN has stable external IDs, fingerprint is unnecessary complexity
+- Keeping sync and import separate is cleaner
+
+### Alternative 2: Sequence Numbers Instead of Counts
+- Track which specific transaction is #1, #2, etc. within a fingerprint group
+- **Rejected**: Doesn't work across different import sources with different ordering
+- Count-based is simpler and handles the common use cases
+
+### Alternative 3: Fuzzy Matching
 - Use similarity scoring for descriptions
 - **Rejected**: Too complex, high false positive rate
+- Could be added as optional enhancement later
 
-### Alternative 2: Rule-Based System
-- Users define custom deduplication rules
-- **Rejected**: Too complex for initial implementation, could be added later
-
-### Alternative 3: Store Raw CSV
+### Alternative 4: Store Raw Import Files
 - Import CSV as-is, deduplicate in query layer
 - **Rejected**: Violates single source of truth principle, complicates queries
 
 ## Success Criteria
 
-1. ✅ Users can import CSV files from any financial institution
-2. ✅ No duplicate transactions when re-importing same CSV
-3. ✅ No duplicate transactions across CSV and SimpleFIN
-4. ✅ Hexagonal architecture maintained (no CSV-specific logic in service layer)
-5. ✅ Column and account mapping is user-friendly
-6. ✅ Import settings are saved and reusable
+1. ✅ Users can import transactions from CSV files
+2. ✅ Architecture is extensible to other import sources (YNAB, Mint, etc.)
+3. ✅ No duplicate transactions when re-importing same CSV
+4. ✅ No duplicate transactions across CSV and SimpleFIN (within reason)
+5. ✅ Hexagonal architecture maintained (ImportService is source-agnostic)
+6. ✅ CLI command is generic (`import`, not `import-csv`)
+7. ✅ Multiple identical transactions same day are handled correctly
 
-## Open Questions
+## Open Questions & Future Enhancements
 
-1. Should we support scheduled CSV imports (e.g., watch a folder)?
-   - **Decision needed**: Defer to future iteration
+1. **Column mapping persistence**
+   - Save column mappings per bank/CSV format for reuse?
+   - **Decision**: Phase 4, implement saved templates
 
-2. Should we support CSV export as well?
-   - **Decision needed**: Not in scope for this task
+2. **Multi-account CSV files**
+   - Support CSV files with transactions from multiple accounts?
+   - **Decision**: Phase 4 or later, start with single-account constraint
 
-3. How to handle CSV files with multiple accounts?
-   - **Decision needed**: Require account column in CSV or manual mapping per import
+3. **Scheduled imports**
+   - Watch folder for new CSV files and auto-import?
+   - **Decision**: Future iteration, not in scope
 
-4. Should dedup_key be user-visible or internal?
-   - **Decision needed**: Internal only, expose as "fingerprint" in debug mode
+4. **CSV export**
+   - Export transactions to CSV?
+   - **Decision**: Different feature, not in scope for import
+
+5. **Better description matching**
+   - ML-based similarity for cross-provider deduplication?
+   - **Decision**: Future enhancement, count-based is good enough for v1

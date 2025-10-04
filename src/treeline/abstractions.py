@@ -192,6 +192,23 @@ class Repository(ABC):
         pass
 
     @abstractmethod
+    async def get_transaction_counts_by_fingerprint(
+        self, user_id: UUID, fingerprints: List[str]
+    ) -> Result[Dict[str, int]]:
+        """
+        Get count of existing transactions for each fingerprint.
+
+        Args:
+            user_id: User context
+            fingerprints: List of fingerprint strings to check
+
+        Returns:
+            Result containing dict mapping fingerprint -> count
+            Example: {"fingerprint:abc123": 5, "fingerprint:def456": 3}
+        """
+        pass
+
+    @abstractmethod
     async def upsert_integration(self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]) -> Result[None]:
         pass
 

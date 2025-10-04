@@ -14,8 +14,9 @@ from treeline.abstractions import (
     Repository,
     TagSuggester,
 )
-from treeline.app.service import AgentService, AuthService, ConfigService, DbService, IntegrationService, StatusService, SyncService, TaggingService
+from treeline.app.service import AgentService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
 from treeline.infra.anthropic import AnthropicProvider
+from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
 from treeline.infra.mcp import ToolRegistry
@@ -68,7 +69,10 @@ class Container:
     def provider_registry(self) -> Dict[str, DataAggregationProvider]:
         """Get the provider registry."""
         if "provider_registry" not in self._instances:
-            self._instances["provider_registry"] = {"simplefin": SimpleFINProvider()}
+            self._instances["provider_registry"] = {
+                "simplefin": SimpleFINProvider(),
+                "csv": CSVProvider(),
+            }
         return self._instances["provider_registry"]
 
     def sync_service(self) -> SyncService:
@@ -135,3 +139,11 @@ class Container:
         from treeline.app.service import TaggingService
 
         return TaggingService(self.repository(), tag_suggester)
+
+    def import_service(self) -> ImportService:
+        """Get the import service instance."""
+        if "import_service" not in self._instances:
+            self._instances["import_service"] = ImportService(
+                self.repository(), self.provider_registry()
+            )
+        return self._instances["import_service"]

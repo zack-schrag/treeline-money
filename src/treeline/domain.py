@@ -9,7 +9,7 @@ from typing import Any, Dict, Generic, Mapping, Type, TypeVar
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class User(BaseModel):
@@ -98,6 +98,7 @@ class Transaction(BaseModel):
     transaction_date: datetime
     posted_date: datetime
     tags: tuple[str, ...] = ()
+    dedup_key: str = Field(default="")
     created_at: datetime
     updated_at: datetime
 
@@ -159,6 +160,34 @@ class Transaction(BaseModel):
                 seen.add(tag)
                 normalized.append(tag)
         return tuple(normalized)
+
+    @model_validator(mode='after')
+    def _generate_dedup_key_if_missing(self) -> 'Transaction':
+        """Auto-generate dedup_key from transaction attributes if not provided or empty."""
+        if not self.dedup_key:
+            dedup_key = self._calculate_fingerprint()
+            object.__setattr__(self, 'dedup_key', dedup_key)
+        return self
+
+    def _calculate_fingerprint(self) -> str:
+        """Generate fingerprint hash for deduplication.
+
+        Uses: account_id, transaction_date, amount, and normalized description.
+        """
+        import hashlib
+        import re
+
+        tx_date = self.transaction_date.date().isoformat()
+        amount_normalized = f"{self.amount:.2f}"
+
+        # Normalize description: lowercase, remove whitespace and special chars
+        desc_normalized = re.sub(r'\s+', '', (self.description or "").lower())
+        desc_normalized = re.sub(r'[^a-z0-9]', '', desc_normalized)
+
+        fingerprint_str = f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
+        fingerprint_hash = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
+
+        return f"fingerprint:{fingerprint_hash}"
 
 
 class BalanceSnapshot(BaseModel):

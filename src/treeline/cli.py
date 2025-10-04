@@ -320,8 +320,132 @@ def handle_sync_command() -> None:
 
 
 def handle_import_command() -> None:
-    """Handle /import command."""
-    console.print("[yellow]CSV import coming soon...[/yellow]")
+    """Handle /import command - import transactions from CSV."""
+    import os
+    from pathlib import Path
+
+    if not is_authenticated():
+        console.print("[red]Error: You must be logged in to import data.[/red]")
+        console.print("[dim]Run /login to authenticate[/dim]\n")
+        return
+
+    user_id = get_current_user_id()
+    if not user_id:
+        console.print("[red]Error: Could not get user ID[/red]\n")
+        return
+
+    container = get_container()
+    import_service = container.import_service()
+    repository = container.repository()
+
+    # Step 1: Get CSV file path
+    console.print("\n[bold cyan]CSV Import[/bold cyan]\n")
+    file_path = Prompt.ask("[cyan]Enter path to CSV file[/cyan]")
+
+    if not file_path:
+        console.print("[yellow]Import cancelled[/yellow]\n")
+        return
+
+    # Check if file exists - expand ~ manually using os.path
+    expanded_path = os.path.expanduser(file_path)
+    csv_path = Path(expanded_path)
+    if not csv_path.exists():
+        console.print(f"[red]Error: File not found: {file_path}[/red]\n")
+        return
+
+    # Step 2: Get or select account to import into
+    console.print("\n[dim]Fetching accounts...[/dim]")
+    accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
+
+    if not accounts_result.success or not accounts_result.data:
+        console.print("[red]No accounts found. Please sync with SimpleFIN first.[/red]\n")
+        return
+
+    accounts = accounts_result.data
+
+    # Display accounts for selection
+    console.print("\n[cyan]Select account to import into:[/cyan]")
+    for i, account in enumerate(accounts, 1):
+        console.print(f"  [{i}] {account.name}" + (f" - {account.institution_name}" if account.institution_name else ""))
+
+    account_choice = Prompt.ask("\n[cyan]Account number[/cyan]", default="1")
+
+    try:
+        account_idx = int(account_choice) - 1
+        if account_idx < 0 or account_idx >= len(accounts):
+            console.print("[red]Invalid account selection[/red]\n")
+            return
+        target_account = accounts[account_idx]
+    except ValueError:
+        console.print("[red]Invalid account selection[/red]\n")
+        return
+
+    # Step 3: Interactive column mapping
+    import csv
+
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        headers = next(reader)
+        console.print(f"\n[cyan]CSV columns found:[/cyan] {', '.join(headers)}")
+
+    console.print("\n[dim]Map CSV columns to transaction fields (press Enter to skip optional fields):[/dim]\n")
+
+    date_col = Prompt.ask("[cyan]Date column[/cyan]", default=headers[0] if headers else "")
+    amount_col = Prompt.ask("[cyan]Amount column[/cyan]", default=headers[2] if len(headers) > 2 else "")
+    desc_col = Prompt.ask("[cyan]Description column (optional)[/cyan]", default=headers[1] if len(headers) > 1 else "")
+    posted_col = Prompt.ask("[cyan]Posted date column (optional)[/cyan]", default="")
+
+    if not date_col or not amount_col:
+        console.print("[red]Error: Date and amount columns are required[/red]\n")
+        return
+
+    column_mapping = {
+        "date": date_col,
+        "amount": amount_col,
+    }
+
+    if desc_col:
+        column_mapping["description"] = desc_col
+    if posted_col:
+        column_mapping["posted_date"] = posted_col
+
+    # Step 4: Optionally specify date format
+    console.print("\n[cyan]Date format (or 'auto' for auto-detection):[/cyan]")
+    console.print("  [dim]Examples: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY[/dim]")
+    date_format = Prompt.ask("[cyan]Format[/cyan]", default="auto")
+
+    # Step 5: Confirm and import
+    console.print(f"\n[bold]Import Summary:[/bold]")
+    console.print(f"  File: {csv_path}")
+    console.print(f"  Account: {target_account.name}")
+    console.print(f"  Columns: {column_mapping}")
+
+    if not Confirm.ask("\n[cyan]Proceed with import?[/cyan]", default=True):
+        console.print("[yellow]Import cancelled[/yellow]\n")
+        return
+
+    # Execute import
+    console.print("\n[dim]Importing transactions...[/dim]")
+
+    import_result = asyncio.run(import_service.import_transactions(
+        user_id=UUID(user_id),
+        source_type="csv",
+        account_id=target_account.id,
+        source_options={
+            "file_path": str(csv_path),
+            "column_mapping": column_mapping,
+            "date_format": date_format,
+        }
+    ))
+
+    if import_result.success:
+        stats = import_result.data
+        console.print(f"\n[bold green]✓ Import complete![/bold green]")
+        console.print(f"  Discovered: {stats['discovered']} transactions")
+        console.print(f"  Imported: {stats['imported']} new transactions")
+        console.print(f"  Skipped: {stats['skipped']} duplicates\n")
+    else:
+        console.print(f"\n[red]Error: {import_result.error}[/red]\n")
 
 
 def handle_tag_command() -> None:

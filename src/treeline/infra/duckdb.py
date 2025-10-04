@@ -64,12 +64,15 @@ class DuckDBRepository(Repository):
             # Create database if it doesn't exist
             conn = duckdb.connect(str(db_path))
 
-            # Read and execute migration
-            migration_path = Path(__file__).parent / "migrations" / "001_initial_schema.sql"
-            with open(migration_path, "r") as f:
-                migration_sql = f.read()
+            # Run all migrations in order
+            migrations_dir = Path(__file__).parent / "migrations"
+            migration_files = sorted(migrations_dir.glob("*.sql"))
 
-            conn.execute(migration_sql)
+            for migration_file in migration_files:
+                with open(migration_file, "r") as f:
+                    migration_sql = f.read()
+                conn.execute(migration_sql)
+
             conn.close()
             return Ok()
         except Exception as e:
@@ -117,8 +120,8 @@ class DuckDBRepository(Repository):
                 """
                 INSERT INTO transactions (
                     transaction_id, account_id, external_ids, amount, description,
-                    transaction_date, posted_date, tags, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    transaction_date, posted_date, tags, dedup_key, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     str(transaction.id),
@@ -129,6 +132,7 @@ class DuckDBRepository(Repository):
                     transaction.transaction_date,
                     transaction.posted_date,
                     list(transaction.tags),
+                    transaction.dedup_key,
                     transaction.created_at,
                     transaction.updated_at,
                 ],
@@ -218,8 +222,8 @@ class DuckDBRepository(Repository):
                     """
                     INSERT INTO transactions (
                         transaction_id, account_id, external_ids, amount, description,
-                        transaction_date, posted_date, tags, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        transaction_date, posted_date, tags, dedup_key, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (transaction_id) DO UPDATE SET
                         account_id = excluded.account_id,
                         external_ids = excluded.external_ids,
@@ -228,6 +232,7 @@ class DuckDBRepository(Repository):
                         transaction_date = excluded.transaction_date,
                         posted_date = excluded.posted_date,
                         tags = excluded.tags,
+                        dedup_key = excluded.dedup_key,
                         updated_at = excluded.updated_at
                     """,
                     [
@@ -239,6 +244,7 @@ class DuckDBRepository(Repository):
                         transaction.transaction_date,
                         transaction.posted_date,
                         list(transaction.tags),
+                        transaction.dedup_key,
                         transaction.created_at,
                         transaction.updated_at,
                     ],
@@ -555,6 +561,48 @@ class DuckDBRepository(Repository):
             })
         except Exception as e:
             return Fail(f"Failed to get date range info: {str(e)}")
+
+    async def get_transaction_counts_by_fingerprint(
+        self, user_id: UUID, fingerprints: List[str]
+    ) -> Result[Dict[str, int]]:
+        """Get count of existing transactions for each fingerprint."""
+        try:
+            if not fingerprints:
+                return Ok({})
+
+            conn = self._get_connection(user_id, read_only=True)
+
+            # Build query with requested fingerprints and their counts
+            fingerprints_list = ', '.join(f"'{fp}'" for fp in fingerprints)
+
+            query = f"""
+                WITH requested_fingerprints AS (
+                    SELECT unnest([{fingerprints_list}]) as dedup_key
+                ),
+                counts AS (
+                    SELECT
+                        dedup_key,
+                        COUNT(*) as count
+                    FROM transactions
+                    WHERE dedup_key IN ({fingerprints_list})
+                    GROUP BY dedup_key
+                )
+                SELECT
+                    rf.dedup_key,
+                    COALESCE(c.count, 0) as count
+                FROM requested_fingerprints rf
+                LEFT JOIN counts c ON rf.dedup_key = c.dedup_key
+            """
+
+            results = conn.execute(query).fetchall()
+            conn.close()
+
+            # Build dictionary mapping fingerprint -> count
+            counts_dict = {row[0]: int(row[1]) for row in results}
+
+            return Ok(counts_dict)
+        except Exception as e:
+            return Fail(f"Failed to get transaction counts by fingerprint: {str(e)}")
 
     async def upsert_integration(
         self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]

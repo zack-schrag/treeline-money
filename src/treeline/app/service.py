@@ -745,3 +745,103 @@ class TaggingService:
             Result containing list of suggested tag strings
         """
         return await self.tag_suggester.suggest_tags(user_id, transaction, limit=limit)
+
+
+class ImportService:
+    """Service for one-time bulk imports from files or external sources."""
+
+    def __init__(self, repository: Repository, provider_registry: Dict[str, DataAggregationProvider]):
+        self.repository = repository
+        self.provider_registry = provider_registry
+
+    async def import_transactions(
+        self,
+        user_id: UUID,
+        source_type: str,
+        account_id: UUID,
+        source_options: Dict[str, Any],
+    ) -> Result[Dict[str, Any]]:
+        """
+        Import transactions from a one-time source using fingerprint deduplication.
+
+        Args:
+            user_id: User context
+            source_type: Type of import source ("csv", "ynab", etc.)
+            account_id: Treeline account to import transactions into
+            source_options: Provider-specific options (e.g., {"file_path": "/path/to/file.csv"})
+
+        Returns:
+            Result with stats: {"discovered": 150, "imported": 120, "skipped": 30}
+        """
+        # Get provider
+        provider = self.provider_registry.get(source_type.lower())
+        if not provider:
+            return Result(success=False, error=f"Unknown source type: {source_type}")
+
+        # Get discovered transactions from source
+        discovered_result = await provider.get_transactions(
+            user_id,
+            start_date=datetime.min,
+            end_date=datetime.now(timezone.utc),
+            provider_account_ids=[],
+            provider_settings=source_options
+        )
+        if not discovered_result.success:
+            return discovered_result
+
+        discovered_transactions = discovered_result.data or []
+
+        # Map all transactions to the specified account
+        # Note: Reconstruct transactions to recalculate dedup_key with new account_id
+        mapped_transactions = []
+        for tx in discovered_transactions:
+            tx_dict = tx.model_dump()
+            tx_dict["account_id"] = account_id
+            tx_dict.pop("dedup_key", None)  # Remove to force regeneration
+            mapped_transactions.append(Transaction(**tx_dict))
+
+        # Group by fingerprint (dedup_key is already set by domain model)
+        discovered_by_fingerprint: Dict[str, List[Transaction]] = {}
+        for tx in mapped_transactions:
+            discovered_by_fingerprint.setdefault(tx.dedup_key, []).append(tx)
+
+        # Query existing counts per fingerprint
+        fingerprints = list(discovered_by_fingerprint.keys())
+        existing_counts_result = await self.repository.get_transaction_counts_by_fingerprint(
+            user_id, fingerprints
+        )
+        if not existing_counts_result.success:
+            return existing_counts_result
+
+        existing_counts = existing_counts_result.data or {}
+
+        # Determine which transactions to import
+        transactions_to_import = []
+        skipped_count = 0
+
+        for fingerprint, discovered_txs in discovered_by_fingerprint.items():
+            existing_count = existing_counts.get(fingerprint, 0)
+            discovered_count = len(discovered_txs)
+
+            # Import the difference (if any new transactions)
+            new_count = max(0, discovered_count - existing_count)
+            transactions_to_import.extend(discovered_txs[:new_count])
+            skipped_count += discovered_count - new_count
+
+        # Bulk insert (not upsert, these are all new)
+        if transactions_to_import:
+            import_result = await self.repository.bulk_upsert_transactions(
+                user_id, transactions_to_import
+            )
+            if not import_result.success:
+                return import_result
+
+        return Result(
+            success=True,
+            data={
+                "discovered": len(discovered_transactions),
+                "imported": len(transactions_to_import),
+                "skipped": skipped_count,
+                "fingerprints_checked": len(fingerprints)
+            }
+        )

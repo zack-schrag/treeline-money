@@ -273,3 +273,65 @@ async def test_execute_query(repository):
     result = await repository.execute_query(user_id, "SELECT COUNT(*) as count FROM accounts")
     assert result.success is True
     # Result format depends on implementation
+
+
+@pytest.mark.asyncio
+async def test_get_transaction_counts_by_fingerprint(repository):
+    """Test getting transaction counts grouped by dedup_key."""
+    user_id = uuid4()
+    await repository.ensure_user_db_initialized(user_id)
+
+    # Create account
+    account = Account(
+        id=uuid4(),
+        name="Test Account",
+        currency="USD",
+        external_ids=MappingProxyType({}),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    await repository.add_account(user_id, account)
+
+    # Create transactions with different fingerprints
+    fingerprint_a = "fingerprint:abc123"
+    fingerprint_b = "fingerprint:def456"
+
+    # 3 transactions with fingerprint_a
+    for _ in range(3):
+        tx = Transaction(
+            id=uuid4(),
+            account_id=account.id,
+            amount=Decimal("10.00"),
+            description="Test transaction A",
+            transaction_date=datetime.now(timezone.utc),
+            posted_date=datetime.now(timezone.utc),
+            dedup_key=fingerprint_a,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        await repository.add_transaction(user_id, tx)
+
+    # 2 transactions with fingerprint_b
+    for _ in range(2):
+        tx = Transaction(
+            id=uuid4(),
+            account_id=account.id,
+            amount=Decimal("20.00"),
+            description="Test transaction B",
+            transaction_date=datetime.now(timezone.utc),
+            posted_date=datetime.now(timezone.utc),
+            dedup_key=fingerprint_b,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        await repository.add_transaction(user_id, tx)
+
+    # Query for counts
+    fingerprints = [fingerprint_a, fingerprint_b, "fingerprint:xyz999"]
+    result = await repository.get_transaction_counts_by_fingerprint(user_id, fingerprints)
+
+    assert result.success is True
+    counts = result.data
+    assert counts[fingerprint_a] == 3
+    assert counts[fingerprint_b] == 2
+    assert counts.get("fingerprint:xyz999", 0) == 0  # Non-existent fingerprint should return 0

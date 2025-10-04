@@ -90,6 +90,9 @@ class MockRepository(Repository):
     async def update_transaction_tags(self, user_id, transaction_id, tags):
         pass
 
+    async def get_transaction_counts_by_fingerprint(self, user_id, fingerprints):
+        pass
+
 
 class MockTagSuggester(TagSuggester):
     """Mock TagSuggester for testing."""
