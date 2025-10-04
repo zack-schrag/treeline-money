@@ -461,7 +461,47 @@ def handle_import_command() -> None:
 
         if choice == "1":
             flip_signs = True
-            console.print("\n[dim]Signs will be flipped during import[/dim]")
+
+            # Show preview with flipped signs
+            console.print("\n[dim]Regenerating preview with flipped signs...[/dim]")
+
+            preview_result = csv_provider.preview_transactions(
+                str(csv_path),
+                column_mapping,
+                date_format="auto",
+                limit=5,
+                flip_signs=flip_signs
+            )
+
+            if not preview_result.success:
+                console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+                return
+
+            preview_txs = preview_result.data
+
+            # Display updated preview
+            console.print("\n[bold cyan]Updated Preview - First 5 Transactions:[/bold cyan]\n")
+
+            preview_table = Table(show_header=True, box=None, padding=(0, 1))
+            preview_table.add_column("Date", width=12)
+            preview_table.add_column("Description", width=40)
+            preview_table.add_column("Amount", justify="right", width=15)
+
+            for tx in preview_txs:
+                date_str = tx.transaction_date.strftime("%Y-%m-%d")
+                desc = (tx.description or "")[:38]
+                amount_str = f"${tx.amount:,.2f}"
+                amount_style = "red" if tx.amount < 0 else "green"
+                preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
+
+            console.print(preview_table)
+
+            # Confirm again
+            looks_correct = Confirm.ask("\n[cyan]Does this look correct now?[/cyan]", default=True)
+            if not looks_correct:
+                console.print("[yellow]Import cancelled[/yellow]\n")
+                return
+
         elif choice == "2":
             console.print("[yellow]Manual column mapping not yet implemented[/yellow]\n")
             return

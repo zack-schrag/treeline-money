@@ -159,7 +159,7 @@ class CSVProvider(DataAggregationProvider):
                     return Fail(f"Failed to parse amount: {amount_str}")
             else:
                 # Handle debit/credit columns
-                # Debit = spending (negative), Credit = income/refund (positive)
+                # Use whichever column has a value (they're mutually exclusive in most CSVs)
                 debit_str = row.get(debit_col, "").strip() if debit_col else ""
                 credit_str = row.get(credit_col, "").strip() if credit_col else ""
 
@@ -168,14 +168,24 @@ class CSVProvider(DataAggregationProvider):
                     return Fail("Both debit and credit are empty")
 
                 # Parse values
-                debit_amt = self._parse_amount(debit_str) if debit_str else Decimal("0")
-                credit_amt = self._parse_amount(credit_str) if credit_str else Decimal("0")
+                debit_amt = self._parse_amount(debit_str) if debit_str else None
+                credit_amt = self._parse_amount(credit_str) if credit_str else None
 
-                if debit_amt is None or credit_amt is None:
+                if debit_amt is not None and credit_amt is not None:
+                    # Both have values - this is unusual but handle it
+                    # Take the non-zero one, or credit - debit if both non-zero
+                    if abs(debit_amt) > abs(credit_amt):
+                        amount = -abs(debit_amt)  # Debit is spending (negative)
+                    else:
+                        amount = abs(credit_amt)  # Credit might be refund (positive) or payment (also negative - user will flip)
+                elif debit_amt is not None:
+                    # Only debit has value - make it negative (spending)
+                    amount = -abs(debit_amt)
+                elif credit_amt is not None:
+                    # Only credit has value - keep as positive (might need sign flip for credit card payments)
+                    amount = abs(credit_amt)
+                else:
                     return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
-
-                # Debit is spending (negative), credit is income (positive)
-                amount = credit_amt - debit_amt
 
             # Parse description
             description = ""

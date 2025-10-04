@@ -402,12 +402,12 @@ async def test_get_transactions_with_debit_credit_columns():
     provider = CSVProvider()
     user_id = uuid4()
 
-    # Debit = spending (negative), Credit = income/refunds (positive)
+    # Debit = spending (negative), Credit = positive (user will flip if needed)
     csv_content = """Date,Description,Debit,Credit
 2024-10-01,Coffee Shop,5.50,
 2024-10-02,Grocery Store,45.00,
 2024-10-03,Refund,,10.00
-2024-10-04,Salary Payment,,2500.00
+2024-10-04,Payment,,100.00
 """
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
@@ -435,12 +435,12 @@ async def test_get_transactions_with_debit_credit_columns():
         transactions = result.data
         assert len(transactions) == 4
 
-        # Debit transactions should be negative
+        # Debit transactions should be negative (spending)
         assert transactions[0].amount == Decimal("-5.50")  # Coffee (debit)
         assert transactions[1].amount == Decimal("-45.00")  # Grocery (debit)
 
-        # Credit transactions should be positive
+        # Credit transactions are positive (user will use flip_signs if these are also spending)
         assert transactions[2].amount == Decimal("10.00")  # Refund (credit)
-        assert transactions[3].amount == Decimal("2500.00")  # Salary (credit)
+        assert transactions[3].amount == Decimal("100.00")  # Payment (credit)
     finally:
         Path(csv_path).unlink()
