@@ -283,3 +283,114 @@ async def test_get_balances_not_supported():
 
     assert not result.success
     assert "not support" in result.error.lower()
+
+
+def test_detect_columns():
+    """Test column auto-detection."""
+    provider = CSVProvider()
+
+    csv_content = """Date,Description,Amount
+2024-10-01,Coffee,-5.50
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Date"
+        assert detected.get("description") == "Description"
+        assert detected.get("amount") == "Amount"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_debit_credit():
+    """Test column auto-detection with debit/credit columns."""
+    provider = CSVProvider()
+
+    csv_content = """Transaction Date,Merchant,Debit,Credit
+2024-10-01,Coffee Shop,5.50,
+2024-10-02,Refund,,10.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Transaction Date"
+        assert detected.get("description") == "Merchant"
+        assert detected.get("debit") == "Debit"
+        assert detected.get("credit") == "Credit"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_preview_transactions():
+    """Test transaction preview."""
+    provider = CSVProvider()
+
+    csv_content = """Date,Description,Amount
+2024-10-01,Coffee,-5.50
+2024-10-02,Grocery,-45.00
+2024-10-03,Salary,2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.preview_transactions(
+            csv_path,
+            column_mapping={"date": "Date", "description": "Description", "amount": "Amount"},
+            limit=2
+        )
+
+        assert result.success
+        transactions = result.data
+        assert len(transactions) == 2
+        assert transactions[0].description == "Coffee"
+        assert transactions[0].amount == Decimal("-5.50")
+        assert transactions[1].description == "Grocery"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_preview_transactions_with_sign_flip():
+    """Test transaction preview with sign flip."""
+    provider = CSVProvider()
+
+    csv_content = """Date,Description,Amount
+2024-10-01,Coffee,5.50
+2024-10-02,Salary,-2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.preview_transactions(
+            csv_path,
+            column_mapping={"date": "Date", "description": "Description", "amount": "Amount"},
+            flip_signs=True
+        )
+
+        assert result.success
+        transactions = result.data
+        assert len(transactions) == 2
+        # Signs should be flipped
+        assert transactions[0].amount == Decimal("-5.50")  # Was 5.50
+        assert transactions[1].amount == Decimal("2500.00")  # Was -2500.00
+    finally:
+        Path(csv_path).unlink()

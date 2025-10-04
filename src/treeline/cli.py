@@ -380,51 +380,96 @@ def handle_import_command() -> None:
         console.print("[red]Invalid account selection[/red]\n")
         return
 
-    # Step 3: Interactive column mapping
-    import csv
+    # Step 3: Auto-detect columns and show preview
+    csv_provider = container.provider_registry()["csv"]
 
-    with open(csv_path, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        headers = next(reader)
-        console.print(f"\n[cyan]CSV columns found:[/cyan] {', '.join(headers)}")
+    console.print("\n[dim]Detecting CSV columns...[/dim]")
+    detect_result = csv_provider.detect_columns(str(csv_path))
 
-    console.print("\n[dim]Map CSV columns to transaction fields (press Enter to skip optional fields):[/dim]\n")
-
-    date_col = Prompt.ask("[cyan]Date column[/cyan]", default=headers[0] if headers else "")
-    amount_col = Prompt.ask("[cyan]Amount column[/cyan]", default=headers[2] if len(headers) > 2 else "")
-    desc_col = Prompt.ask("[cyan]Description column (optional)[/cyan]", default=headers[1] if len(headers) > 1 else "")
-    posted_col = Prompt.ask("[cyan]Posted date column (optional)[/cyan]", default="")
-
-    if not date_col or not amount_col:
-        console.print("[red]Error: Date and amount columns are required[/red]\n")
+    if not detect_result.success:
+        console.print(f"[red]Error detecting columns: {detect_result.error}[/red]\n")
         return
 
-    column_mapping = {
-        "date": date_col,
-        "amount": amount_col,
-    }
+    column_mapping = detect_result.data
+    flip_signs = False
 
-    if desc_col:
-        column_mapping["description"] = desc_col
-    if posted_col:
-        column_mapping["posted_date"] = posted_col
-
-    # Step 4: Optionally specify date format
-    console.print("\n[cyan]Date format (or 'auto' for auto-detection):[/cyan]")
-    console.print("  [dim]Examples: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY[/dim]")
-    date_format = Prompt.ask("[cyan]Format[/cyan]", default="auto")
-
-    # Step 5: Confirm and import
-    console.print(f"\n[bold]Import Summary:[/bold]")
-    console.print(f"  File: {csv_path}")
-    console.print(f"  Account: {target_account.name}")
-    console.print(f"  Columns: {column_mapping}")
-
-    if not Confirm.ask("\n[cyan]Proceed with import?[/cyan]", default=True):
-        console.print("[yellow]Import cancelled[/yellow]\n")
+    if not column_mapping.get("date") or not (column_mapping.get("amount") or (column_mapping.get("debit") and column_mapping.get("credit"))):
+        console.print("[yellow]Warning: Could not auto-detect all required columns[/yellow]")
+        console.print("[dim]You'll need to manually specify column mapping[/dim]\n")
+        # TODO: Fallback to manual mapping
         return
 
-    # Execute import
+    # Show detected columns
+    console.print("\n[green]✓ Detected columns:[/green]")
+    for key, value in column_mapping.items():
+        if value:
+            console.print(f"  {key}: {value}")
+
+    # Preview first 5 transactions
+    console.print("\n[dim]Loading preview...[/dim]")
+
+    preview_result = csv_provider.preview_transactions(
+        str(csv_path),
+        column_mapping,
+        date_format="auto",
+        limit=5,
+        flip_signs=flip_signs
+    )
+
+    if not preview_result.success:
+        console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+        return
+
+    preview_txs = preview_result.data
+
+    if not preview_txs:
+        console.print("[yellow]No transactions found in CSV[/yellow]\n")
+        return
+
+    # Display preview table
+    console.print("\n[bold cyan]Preview - First 5 Transactions:[/bold cyan]\n")
+
+    preview_table = Table(show_header=True, box=None, padding=(0, 1))
+    preview_table.add_column("Date", width=12)
+    preview_table.add_column("Description", width=40)
+    preview_table.add_column("Amount", justify="right", width=15)
+
+    for tx in preview_txs:
+        date_str = tx.transaction_date.strftime("%Y-%m-%d")
+        desc = (tx.description or "")[:38]
+        amount_str = f"${tx.amount:,.2f}"
+
+        # Color code: negative = red, positive = green
+        amount_style = "red" if tx.amount < 0 else "green"
+        preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
+
+    console.print(preview_table)
+
+    # Step 4: Validate preview
+    console.print("\n[cyan]Does this look correct?[/cyan]")
+    console.print("  [dim]Note: Negative amounts = spending, Positive = income/refunds[/dim]\n")
+
+    looks_correct = Confirm.ask("[cyan]Proceed with import?[/cyan]", default=True)
+
+    if not looks_correct:
+        console.print("\n[cyan]What would you like to adjust?[/cyan]")
+        console.print("  [1] Flip all signs (spending should be negative)")
+        console.print("  [2] Try different column mapping")
+        console.print("  [3] Cancel")
+
+        choice = Prompt.ask("\n[cyan]Choice[/cyan]", choices=["1", "2", "3"], default="3")
+
+        if choice == "1":
+            flip_signs = True
+            console.print("\n[dim]Signs will be flipped during import[/dim]")
+        elif choice == "2":
+            console.print("[yellow]Manual column mapping not yet implemented[/yellow]\n")
+            return
+        else:
+            console.print("[yellow]Import cancelled[/yellow]\n")
+            return
+
+    # Step 5: Execute import
     console.print("\n[dim]Importing transactions...[/dim]")
 
     import_result = asyncio.run(import_service.import_transactions(
@@ -434,7 +479,8 @@ def handle_import_command() -> None:
         source_options={
             "file_path": str(csv_path),
             "column_mapping": column_mapping,
-            "date_format": date_format,
+            "date_format": "auto",
+            "flip_signs": flip_signs,
         }
     ))
 

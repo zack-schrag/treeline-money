@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from uuid import UUID, uuid4
 
 from treeline.abstractions import DataAggregationProvider
@@ -57,6 +57,7 @@ class CSVProvider(DataAggregationProvider):
             return Fail("column_mapping is required in provider_settings")
 
         date_format = provider_settings.get("date_format", "auto")
+        flip_signs = provider_settings.get("flip_signs", False)
 
         # Check if file exists
         path = Path(file_path)
@@ -77,7 +78,13 @@ class CSVProvider(DataAggregationProvider):
                         # Skip invalid rows but continue processing
                         continue
 
-                    transactions.append(tx_result.data)
+                    tx = tx_result.data
+
+                    # Apply sign flip if requested
+                    if flip_signs:
+                        tx = tx.model_copy(update={"amount": -tx.amount})
+
+                    transactions.append(tx)
 
                 return Ok(transactions)
 
@@ -222,3 +229,101 @@ class CSVProvider(DataAggregationProvider):
             return Decimal(cleaned)
         except (InvalidOperation, ValueError):
             return None
+
+    def detect_columns(self, file_path: str) -> Result[Dict[str, str]]:
+        """Auto-detect column mapping from CSV headers.
+
+        Returns best-guess mapping for date, amount, and description columns.
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames or []
+
+            # Common patterns for column detection
+            date_patterns = ['date', 'transaction date', 'trans date', 'posted', 'post date']
+            amount_patterns = ['amount', 'total', 'value', 'debit', 'credit']
+            desc_patterns = ['description', 'memo', 'name', 'payee', 'merchant', 'details']
+
+            detected = {}
+
+            # Find date column
+            for header in headers:
+                header_lower = header.lower().strip()
+                if any(pattern in header_lower for pattern in date_patterns):
+                    detected['date'] = header
+                    break
+
+            # Find amount column (prefer single amount column)
+            for header in headers:
+                header_lower = header.lower().strip()
+                if header_lower == 'amount' or header_lower == 'total':
+                    detected['amount'] = header
+                    break
+
+            # If no 'amount' found, check for debit/credit
+            if 'amount' not in detected:
+                debit_col = None
+                credit_col = None
+                for header in headers:
+                    header_lower = header.lower().strip()
+                    if 'debit' in header_lower:
+                        debit_col = header
+                    if 'credit' in header_lower:
+                        credit_col = header
+
+                if debit_col or credit_col:
+                    detected['debit'] = debit_col
+                    detected['credit'] = credit_col
+
+            # Find description column
+            for header in headers:
+                header_lower = header.lower().strip()
+                if any(pattern in header_lower for pattern in desc_patterns):
+                    detected['description'] = header
+                    break
+
+            return Ok(detected)
+
+        except Exception as e:
+            return Fail(f"Failed to detect columns: {str(e)}")
+
+    def preview_transactions(
+        self,
+        file_path: str,
+        column_mapping: Dict[str, str],
+        date_format: str = "auto",
+        limit: int = 5,
+        flip_signs: bool = False
+    ) -> Result[List[Transaction]]:
+        """Preview first N transactions from CSV with given mapping.
+
+        This is used to show the user what will be imported before committing.
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                transactions = []
+
+                for i, row in enumerate(reader):
+                    if i >= limit:
+                        break
+
+                    # Parse transaction
+                    tx_result = self._parse_transaction_row(
+                        row, column_mapping, date_format, uuid4()
+                    )
+
+                    if tx_result.success and tx_result.data:
+                        tx = tx_result.data
+
+                        # Apply sign flip if requested
+                        if flip_signs:
+                            tx = tx.model_copy(update={"amount": -tx.amount})
+
+                        transactions.append(tx)
+
+                return Ok(transactions)
+
+        except Exception as e:
+            return Fail(f"Failed to preview transactions: {str(e)}")
