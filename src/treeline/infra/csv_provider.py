@@ -113,10 +113,19 @@ class CSVProvider(DataAggregationProvider):
             date_col = column_mapping.get("date")
             description_col = column_mapping.get("description")
             amount_col = column_mapping.get("amount")
+            debit_col = column_mapping.get("debit")
+            credit_col = column_mapping.get("credit")
             posted_date_col = column_mapping.get("posted_date")
 
-            if not date_col or not amount_col:
-                return Fail("date and amount columns are required in column_mapping")
+            if not date_col:
+                return Fail("date column is required in column_mapping")
+
+            # Must have either amount OR (debit and credit)
+            has_amount = bool(amount_col)
+            has_debit_credit = bool(debit_col or credit_col)
+
+            if not has_amount and not has_debit_credit:
+                return Fail("amount column (or debit/credit columns) required in column_mapping")
 
             # Parse date
             date_str = row.get(date_col, "").strip()
@@ -139,14 +148,34 @@ class CSVProvider(DataAggregationProvider):
             else:
                 posted_date = transaction_date
 
-            # Parse amount
-            amount_str = row.get(amount_col, "").strip()
-            if not amount_str:
-                return Fail("Missing amount value")
+            # Parse amount - handle both single amount and debit/credit columns
+            if has_amount:
+                amount_str = row.get(amount_col, "").strip()
+                if not amount_str:
+                    return Fail("Missing amount value")
 
-            amount = self._parse_amount(amount_str)
-            if amount is None:
-                return Fail(f"Failed to parse amount: {amount_str}")
+                amount = self._parse_amount(amount_str)
+                if amount is None:
+                    return Fail(f"Failed to parse amount: {amount_str}")
+            else:
+                # Handle debit/credit columns
+                # Debit = spending (negative), Credit = income/refund (positive)
+                debit_str = row.get(debit_col, "").strip() if debit_col else ""
+                credit_str = row.get(credit_col, "").strip() if credit_col else ""
+
+                # Skip row if both are empty
+                if not debit_str and not credit_str:
+                    return Fail("Both debit and credit are empty")
+
+                # Parse values
+                debit_amt = self._parse_amount(debit_str) if debit_str else Decimal("0")
+                credit_amt = self._parse_amount(credit_str) if credit_str else Decimal("0")
+
+                if debit_amt is None or credit_amt is None:
+                    return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
+
+                # Debit is spending (negative), credit is income (positive)
+                amount = credit_amt - debit_amt
 
             # Parse description
             description = ""
