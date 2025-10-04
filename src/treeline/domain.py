@@ -172,13 +172,15 @@ class Transaction(BaseModel):
     def _calculate_fingerprint(self) -> str:
         """Generate fingerprint hash for deduplication.
 
-        Uses: account_id, transaction_date, amount, and normalized description.
+        Uses: account_id, transaction_date, absolute amount, and normalized description.
+        Note: Uses absolute value of amount so sign flips don't affect deduplication.
         """
         import hashlib
         import re
 
         tx_date = self.transaction_date.date().isoformat()
-        amount_normalized = f"{self.amount:.2f}"
+        # Use absolute value so sign flips don't break deduplication
+        amount_normalized = f"{abs(self.amount):.2f}"
 
         # Normalize description: lowercase, remove whitespace and special chars
         desc_normalized = re.sub(r'\s+', '', (self.description or "").lower())
