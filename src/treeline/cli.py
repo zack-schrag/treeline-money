@@ -329,7 +329,7 @@ def handle_tag_command() -> None:
     import readchar
     from rich.table import Table
     from rich.panel import Panel
-    from treeline.infra.tag_suggesters import FrequencyTagSuggester
+    from treeline.infra.tag_suggesters import FrequencyTagSuggester, CommonTagSuggester, CombinedTagSuggester
 
     if not is_authenticated():
         console.print("[red]Error: You must be logged in to use tagging mode.[/red]")
@@ -344,8 +344,10 @@ def handle_tag_command() -> None:
     container = get_container()
     repository = container.repository()
 
-    # Create tagging service with frequency-based suggester
-    tag_suggester = FrequencyTagSuggester(repository)
+    # Create tagging service with combined suggester (frequency + common tags)
+    frequency_suggester = FrequencyTagSuggester(repository)
+    common_suggester = CommonTagSuggester()
+    tag_suggester = CombinedTagSuggester(frequency_suggester, common_suggester)
     tagging_service = container.tagging_service(tag_suggester)
 
     # Get untagged transactions
@@ -369,7 +371,7 @@ def handle_tag_command() -> None:
         """Render transaction list and selected transaction details."""
         console.clear()
         console.print(f"\n[green]Tagging Power Mode[/green] - {len(transactions)} untagged transactions")
-        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | q: quit[/dim]\n")
+        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear tags | q: quit[/dim]\n")
 
         # Transaction list
         list_table = Table(show_header=True, box=None, padding=(0, 1))
@@ -472,6 +474,16 @@ def handle_tag_command() -> None:
 
                     result = asyncio.run(tagging_service.update_transaction_tags(
                         UUID(user_id), str(txn.id), current_tags
+                    ))
+
+                    if result.success:
+                        transactions[current_index] = result.data
+
+            elif key == 'c':
+                txn = transactions[current_index]
+                if txn.tags:
+                    result = asyncio.run(tagging_service.update_transaction_tags(
+                        UUID(user_id), str(txn.id), []
                     ))
 
                     if result.success:
