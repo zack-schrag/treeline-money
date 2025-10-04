@@ -108,6 +108,7 @@ def handle_help_command() -> None:
     table.add_row("/help", "Show all available commands")
     table.add_row("/login", "Login or create your Treeline account")
     table.add_row("/status", "Shows summary of current state of your financial data")
+    table.add_row("/query <SQL>", "Execute a SQL query directly")
     table.add_row("/simplefin", "Setup SimpleFIN connection")
     table.add_row("/sync", "Run an on-demand data synchronization")
     table.add_row("/import", "Import CSV file of transactions")
@@ -341,6 +342,79 @@ def handle_clear_command() -> None:
         console.print(f"[yellow]Note: {result.error}[/yellow]\n")
 
 
+def handle_query_command(sql: str) -> None:
+    """Handle /query command - execute SQL directly."""
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    container = get_container()
+    config_service = container.config_service()
+    db_service = container.db_service()
+
+    # Check authentication
+    user_id_str = config_service.get_current_user_id()
+    if not user_id_str:
+        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        return
+
+    user_id = UUID(user_id_str)
+
+    # Validate SQL - only allow SELECT and WITH queries
+    sql_stripped = sql.strip()
+    sql_upper = sql_stripped.upper()
+
+    if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
+        console.print("[red]Error: Only SELECT and WITH queries are allowed.[/red]")
+        console.print("[dim]For data modifications, use the AI agent.[/dim]\n")
+        return
+
+    # Display the SQL query
+    console.print()
+    syntax = Syntax(sql_stripped, "sql", theme="monokai", line_numbers=False)
+    console.print(Panel(
+        syntax,
+        title="[bold cyan]Executing Query[/bold cyan]",
+        border_style="cyan",
+        padding=(0, 1),
+    ))
+
+    # Execute query
+    with console.status("[dim]Running query...[/dim]"):
+        result = asyncio.run(db_service.execute_query(user_id, sql_stripped))
+
+    if not result.success:
+        console.print(f"\n[red]Error: {result.error}[/red]\n")
+        return
+
+    # Format and display results
+    query_result = result.data
+    rows = query_result.get("rows", [])
+    columns = query_result.get("columns", [])
+
+    console.print()
+
+    if len(rows) == 0:
+        console.print("[dim]No results returned.[/dim]\n")
+        return
+
+    # Create Rich table
+    table = Table(show_header=True, header_style="bold cyan", border_style="dim")
+
+    # Add columns
+    for col in columns:
+        table.add_column(col)
+
+    # Add rows
+    for row in rows:
+        # Convert row values to strings
+        str_row = [str(val) if val is not None else "[dim]NULL[/dim]" for val in row]
+        table.add_row(*str_row)
+
+    console.print(table)
+    console.print(f"\n[dim]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/dim]\n")
+
+
 def handle_chat_message(message: str) -> None:
     """Handle natural language chat message."""
     container = get_container()
@@ -504,7 +578,8 @@ def process_command(user_input: str) -> bool:
 
     # Handle slash commands
     if user_input.startswith("/"):
-        command = user_input.lower().split()[0]
+        command_parts = user_input.split(maxsplit=1)
+        command = command_parts[0].lower()
 
         if command == "/help":
             handle_help_command()
@@ -522,6 +597,14 @@ def process_command(user_input: str) -> bool:
             handle_tag_command()
         elif command == "/clear":
             handle_clear_command()
+        elif command == "/query":
+            # Extract SQL from command
+            if len(command_parts) < 2:
+                console.print("[red]Error: /query requires a SQL statement[/red]")
+                console.print("[dim]Usage: /query SELECT * FROM transactions LIMIT 5[/dim]\n")
+            else:
+                sql = command_parts[1]
+                handle_query_command(sql)
         else:
             console.print(f"[red]Unknown command: {command}[/red]")
             console.print("[dim]Type /help to see available commands[/dim]")
