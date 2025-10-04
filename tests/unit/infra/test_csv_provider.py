@@ -398,11 +398,11 @@ def test_preview_transactions_with_sign_flip():
 
 @pytest.mark.asyncio
 async def test_get_transactions_with_debit_credit_columns():
-    """Test parsing CSV with separate debit/credit columns."""
+    """Test parsing CSV with separate debit/credit columns - preserves signs from CSV."""
     provider = CSVProvider()
     user_id = uuid4()
 
-    # Debit = spending (negative), Credit = positive (user will flip if needed)
+    # Signs are preserved from CSV exactly as they appear
     csv_content = """Date,Description,Debit,Credit
 2024-10-01,Coffee Shop,5.50,
 2024-10-02,Grocery Store,45.00,
@@ -435,24 +435,33 @@ async def test_get_transactions_with_debit_credit_columns():
         transactions = result.data
         assert len(transactions) == 4
 
-        # Debit transactions should be negative (spending)
-        assert transactions[0].amount == Decimal("-5.50")  # Coffee (debit)
-        assert transactions[1].amount == Decimal("-45.00")  # Grocery (debit)
+        # Debit values preserved as positive (user will flip if these should be negative)
+        assert transactions[0].amount == Decimal("5.50")  # Coffee (debit, positive in CSV)
+        assert transactions[1].amount == Decimal("45.00")  # Grocery (debit, positive in CSV)
 
-        # Credit transactions are positive (user will use flip_signs if these are also spending)
-        assert transactions[2].amount == Decimal("10.00")  # Refund (credit)
-        assert transactions[3].amount == Decimal("100.00")  # Payment (credit)
+        # Credit values preserved as positive
+        assert transactions[2].amount == Decimal("10.00")  # Refund (credit, positive in CSV)
+        assert transactions[3].amount == Decimal("100.00")  # Payment (credit, positive in CSV)
     finally:
         Path(csv_path).unlink()
 
 
 @pytest.mark.asyncio
-async def test_get_transactions_with_negative_credit_values():
-    """Test parsing CSV where Credit column already contains negative values (e.g., Citi credit card)."""
+async def test_get_transactions_with_citi_credit_card_format():
+    """Test parsing Citi credit card CSV format.
+
+    Citi format has:
+    - Debit: positive values (spending)
+    - Credit: negative values (payments)
+
+    User will see preview and choose to flip signs to get:
+    - Debit: negative (spending)
+    - Credit: positive (payments)
+    """
     provider = CSVProvider()
     user_id = uuid4()
 
-    # Some credit card CSVs have negative values in Credit column for payments
+    # Citi credit card CSV: Debit=positive spending, Credit=negative payments
     csv_content = """Date,Description,Debit,Credit
 2024-10-01,Coffee Shop,5.50,
 2024-10-02,Grocery Store,45.00,
@@ -484,11 +493,11 @@ async def test_get_transactions_with_negative_credit_values():
         transactions = result.data
         assert len(transactions) == 3
 
-        # Debit transactions should be negative (spending)
-        assert transactions[0].amount == Decimal("-5.50")  # Coffee (debit)
-        assert transactions[1].amount == Decimal("-45.00")  # Grocery (debit)
+        # Debit values preserved as positive (from CSV)
+        assert transactions[0].amount == Decimal("5.50")  # Coffee (debit, positive in CSV)
+        assert transactions[1].amount == Decimal("45.00")  # Grocery (debit, positive in CSV)
 
-        # Credit with negative value should preserve the negative sign
-        assert transactions[2].amount == Decimal("-1669.25")  # Payment (credit, already negative)
+        # Credit value preserved as negative (from CSV)
+        assert transactions[2].amount == Decimal("-1669.25")  # Payment (credit, negative in CSV)
     finally:
         Path(csv_path).unlink()

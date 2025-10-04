@@ -173,17 +173,16 @@ class CSVProvider(DataAggregationProvider):
 
                 if debit_amt is not None and credit_amt is not None:
                     # Both have values - this is unusual but handle it
-                    # Take the non-zero one, or credit - debit if both non-zero
+                    # Take the non-zero one, or use the larger absolute value
                     if abs(debit_amt) > abs(credit_amt):
-                        amount = -abs(debit_amt)  # Debit is spending (negative)
+                        amount = debit_amt  # Preserve sign from CSV
                     else:
-                        amount = credit_amt  # Keep credit as-is, preserve sign from CSV
+                        amount = credit_amt  # Preserve sign from CSV
                 elif debit_amt is not None:
-                    # Only debit has value - make it negative (spending)
-                    amount = -abs(debit_amt)
+                    # Only debit has value - preserve sign from CSV
+                    amount = debit_amt
                 elif credit_amt is not None:
                     # Only credit has value - preserve sign from CSV
-                    # Some CSVs have negative credits (payments), some positive (refunds)
                     amount = credit_amt
                 else:
                     return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
