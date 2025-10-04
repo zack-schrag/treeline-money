@@ -142,6 +142,15 @@ class MockRepository(Repository):
     async def get_integration_settings(self, user_id, integration_name):
         pass
 
+    async def get_tag_statistics(self, user_id):
+        pass
+
+    async def get_transactions_for_tagging(self, user_id, filters={}, limit=100):
+        pass
+
+    async def update_transaction_tags(self, user_id, transaction_id, tags):
+        pass
+
 
 @pytest.mark.asyncio
 async def test_sync_service_uses_correct_provider_for_integration():

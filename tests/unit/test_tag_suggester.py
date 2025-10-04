@@ -1,0 +1,151 @@
+"""Unit tests for TagSuggester implementations."""
+
+import pytest
+from unittest.mock import Mock, AsyncMock
+from uuid import UUID
+from datetime import datetime, timezone
+
+from treeline.domain import Transaction, Ok
+from treeline.infra.tag_suggesters import FrequencyTagSuggester
+
+
+class TestFrequencyTagSuggester:
+    """Test frequency-based tag suggestion."""
+
+    @pytest.mark.asyncio
+    async def test_suggests_most_frequent_tags(self):
+        """Should suggest most frequently used tags across all transactions."""
+        # Mock repository
+        repository = Mock()
+        repository.get_tag_statistics = AsyncMock(return_value=Ok({
+            "groceries": 50,
+            "dining": 30,
+            "transport": 20,
+            "bills": 10,
+            "entertainment": 5,
+        }))
+
+        suggester = FrequencyTagSuggester(repository)
+
+        # Create a transaction (tags don't matter for frequency suggester)
+        transaction = Transaction(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            account_id=UUID("00000000-0000-0000-0000-000000000002"),
+            external_ids={},
+            amount=-50.0,
+            description="Whole Foods",
+            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            tags=(),
+            created_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+        )
+
+        user_id = UUID("12345678-1234-5678-1234-567812345678")
+
+        # Get suggestions
+        result = await suggester.suggest_tags(user_id, transaction, limit=5)
+
+        assert result.success
+        assert len(result.data) == 5
+        # Should be sorted by frequency descending
+        assert result.data == ["groceries", "dining", "transport", "bills", "entertainment"]
+
+    @pytest.mark.asyncio
+    async def test_excludes_already_applied_tags(self):
+        """Should not suggest tags already on the transaction."""
+        repository = Mock()
+        repository.get_tag_statistics = AsyncMock(return_value=Ok({
+            "groceries": 50,
+            "dining": 30,
+            "transport": 20,
+            "bills": 10,
+        }))
+
+        suggester = FrequencyTagSuggester(repository)
+
+        # Transaction already has "groceries" tag
+        transaction = Transaction(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            account_id=UUID("00000000-0000-0000-0000-000000000002"),
+            external_ids={},
+            amount=-50.0,
+            description="Whole Foods",
+            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            tags=("groceries",),
+            created_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+        )
+
+        user_id = UUID("12345678-1234-5678-1234-567812345678")
+
+        result = await suggester.suggest_tags(user_id, transaction, limit=5)
+
+        assert result.success
+        # Should not include "groceries"
+        assert "groceries" not in result.data
+        assert result.data == ["dining", "transport", "bills"]
+
+    @pytest.mark.asyncio
+    async def test_respects_limit(self):
+        """Should return at most limit number of tags."""
+        repository = Mock()
+        repository.get_tag_statistics = AsyncMock(return_value=Ok({
+            "groceries": 50,
+            "dining": 30,
+            "transport": 20,
+            "bills": 10,
+            "entertainment": 5,
+        }))
+
+        suggester = FrequencyTagSuggester(repository)
+
+        transaction = Transaction(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            account_id=UUID("00000000-0000-0000-0000-000000000002"),
+            external_ids={},
+            amount=-50.0,
+            description="Whole Foods",
+            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            tags=(),
+            created_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+        )
+
+        user_id = UUID("12345678-1234-5678-1234-567812345678")
+
+        result = await suggester.suggest_tags(user_id, transaction, limit=3)
+
+        assert result.success
+        assert len(result.data) == 3
+        assert result.data == ["groceries", "dining", "transport"]
+
+    @pytest.mark.asyncio
+    async def test_handles_no_tags_in_database(self):
+        """Should return empty list when no tags exist."""
+        repository = Mock()
+        repository.get_tag_statistics = AsyncMock(return_value=Ok({}))
+
+        suggester = FrequencyTagSuggester(repository)
+
+        transaction = Transaction(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            account_id=UUID("00000000-0000-0000-0000-000000000002"),
+            external_ids={},
+            amount=-50.0,
+            description="Whole Foods",
+            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            tags=(),
+            created_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            updated_at=datetime(2024, 10, 1, tzinfo=timezone.utc),
+        )
+
+        user_id = UUID("12345678-1234-5678-1234-567812345678")
+
+        result = await suggester.suggest_tags(user_id, transaction, limit=5)
+
+        assert result.success
+        assert result.data == []

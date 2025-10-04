@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
 
-from treeline.abstractions import AIProvider, AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository
+from treeline.abstractions import AIProvider, AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository, TagSuggester
 from treeline.domain import Account, Result, Transaction, User
 
 
@@ -660,3 +660,87 @@ class AgentService:
             True if session is active, False otherwise
         """
         return self.ai_provider.has_active_session()
+
+
+class TaggingService:
+    """Service for managing transaction tagging operations."""
+
+    def __init__(self, repository: Repository, tag_suggester: TagSuggester):
+        """
+        Initialize TaggingService.
+
+        Args:
+            repository: Repository for data persistence
+            tag_suggester: Tag suggestion algorithm
+        """
+        self.repository = repository
+        self.tag_suggester = tag_suggester
+
+    async def get_untagged_transactions(
+        self, user_id: UUID, limit: int = 100
+    ) -> Result[List[Transaction]]:
+        """
+        Get transactions that have no tags.
+
+        Args:
+            user_id: User context
+            limit: Maximum number of transactions to return
+
+        Returns:
+            Result containing list of untagged Transaction objects
+        """
+        return await self.repository.get_transactions_for_tagging(
+            user_id, filters={"has_tags": False}, limit=limit
+        )
+
+    async def get_transactions_for_tagging(
+        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100
+    ) -> Result[List[Transaction]]:
+        """
+        Get transactions matching filters for tagging session.
+
+        Args:
+            user_id: User context
+            filters: Optional filters (e.g., {"has_tags": False} for untagged only)
+            limit: Maximum number of transactions to return
+
+        Returns:
+            Result containing list of Transaction objects
+        """
+        return await self.repository.get_transactions_for_tagging(
+            user_id, filters=filters, limit=limit
+        )
+
+    async def update_transaction_tags(
+        self, user_id: UUID, transaction_id: str, tags: List[str]
+    ) -> Result[Transaction]:
+        """
+        Update tags for a single transaction.
+
+        Args:
+            user_id: User context
+            transaction_id: Transaction ID to update
+            tags: New list of tags (replaces existing tags)
+
+        Returns:
+            Result containing updated Transaction object
+        """
+        return await self.repository.update_transaction_tags(
+            user_id, transaction_id, tags
+        )
+
+    async def get_suggested_tags(
+        self, user_id: UUID, transaction: Transaction, limit: int = 5
+    ) -> Result[List[str]]:
+        """
+        Get suggested tags for a transaction using configured suggester.
+
+        Args:
+            user_id: User context
+            transaction: Transaction to suggest tags for
+            limit: Maximum number of tags to suggest
+
+        Returns:
+            Result containing list of suggested tag strings
+        """
+        return await self.tag_suggester.suggest_tags(user_id, transaction, limit=limit)

@@ -130,6 +130,54 @@ class Repository(ABC):
         pass
 
     @abstractmethod
+    async def get_tag_statistics(self, user_id: UUID) -> Result[Dict[str, int]]:
+        """
+        Get tag usage statistics (frequency count for each tag).
+
+        Args:
+            user_id: User context
+
+        Returns:
+            Result containing dict mapping tag names to usage counts
+            Example: {"groceries": 50, "dining": 30, "transport": 20}
+        """
+        pass
+
+    @abstractmethod
+    async def get_transactions_for_tagging(
+        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100
+    ) -> Result[List[Transaction]]:
+        """
+        Get transactions for tagging session.
+
+        Args:
+            user_id: User context
+            filters: Optional filters (e.g., {"has_tags": False} for untagged only)
+            limit: Maximum number of transactions to return
+
+        Returns:
+            Result containing list of Transaction objects
+        """
+        pass
+
+    @abstractmethod
+    async def update_transaction_tags(
+        self, user_id: UUID, transaction_id: str, tags: List[str]
+    ) -> Result[Transaction]:
+        """
+        Update tags for a single transaction.
+
+        Args:
+            user_id: User context
+            transaction_id: Transaction ID to update
+            tags: New list of tags (replaces existing tags)
+
+        Returns:
+            Result containing updated Transaction object
+        """
+        pass
+
+    @abstractmethod
     async def get_date_range_info(self, user_id: UUID) -> Result[Dict[str, Any]]:
         """
         Get date range information for transactions.
@@ -249,5 +297,26 @@ class AIProvider(ABC):
 
         Returns:
             True if session is active, False otherwise
+        """
+        pass
+
+
+class TagSuggester(ABC):
+    """Abstract interface for tag suggestion algorithms."""
+
+    @abstractmethod
+    async def suggest_tags(
+        self, user_id: UUID, transaction: Transaction, limit: int = 5
+    ) -> Result[List[str]]:
+        """
+        Suggest tags for a transaction.
+
+        Args:
+            user_id: User context
+            transaction: Transaction to suggest tags for
+            limit: Maximum number of tags to suggest
+
+        Returns:
+            Result containing list of suggested tag strings
         """
         pass

@@ -619,3 +619,136 @@ class DuckDBRepository(Repository):
             return Ok(settings)
         except Exception as e:
             return Fail(f"Failed to get integration settings: {str(e)}")
+
+    async def get_tag_statistics(self, user_id: UUID) -> Result[Dict[str, int]]:
+        """Get tag usage statistics (frequency count for each tag)."""
+        try:
+            conn = self._get_connection(user_id, read_only=True)
+
+            # Query to unnest tags and count occurrences
+            result = conn.execute("""
+                SELECT
+                    UNNEST(tags) as tag,
+                    COUNT(*) as count
+                FROM transactions
+                WHERE tags IS NOT NULL AND len(tags) > 0
+                GROUP BY tag
+                ORDER BY count DESC
+            """).fetchall()
+
+            tag_stats = {row[0]: row[1] for row in result}
+            conn.close()
+            return Ok(tag_stats)
+        except Exception as e:
+            return Fail(f"Failed to get tag statistics: {str(e)}")
+
+    async def get_transactions_for_tagging(
+        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100
+    ) -> Result[List[Transaction]]:
+        """Get transactions for tagging session."""
+        try:
+            conn = self._get_connection(user_id, read_only=True)
+
+            # Build WHERE clause based on filters
+            where_clauses = []
+            params = []
+
+            if filters.get("has_tags") is False:
+                where_clauses.append("(tags IS NULL OR len(tags) = 0)")
+            elif filters.get("has_tags") is True:
+                where_clauses.append("(tags IS NOT NULL AND len(tags) > 0)")
+
+            where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+            result = conn.execute(f"""
+                SELECT
+                    id,
+                    account_id,
+                    external_ids,
+                    amount,
+                    description,
+                    transaction_date,
+                    posted_date,
+                    tags,
+                    created_at,
+                    updated_at
+                FROM transactions
+                WHERE {where_sql}
+                ORDER BY transaction_date DESC
+                LIMIT ?
+            """, params + [limit]).fetchall()
+
+            transactions = []
+            for row in result:
+                transactions.append(Transaction(
+                    id=UUID(row[0]),
+                    account_id=UUID(row[1]),
+                    external_ids=json.loads(row[2]),
+                    amount=row[3],
+                    description=row[4],
+                    transaction_date=row[5],
+                    posted_date=row[6],
+                    tags=tuple(row[7]) if row[7] else (),
+                    created_at=row[8],
+                    updated_at=row[9],
+                ))
+
+            conn.close()
+            return Ok(transactions)
+        except Exception as e:
+            return Fail(f"Failed to get transactions for tagging: {str(e)}")
+
+    async def update_transaction_tags(
+        self, user_id: UUID, transaction_id: str, tags: List[str]
+    ) -> Result[Transaction]:
+        """Update tags for a single transaction."""
+        try:
+            conn = self._get_connection(user_id)
+
+            now = datetime.now(timezone.utc)
+
+            # Update the transaction
+            conn.execute("""
+                UPDATE transactions
+                SET tags = ?, updated_at = ?
+                WHERE id = ?
+            """, [tags, now, transaction_id])
+
+            # Fetch the updated transaction
+            result = conn.execute("""
+                SELECT
+                    id,
+                    account_id,
+                    external_ids,
+                    amount,
+                    description,
+                    transaction_date,
+                    posted_date,
+                    tags,
+                    created_at,
+                    updated_at
+                FROM transactions
+                WHERE id = ?
+            """, [transaction_id]).fetchone()
+
+            if not result:
+                conn.close()
+                return Fail(f"Transaction {transaction_id} not found")
+
+            transaction = Transaction(
+                id=UUID(result[0]),
+                account_id=UUID(result[1]),
+                external_ids=json.loads(result[2]),
+                amount=result[3],
+                description=result[4],
+                transaction_date=result[5],
+                posted_date=result[6],
+                tags=tuple(result[7]) if result[7] else (),
+                created_at=result[8],
+                updated_at=result[9],
+            )
+
+            conn.close()
+            return Ok(transaction)
+        except Exception as e:
+            return Fail(f"Failed to update transaction tags: {str(e)}")
