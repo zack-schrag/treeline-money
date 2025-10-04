@@ -177,13 +177,14 @@ class CSVProvider(DataAggregationProvider):
                     if abs(debit_amt) > abs(credit_amt):
                         amount = -abs(debit_amt)  # Debit is spending (negative)
                     else:
-                        amount = abs(credit_amt)  # Credit might be refund (positive) or payment (also negative - user will flip)
+                        amount = credit_amt  # Keep credit as-is, preserve sign from CSV
                 elif debit_amt is not None:
                     # Only debit has value - make it negative (spending)
                     amount = -abs(debit_amt)
                 elif credit_amt is not None:
-                    # Only credit has value - keep as positive (might need sign flip for credit card payments)
-                    amount = abs(credit_amt)
+                    # Only credit has value - preserve sign from CSV
+                    # Some CSVs have negative credits (payments), some positive (refunds)
+                    amount = credit_amt
                 else:
                     return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
 
@@ -281,7 +282,6 @@ class CSVProvider(DataAggregationProvider):
 
             # Common patterns for column detection
             date_patterns = ['date', 'transaction date', 'trans date', 'posted', 'post date']
-            amount_patterns = ['amount', 'total', 'value', 'debit', 'credit']
             desc_patterns = ['description', 'memo', 'name', 'payee', 'merchant', 'details']
 
             detected = {}

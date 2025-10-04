@@ -444,3 +444,51 @@ async def test_get_transactions_with_debit_credit_columns():
         assert transactions[3].amount == Decimal("100.00")  # Payment (credit)
     finally:
         Path(csv_path).unlink()
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_with_negative_credit_values():
+    """Test parsing CSV where Credit column already contains negative values (e.g., Citi credit card)."""
+    provider = CSVProvider()
+    user_id = uuid4()
+
+    # Some credit card CSVs have negative values in Credit column for payments
+    csv_content = """Date,Description,Debit,Credit
+2024-10-01,Coffee Shop,5.50,
+2024-10-02,Grocery Store,45.00,
+2024-10-03,Payment Thank You,,-1669.25
+"""
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = await provider.get_transactions(
+            user_id=user_id,
+            start_date=datetime.min,
+            end_date=datetime.max,
+            provider_account_ids=[],
+            provider_settings={
+                "file_path": csv_path,
+                "column_mapping": {
+                    "date": "Date",
+                    "description": "Description",
+                    "debit": "Debit",
+                    "credit": "Credit"
+                }
+            }
+        )
+
+        assert result.success
+        transactions = result.data
+        assert len(transactions) == 3
+
+        # Debit transactions should be negative (spending)
+        assert transactions[0].amount == Decimal("-5.50")  # Coffee (debit)
+        assert transactions[1].amount == Decimal("-45.00")  # Grocery (debit)
+
+        # Credit with negative value should preserve the negative sign
+        assert transactions[2].amount == Decimal("-1669.25")  # Payment (credit, already negative)
+    finally:
+        Path(csv_path).unlink()
