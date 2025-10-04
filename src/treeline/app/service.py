@@ -288,9 +288,9 @@ class SyncService:
             )
 
         rows = max_date_result.data.get("rows", [])
-        if rows and rows[0].get("max_date"):
+        if rows and rows[0][0]:
             # Incremental sync: start from last transaction date minus 7 days overlap
-            max_date = rows[0]["max_date"]
+            max_date = rows[0][0]
 
             # Ensure it's a datetime object and timezone-aware
             if isinstance(max_date, datetime):
