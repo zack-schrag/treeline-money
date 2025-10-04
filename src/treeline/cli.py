@@ -389,7 +389,7 @@ def handle_tag_command() -> None:
         filter_text = "untagged only" if show_untagged_only else "all transactions"
         page_info = f"(showing {current_offset + 1}-{current_offset + len(transactions)})"
         console.print(f"\n[green]Tagging Power Mode[/green] - {filter_text} {page_info}")
-        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear | f: filter | n/p: next/prev page | q: quit[/dim]\n")
+        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear | u: toggle untagged | n/p: next/prev page | q: quit[/dim]\n")
 
         # Transaction list
         list_table = Table(show_header=True, box=None, padding=(0, 1))
@@ -507,8 +507,8 @@ def handle_tag_command() -> None:
                     if result.success:
                         transactions[current_index] = result.data
 
-            elif key == 'f':
-                # Toggle filter
+            elif key == 'u':
+                # Toggle untagged filter
                 show_untagged_only = not show_untagged_only
                 current_offset = 0
                 current_index = 0
