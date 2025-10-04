@@ -352,7 +352,7 @@ def handle_tag_command() -> None:
 
     # Get untagged transactions
     console.print("[dim]Loading untagged transactions...[/dim]")
-    result = asyncio.run(tagging_service.get_untagged_transactions(UUID(user_id), limit=100))
+    result = asyncio.run(tagging_service.get_untagged_transactions(UUID(user_id), limit=500))
 
     if not result.success:
         console.print(f"[red]Error: {result.error}[/red]\n")
