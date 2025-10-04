@@ -9,6 +9,7 @@ dependencies = [
     "keyring>=25.6.0",
     "pydantic>=2.11.9",
     "python-dotenv>=1.1.1",
+    "readchar>=4.2.1",
     "rich>=14.1.0",
     "supabase>=2.20.0",
     "textual>=6.2.1",

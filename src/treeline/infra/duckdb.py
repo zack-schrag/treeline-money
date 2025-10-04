@@ -662,7 +662,7 @@ class DuckDBRepository(Repository):
 
             result = conn.execute(f"""
                 SELECT
-                    id,
+                    transaction_id,
                     account_id,
                     external_ids,
                     amount,
@@ -683,14 +683,14 @@ class DuckDBRepository(Repository):
                 transactions.append(Transaction(
                     id=UUID(row[0]),
                     account_id=UUID(row[1]),
-                    external_ids=json.loads(row[2]),
-                    amount=row[3],
+                    external_ids=MappingProxyType(json.loads(row[2]) if row[2] else {}),
+                    amount=Decimal(str(row[3])),
                     description=row[4],
-                    transaction_date=row[5],
-                    posted_date=row[6],
+                    transaction_date=self._ensure_timezone(row[5]),
+                    posted_date=self._ensure_timezone(row[6]),
                     tags=tuple(row[7]) if row[7] else (),
-                    created_at=row[8],
-                    updated_at=row[9],
+                    created_at=self._ensure_timezone(row[8]),
+                    updated_at=self._ensure_timezone(row[9]),
                 ))
 
             conn.close()
@@ -711,13 +711,13 @@ class DuckDBRepository(Repository):
             conn.execute("""
                 UPDATE transactions
                 SET tags = ?, updated_at = ?
-                WHERE id = ?
+                WHERE transaction_id = ?
             """, [tags, now, transaction_id])
 
             # Fetch the updated transaction
             result = conn.execute("""
                 SELECT
-                    id,
+                    transaction_id,
                     account_id,
                     external_ids,
                     amount,
@@ -728,7 +728,7 @@ class DuckDBRepository(Repository):
                     created_at,
                     updated_at
                 FROM transactions
-                WHERE id = ?
+                WHERE transaction_id = ?
             """, [transaction_id]).fetchone()
 
             if not result:
@@ -738,14 +738,14 @@ class DuckDBRepository(Repository):
             transaction = Transaction(
                 id=UUID(result[0]),
                 account_id=UUID(result[1]),
-                external_ids=json.loads(result[2]),
-                amount=result[3],
+                external_ids=MappingProxyType(json.loads(result[2]) if result[2] else {}),
+                amount=Decimal(str(result[3])),
                 description=result[4],
-                transaction_date=result[5],
-                posted_date=result[6],
+                transaction_date=self._ensure_timezone(result[5]),
+                posted_date=self._ensure_timezone(result[6]),
                 tags=tuple(result[7]) if result[7] else (),
-                created_at=result[8],
-                updated_at=result[9],
+                created_at=self._ensure_timezone(result[8]),
+                updated_at=self._ensure_timezone(result[9]),
             )
 
             conn.close()

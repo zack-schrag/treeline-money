@@ -120,3 +120,17 @@ class Container:
         if "agent_service" not in self._instances:
             self._instances["agent_service"] = AgentService(self.ai_provider())
         return self._instances["agent_service"]
+
+    def tagging_service(self, tag_suggester: "TagSuggester") -> "TaggingService":
+        """
+        Get a tagging service instance with provided tag suggester.
+
+        Args:
+            tag_suggester: Tag suggestion algorithm to use
+
+        Returns:
+            TaggingService instance
+        """
+        from treeline.app.service import TaggingService
+
+        return TaggingService(self.repository(), tag_suggester)
