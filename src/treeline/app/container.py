@@ -12,8 +12,9 @@ from treeline.abstractions import (
     DataAggregationProvider,
     IntegrationProvider,
     Repository,
+    TagSuggester,
 )
-from treeline.app.service import AgentService, AuthService, ConfigService, DbService, IntegrationService, StatusService, SyncService
+from treeline.app.service import AgentService, AuthService, ConfigService, DbService, IntegrationService, StatusService, SyncService, TaggingService
 from treeline.infra.anthropic import AnthropicProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
@@ -121,7 +122,7 @@ class Container:
             self._instances["agent_service"] = AgentService(self.ai_provider())
         return self._instances["agent_service"]
 
-    def tagging_service(self, tag_suggester: "TagSuggester") -> "TaggingService":
+    def tagging_service(self, tag_suggester: TagSuggester) -> TaggingService:
         """
         Get a tagging service instance with provided tag suggester.
 
