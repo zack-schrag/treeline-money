@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
 
@@ -139,8 +139,8 @@ async def test_import_transactions_with_no_existing():
             account_id=uuid4(),  # Will be remapped to target account
             amount=Decimal("10.00"),
             description="Coffee",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -149,8 +149,8 @@ async def test_import_transactions_with_no_existing():
             account_id=uuid4(),
             amount=Decimal("20.00"),
             description="Lunch",
-            transaction_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 2),
+            posted_date=date(2024, 10, 2),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -159,8 +159,8 @@ async def test_import_transactions_with_no_existing():
             account_id=uuid4(),
             amount=Decimal("30.00"),
             description="Dinner",
-            transaction_date=datetime(2024, 10, 3, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 3, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 3),
+            posted_date=date(2024, 10, 3),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -207,8 +207,8 @@ async def test_import_transactions_with_existing_duplicates():
             account_id=uuid4(),
             amount=Decimal("10.00"),
             description="Coffee at Starbucks",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -217,8 +217,8 @@ async def test_import_transactions_with_existing_duplicates():
             account_id=uuid4(),
             amount=Decimal("10.00"),
             description="Coffee at Starbucks",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -227,8 +227,8 @@ async def test_import_transactions_with_existing_duplicates():
             account_id=uuid4(),
             amount=Decimal("10.00"),
             description="Coffee at Starbucks",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -241,7 +241,7 @@ async def test_import_transactions_with_existing_duplicates():
     tx_dict["account_id"] = account_id
     tx_dict.pop("dedup_key", None)
     remapped = Transaction(**tx_dict)
-    expected_fingerprint = remapped.dedup_key
+    expected_fingerprint = remapped.external_ids["fingerprint"]
 
     # Simulate 2 existing transactions with this fingerprint
     mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok({
@@ -280,8 +280,8 @@ async def test_import_transactions_all_duplicates():
             account_id=uuid4(),
             amount=Decimal("10.00"),
             description="Coffee",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -294,7 +294,7 @@ async def test_import_transactions_all_duplicates():
     tx_dict["account_id"] = account_id
     tx_dict.pop("dedup_key", None)
     remapped = Transaction(**tx_dict)
-    expected_fingerprint = remapped.dedup_key
+    expected_fingerprint = remapped.external_ids["fingerprint"]
 
     # Simulate 1 existing transaction
     mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok({
@@ -385,8 +385,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("5.00"),
             description="Coffee",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -395,8 +395,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("5.00"),
             description="Coffee",
-            transaction_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -405,8 +405,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("15.00"),
             description="Lunch",
-            transaction_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 2),
+            posted_date=date(2024, 10, 2),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -415,8 +415,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("15.00"),
             description="Lunch",
-            transaction_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 2),
+            posted_date=date(2024, 10, 2),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -425,8 +425,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("15.00"),
             description="Lunch",
-            transaction_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 2, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 2),
+            posted_date=date(2024, 10, 2),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -435,8 +435,8 @@ async def test_import_mixed_fingerprints():
             account_id=uuid4(),
             amount=Decimal("30.00"),
             description="Dinner",
-            transaction_date=datetime(2024, 10, 3, tzinfo=timezone.utc),
-            posted_date=datetime(2024, 10, 3, tzinfo=timezone.utc),
+            transaction_date=date(2024, 10, 3),
+            posted_date=date(2024, 10, 3),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         ),
@@ -449,7 +449,7 @@ async def test_import_mixed_fingerprints():
         tx_dict = tx.model_dump()
         tx_dict["account_id"] = target_account_id
         tx_dict.pop("dedup_key", None)
-        return Transaction(**tx_dict).dedup_key
+        return Transaction(**tx_dict).external_ids["fingerprint"]
 
     coffee_fp = get_fingerprint(discovered_transactions[0], account_id)
     lunch_fp = get_fingerprint(discovered_transactions[2], account_id)

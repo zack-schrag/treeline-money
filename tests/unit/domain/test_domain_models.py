@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -12,6 +12,10 @@ from treeline.domain import Account, BalanceSnapshot, Transaction
 
 def _tz_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _today() -> date:
+    return date.today()
 
 
 def test_account_fields_align_with_schema() -> None:
@@ -67,8 +71,8 @@ def test_transaction_normalizes_amount_and_tags() -> None:
         amount="123.45",
         description=" Grocery run ",
         external_ids={"simplefin": "txn-1"},
-        transaction_date=_tz_now(),
-        posted_date=_tz_now(),
+        transaction_date=_today(),
+        posted_date=_today(),
         created_at=_tz_now(),
         updated_at=_tz_now(),
         tags=[" groceries ", "Fuel", "groceries"],
@@ -77,7 +81,10 @@ def test_transaction_normalizes_amount_and_tags() -> None:
     assert transaction.amount == Decimal("123.45")
     assert transaction.description == "Grocery run"
     assert transaction.tags == ("groceries", "Fuel")
-    assert dict(transaction.external_ids) == {"simplefin": "txn-1"}
+    # Fingerprint is auto-added to external_ids
+    ext_ids = dict(transaction.external_ids)
+    assert "simplefin" in ext_ids
+    assert "fingerprint" in ext_ids  # Auto-generated
 
     # Zero-amount transactions are valid (transfers, pending, corrections, etc.)
     zero_amount_transaction = Transaction(
@@ -85,24 +92,12 @@ def test_transaction_normalizes_amount_and_tags() -> None:
         account_id=account_id,
         amount="0",
         description="Transfer",
-        transaction_date=_tz_now(),
-        posted_date=_tz_now(),
+        transaction_date=_today(),
+        posted_date=_today(),
         created_at=_tz_now(),
         updated_at=_tz_now(),
     )
     assert zero_amount_transaction.amount == Decimal("0")
-
-    with pytest.raises(ValidationError):
-        Transaction(
-            id=uuid4(),
-            account_id=account_id,
-            amount="10.00",
-            description="Valid",
-            transaction_date=_tz_now(),
-            posted_date=datetime.now(),
-            created_at=_tz_now(),
-            updated_at=_tz_now(),
-        )
 
 
 def test_balance_snapshot_requires_timezone_aware_datetime() -> None:
@@ -131,24 +126,24 @@ def test_balance_snapshot_requires_timezone_aware_datetime() -> None:
 
 
 def test_transaction_auto_generates_dedup_key() -> None:
-    """Test that Transaction automatically generates dedup_key."""
+    """Test that Transaction automatically generates fingerprint in external_ids."""
     account_id = uuid4()
 
-    # Create transaction without providing dedup_key
+    # Create transaction without providing fingerprint
     tx = Transaction(
         id=uuid4(),
         account_id=account_id,
         amount=Decimal("25.50"),
         description="Coffee at Starbucks",
-        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
-        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        transaction_date=date(2025, 10, 4),
+        posted_date=date(2025, 10, 4),
         created_at=_tz_now(),
         updated_at=_tz_now(),
     )
 
-    # dedup_key should be auto-generated
-    assert tx.dedup_key
-    assert tx.dedup_key.startswith("fingerprint:")
+    # fingerprint should be auto-generated in external_ids
+    assert "fingerprint" in tx.external_ids
+    assert tx.external_ids["fingerprint"].startswith("fingerprint:")
 
     # Same transaction data should generate same fingerprint
     tx2 = Transaction(
@@ -156,13 +151,13 @@ def test_transaction_auto_generates_dedup_key() -> None:
         account_id=account_id,  # Same account
         amount=Decimal("25.50"),  # Same amount
         description="Coffee at Starbucks",  # Same description
-        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),  # Same date
-        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        transaction_date=date(2025, 10, 4),  # Same date
+        posted_date=date(2025, 10, 4),
         created_at=_tz_now(),
         updated_at=_tz_now(),
     )
 
-    assert tx.dedup_key == tx2.dedup_key
+    assert tx.external_ids["fingerprint"] == tx2.external_ids["fingerprint"]
 
     # Different description should generate different fingerprint
     tx3 = Transaction(
@@ -170,24 +165,24 @@ def test_transaction_auto_generates_dedup_key() -> None:
         account_id=account_id,
         amount=Decimal("25.50"),
         description="Coffee at Peet's",  # Different description
-        transaction_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
-        posted_date=datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc),
+        transaction_date=date(2025, 10, 4),
+        posted_date=date(2025, 10, 4),
         created_at=_tz_now(),
         updated_at=_tz_now(),
     )
 
-    assert tx.dedup_key != tx3.dedup_key
+    assert tx.external_ids["fingerprint"] != tx3.external_ids["fingerprint"]
 
 
 def test_transaction_dedup_key_strips_csv_noise() -> None:
-    """Test that dedup_key normalization strips common CSV noise patterns.
+    """Test that fingerprint normalization strips common CSV noise patterns.
 
     Verifies that 'null' literals and card number masks (XXXXXXXXXXXX1234)
     are stripped from descriptions during fingerprinting, allowing CSV and
     SimpleFIN formats to match when they represent the same transaction.
     """
     account_id = uuid4()
-    tx_date = datetime(2025, 7, 9, 10, 30, tzinfo=timezone.utc)
+    tx_date = date(2025, 7, 9)
     amount = Decimal("21.77")
 
     # CSV format: has "null" and card number mask
@@ -214,15 +209,15 @@ def test_transaction_dedup_key_strips_csv_noise() -> None:
         updated_at=_tz_now(),
     )
 
-    # Should generate same dedup_key despite format differences
+    # Should generate same fingerprint despite format differences
     # Both normalize to: "acmestore123seattlewa"
-    assert tx_csv.dedup_key == tx_simplefin.dedup_key
+    assert tx_csv.external_ids["fingerprint"] == tx_simplefin.external_ids["fingerprint"]
 
 
 def test_transaction_dedup_key_preserves_order_ids() -> None:
-    """Test that order IDs are preserved in dedup_key (not stripped)."""
+    """Test that order IDs are preserved in fingerprint (not stripped)."""
     account_id = uuid4()
-    tx_date = datetime(2025, 7, 9, 10, 30, tzinfo=timezone.utc)
+    tx_date = date(2025, 7, 9)
     amount = Decimal("21.77")
 
     # Same vendor, same day, same amount, different order IDs
@@ -248,14 +243,14 @@ def test_transaction_dedup_key_preserves_order_ids() -> None:
         updated_at=_tz_now(),
     )
 
-    # Should have DIFFERENT dedup_keys because order IDs differ
-    assert tx1.dedup_key != tx2.dedup_key
+    # Should have DIFFERENT fingerprints because order IDs differ
+    assert tx1.external_ids["fingerprint"] != tx2.external_ids["fingerprint"]
 
 
 def test_transaction_dedup_key_ignores_sign_flip() -> None:
-    """Test that dedup_key uses absolute amount (sign flips don't affect dedup)."""
+    """Test that fingerprint uses absolute amount (sign flips don't affect dedup)."""
     account_id = uuid4()
-    tx_date = datetime(2025, 10, 4, 10, 30, tzinfo=timezone.utc)
+    tx_date = date(2025, 10, 4)
 
     # Same transaction with different signs
     tx_positive = Transaction(
@@ -280,5 +275,5 @@ def test_transaction_dedup_key_ignores_sign_flip() -> None:
         updated_at=_tz_now(),
     )
 
-    # Should generate same dedup_key (abs amount used)
-    assert tx_positive.dedup_key == tx_negative.dedup_key
+    # Should generate same fingerprint (abs amount used)
+    assert tx_positive.external_ids["fingerprint"] == tx_negative.external_ids["fingerprint"]
