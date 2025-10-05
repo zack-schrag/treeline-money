@@ -437,7 +437,12 @@ def handle_import_command() -> None:
     for tx in preview_txs:
         date_str = tx.transaction_date.strftime("%Y-%m-%d")
         desc = (tx.description or "")[:38]
-        amount_str = f"${tx.amount:,.2f}"
+
+        # Use proper sign placement: -$XX.XX not $-XX.XX
+        if tx.amount < 0:
+            amount_str = f"-${abs(tx.amount):,.2f}"
+        else:
+            amount_str = f"${tx.amount:,.2f}"
 
         # Color code: negative = red, positive = green
         amount_style = "red" if tx.amount < 0 else "green"
@@ -445,21 +450,67 @@ def handle_import_command() -> None:
 
     console.print(preview_table)
 
-    # Step 4: Validate preview
-    console.print("\n[cyan]Does this look correct?[/cyan]")
-    console.print("  [dim]Note: Negative amounts = spending, Positive = income/refunds[/dim]\n")
+    # Step 4: Validate preview with combined options
+    console.print("\n[bold cyan]Preview Check[/bold cyan]")
+    console.print("[dim]Spending should appear as NEGATIVE (red), income/refunds as POSITIVE (green)[/dim]\n")
 
-    looks_correct = Confirm.ask("[cyan]Proceed with import?[/cyan]", default=True)
+    # Main preview validation loop
+    while True:
+        console.print("[cyan]What would you like to do?[/cyan]")
+        console.print("  [1] Proceed with import")
+        console.print("  [2] View more transactions (next 10)")
+        console.print("  [3] Flip all signs (if spending shows positive)")
+        console.print("  [4] Try different column mapping")
+        console.print("  [5] Cancel import")
 
-    if not looks_correct:
-        console.print("\n[cyan]What would you like to adjust?[/cyan]")
-        console.print("  [1] Flip all signs (spending should be negative)")
-        console.print("  [2] Try different column mapping")
-        console.print("  [3] Cancel")
-
-        choice = Prompt.ask("\n[cyan]Choice[/cyan]", choices=["1", "2", "3"], default="3")
+        choice = Prompt.ask("\n[cyan]Choice[/cyan]", choices=["1", "2", "3", "4", "5"], default="1")
 
         if choice == "1":
+            # Proceed with import
+            break
+
+        elif choice == "2":
+            # Show more transactions
+            console.print("\n[dim]Loading more transactions...[/dim]")
+
+            preview_result = csv_provider.preview_transactions(
+                str(csv_path),
+                column_mapping,
+                date_format="auto",
+                limit=15,  # Show 15 total (5 already shown + 10 more)
+                flip_signs=flip_signs
+            )
+
+            if not preview_result.success:
+                console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+                continue
+
+            preview_txs = preview_result.data
+
+            # Display extended preview
+            console.print("\n[bold cyan]Extended Preview - First 15 Transactions:[/bold cyan]\n")
+
+            preview_table = Table(show_header=True, box=None, padding=(0, 1))
+            preview_table.add_column("Date", width=12)
+            preview_table.add_column("Description", width=40)
+            preview_table.add_column("Amount", justify="right", width=15)
+
+            for tx in preview_txs:
+                date_str = tx.transaction_date.strftime("%Y-%m-%d")
+                desc = (tx.description or "")[:38]
+                # Use proper sign placement
+                if tx.amount < 0:
+                    amount_str = f"-${abs(tx.amount):,.2f}"
+                else:
+                    amount_str = f"${tx.amount:,.2f}"
+                amount_style = "red" if tx.amount < 0 else "green"
+                preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
+
+            console.print(preview_table)
+            console.print()  # Blank line before next menu
+
+        elif choice == "3":
+            # Flip signs
             flip_signs = True
 
             # Show preview with flipped signs
@@ -475,7 +526,7 @@ def handle_import_command() -> None:
 
             if not preview_result.success:
                 console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
-                return
+                continue
 
             preview_txs = preview_result.data
 
@@ -490,22 +541,24 @@ def handle_import_command() -> None:
             for tx in preview_txs:
                 date_str = tx.transaction_date.strftime("%Y-%m-%d")
                 desc = (tx.description or "")[:38]
-                amount_str = f"${tx.amount:,.2f}"
+                # Use proper sign placement
+                if tx.amount < 0:
+                    amount_str = f"-${abs(tx.amount):,.2f}"
+                else:
+                    amount_str = f"${tx.amount:,.2f}"
                 amount_style = "red" if tx.amount < 0 else "green"
                 preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
 
             console.print(preview_table)
+            console.print()  # Blank line before next menu
 
-            # Confirm again
-            looks_correct = Confirm.ask("\n[cyan]Does this look correct now?[/cyan]", default=True)
-            if not looks_correct:
-                console.print("[yellow]Import cancelled[/yellow]\n")
-                return
-
-        elif choice == "2":
+        elif choice == "4":
+            # Manual column mapping not implemented
             console.print("[yellow]Manual column mapping not yet implemented[/yellow]\n")
-            return
-        else:
+            continue
+
+        else:  # choice == "5"
+            # Cancel
             console.print("[yellow]Import cancelled[/yellow]\n")
             return
 
