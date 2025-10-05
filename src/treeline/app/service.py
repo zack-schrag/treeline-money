@@ -817,6 +817,7 @@ class ImportService:
 
         # Determine which transactions to import
         transactions_to_import = []
+        skipped_transactions = []  # Track skipped for debugging
         skipped_count = 0
 
         for fingerprint, discovered_txs in discovered_by_fingerprint.items():
@@ -826,6 +827,15 @@ class ImportService:
             # Import the difference (if any new transactions)
             new_count = max(0, discovered_count - existing_count)
             transactions_to_import.extend(discovered_txs[:new_count])
+
+            # Track skipped transactions with their fingerprint and existing count
+            skipped_txs = discovered_txs[new_count:]
+            for tx in skipped_txs:
+                skipped_transactions.append({
+                    "transaction": tx,
+                    "fingerprint": fingerprint,
+                    "existing_count": existing_count
+                })
             skipped_count += discovered_count - new_count
 
         # Bulk insert (not upsert, these are all new)
@@ -842,6 +852,8 @@ class ImportService:
                 "discovered": len(discovered_transactions),
                 "imported": len(transactions_to_import),
                 "skipped": skipped_count,
-                "fingerprints_checked": len(fingerprints)
+                "fingerprints_checked": len(fingerprints),
+                "imported_transactions": transactions_to_import,
+                "skipped_transactions": skipped_transactions,
             }
         )
