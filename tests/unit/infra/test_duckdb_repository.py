@@ -1,7 +1,7 @@
 """Unit tests for DuckDBRepository."""
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import MappingProxyType
@@ -143,8 +143,8 @@ async def test_add_transaction(repository):
         amount=Decimal("-50.00"),
         description="Test transaction",
         external_ids=MappingProxyType({"plaid": "tx123"}),
-        transaction_date=datetime.now(timezone.utc),
-        posted_date=datetime.now(timezone.utc),
+        transaction_date=date.today(),
+        posted_date=date.today(),
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -178,8 +178,8 @@ async def test_get_transactions_by_external_ids(repository):
         amount=Decimal("-50.00"),
         description="Test transaction",
         external_ids=MappingProxyType({"plaid": "tx123"}),
-        transaction_date=datetime.now(timezone.utc),
-        posted_date=datetime.now(timezone.utc),
+        transaction_date=date.today(),
+        posted_date=date.today(),
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -303,9 +303,9 @@ async def test_get_transaction_counts_by_fingerprint(repository):
             account_id=account.id,
             amount=Decimal("10.00"),
             description="Test transaction A",
-            transaction_date=datetime.now(timezone.utc),
-            posted_date=datetime.now(timezone.utc),
-            dedup_key=fingerprint_a,
+            transaction_date=date.today(),
+            posted_date=date.today(),
+            external_ids=MappingProxyType({"fingerprint": fingerprint_a}),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -318,9 +318,9 @@ async def test_get_transaction_counts_by_fingerprint(repository):
             account_id=account.id,
             amount=Decimal("20.00"),
             description="Test transaction B",
-            transaction_date=datetime.now(timezone.utc),
-            posted_date=datetime.now(timezone.utc),
-            dedup_key=fingerprint_b,
+            transaction_date=date.today(),
+            posted_date=date.today(),
+            external_ids=MappingProxyType({"fingerprint": fingerprint_b}),
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )

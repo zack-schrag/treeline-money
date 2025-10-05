@@ -1,7 +1,7 @@
 """Unit tests for CSVProvider."""
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -62,7 +62,7 @@ async def test_get_transactions_with_simple_csv():
         # Check first transaction
         assert transactions[0].amount == Decimal("-5.50")
         assert transactions[0].description == "Coffee at Starbucks"
-        assert transactions[0].transaction_date.date() == datetime(2024, 10, 1).date()
+        assert transactions[0].transaction_date == date(2024, 10, 1)
     finally:
         Path(csv_path).unlink()
 
@@ -203,12 +203,12 @@ async def test_get_transactions_with_optional_columns():
         assert len(transactions) == 2
 
         # First transaction has both dates
-        assert transactions[0].transaction_date.date() == datetime(2024, 10, 1).date()
-        assert transactions[0].posted_date.date() == datetime(2024, 10, 2).date()
+        assert transactions[0].transaction_date == date(2024, 10, 1)
+        assert transactions[0].posted_date == date(2024, 10, 2)
 
         # Second transaction has only transaction_date, posted_date should default to transaction_date
-        assert transactions[1].transaction_date.date() == datetime(2024, 10, 3).date()
-        assert transactions[1].posted_date.date() == datetime(2024, 10, 3).date()
+        assert transactions[1].transaction_date == date(2024, 10, 3)
+        assert transactions[1].posted_date == date(2024, 10, 3)
     finally:
         Path(csv_path).unlink()
 

@@ -137,11 +137,15 @@ async def test_get_transactions_success():
         )
 
         assert result.success is True
-        transactions = result.data
-        assert len(transactions) == 2
-        assert transactions[0].external_ids.get("simplefin") == "tx1"
-        assert transactions[0].amount == Decimal("-50.00")
-        assert transactions[0].description == "Coffee Shop"
+        transactions_with_accounts = result.data
+        assert len(transactions_with_accounts) == 2
+
+        # SimpleFIN now returns tuples of (account_id, transaction)
+        account_id_1, tx1 = transactions_with_accounts[0]
+        assert account_id_1 == "acc123"
+        assert tx1.external_ids.get("simplefin") == "tx1"
+        assert tx1.amount == Decimal("-50.00")
+        assert tx1.description == "Coffee Shop"
 
 
 @pytest.mark.asyncio
