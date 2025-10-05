@@ -741,7 +741,13 @@ def handle_tag_command() -> None:
             marker = "→" if i == current_index else " "
             date_str = txn.transaction_date.strftime("%Y-%m-%d")
             desc = (txn.description or "")[:38]
-            amount_str = f"${txn.amount:.2f}"
+
+            # Format amount with proper sign placement and color
+            if txn.amount < 0:
+                amount_str = f"[red]-${abs(txn.amount):.2f}[/red]"
+            else:
+                amount_str = f"[green]${txn.amount:.2f}[/green]"
+
             tags_str = ", ".join(txn.tags[:3]) if txn.tags else ""
             if len(txn.tags) > 3:
                 tags_str += "..."
@@ -759,8 +765,14 @@ def handle_tag_command() -> None:
         detail_table.add_column(style="dim", width=15)
         detail_table.add_column()
 
+        # Format amount with proper sign placement and color
+        if txn.amount < 0:
+            amount_display = f"[red]-${abs(txn.amount):.2f}[/red]"
+        else:
+            amount_display = f"[green]${txn.amount:.2f}[/green]"
+
         detail_table.add_row("Description", txn.description or "")
-        detail_table.add_row("Amount", f"${txn.amount:.2f}")
+        detail_table.add_row("Amount", amount_display)
         detail_table.add_row("Current tags", ", ".join(txn.tags) if txn.tags else "[dim](none)[/dim]")
 
         # Get suggested tags
