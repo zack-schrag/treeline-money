@@ -58,7 +58,6 @@ CREATE TABLE IF NOT EXISTS sys_integrations (
 
 CREATE INDEX IF NOT EXISTS idx_sys_transactions_account_id ON sys_transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_sys_transactions_date ON sys_transactions(transaction_date);
-CREATE INDEX IF NOT EXISTS idx_sys_transactions_fingerprint ON sys_transactions((json_extract_string(external_ids, '$.fingerprint')));
 CREATE INDEX IF NOT EXISTS idx_sys_balance_snapshots_account_id ON sys_balance_snapshots(account_id);
 CREATE INDEX IF NOT EXISTS idx_sys_balance_snapshots_time ON sys_balance_snapshots(snapshot_time);
 
@@ -76,16 +75,11 @@ SELECT
     t.transaction_date,
     t.posted_date,
     t.tags,
-    t.external_ids,
-    t.created_at,
-    t.updated_at,
     -- Account details
     a.name AS account_name,
     a.account_type,
     a.currency,
-    a.institution_name,
-    a.institution_url,
-    a.institution_domain
+    a.institution_name
 FROM sys_transactions t
 LEFT JOIN sys_accounts a ON t.account_id = a.account_id;
 

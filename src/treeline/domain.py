@@ -180,20 +180,22 @@ class Transaction(BaseModel):
     def _calculate_fingerprint(self) -> str:
         """Generate fingerprint hash for deduplication.
 
-        Uses: account_id, transaction_date, absolute amount, and normalized description.
-        Note: Uses absolute value of amount so sign flips don't affect deduplication.
+        Uses: account_id, transaction_date, amount (with sign), and normalized description.
 
-        Description normalization removes common noise:
-        - Literal "null" strings
-        - Card number masks (XXXXXXXXXXXX1234)
-        - Whitespace and special characters
+        Description normalization handles CSV vs SimpleFIN format differences:
+        - Removes literal "null" strings (CSV exports)
+        - Removes card number masks (XXXXXXXXXXXX1234 - CSV only)
+        - Normalizes account/phone numbers to last 4 digits (XXXXXX7070 vs 7208987070)
+        - Removes whitespace and special characters
         """
         import hashlib
         import re
 
         tx_date = self.transaction_date.isoformat()  # Already a date object
-        # Use absolute value so sign flips don't break deduplication
-        amount_normalized = f"{abs(self.amount):.2f}"
+        # Keep sign - purchases and refunds are different transactions
+        # Special case: normalize negative zero to positive zero for consistency
+        amount = self.amount if self.amount != 0 else abs(self.amount)
+        amount_normalized = f"{amount:.2f}"
 
         # Normalize description to handle CSV vs SimpleFIN differences
         desc = (self.description or "").lower()
@@ -201,8 +203,22 @@ class Transaction(BaseModel):
         # Remove literal "null" strings (common in CSV exports)
         desc_normalized = re.sub(r'\bnull\b', '', desc)
 
-        # Remove card number masks (XXXXXXXXXXXX followed by 4 digits)
-        desc_normalized = re.sub(r'x{10,}\d+', '', desc_normalized)
+        # Remove card number masks (10+ X's followed by 4 digits) - these only appear in CSV
+        desc_normalized = re.sub(r'x{10,}\d{4}', '', desc_normalized)
+
+        # Normalize shorter phone/account numbers (7-12 digits or X's + digits)
+        # These appear in both CSV and SimpleFIN, just masked differently
+        # Examples: XXXXXX7070 vs 7208987070, XXXX9969 vs 00009969
+        def normalize_account_numbers(match):
+            text = match.group(0)
+            # Extract digits only
+            digits = ''.join(c for c in text if c.isdigit())
+            # Keep last 4 digits if we have at least 4
+            if len(digits) >= 4:
+                return digits[-4:]
+            return text
+
+        desc_normalized = re.sub(r'[x0-9]{7,12}', normalize_account_numbers, desc_normalized)
 
         # Remove whitespace
         desc_normalized = re.sub(r'\s+', '', desc_normalized)
@@ -213,7 +229,7 @@ class Transaction(BaseModel):
         fingerprint_str = f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
         fingerprint_hash = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
 
-        return f"fingerprint:{fingerprint_hash}"
+        return fingerprint_hash
 
 
 class BalanceSnapshot(BaseModel):

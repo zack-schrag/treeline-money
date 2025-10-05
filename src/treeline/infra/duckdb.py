@@ -406,8 +406,8 @@ class DuckDBRepository(Repository):
                         external_ids=MappingProxyType(json.loads(row_dict["external_ids"]) if row_dict["external_ids"] else {}),
                         amount=Decimal(str(row_dict["amount"])),
                         description=row_dict["description"],
-                        transaction_date=self._ensure_timezone(row_dict["transaction_date"]),
-                        posted_date=self._ensure_timezone(row_dict["posted_date"]),
+                        transaction_date=row_dict["transaction_date"],  # Already a date object
+                        posted_date=row_dict["posted_date"],  # Already a date object
                         tags=tuple(row_dict["tags"]) if row_dict["tags"] else tuple(),
                         created_at=self._ensure_timezone(row_dict["created_at"]),
                         updated_at=self._ensure_timezone(row_dict["updated_at"]),

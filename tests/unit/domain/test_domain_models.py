@@ -143,7 +143,7 @@ def test_transaction_auto_generates_dedup_key() -> None:
 
     # fingerprint should be auto-generated in external_ids
     assert "fingerprint" in tx.external_ids
-    assert tx.external_ids["fingerprint"].startswith("fingerprint:")
+    assert len(tx.external_ids["fingerprint"]) == 16  # SHA256 hash truncated to 16 chars
 
     # Same transaction data should generate same fingerprint
     tx2 = Transaction(
@@ -247,16 +247,92 @@ def test_transaction_dedup_key_preserves_order_ids() -> None:
     assert tx1.external_ids["fingerprint"] != tx2.external_ids["fingerprint"]
 
 
-def test_transaction_dedup_key_ignores_sign_flip() -> None:
-    """Test that fingerprint uses absolute amount (sign flips don't affect dedup)."""
+def test_transaction_dedup_key_normalizes_account_numbers() -> None:
+    """Test that account/phone numbers are normalized to last 4 digits."""
+    account_id = uuid4()
+    tx_date = date(2025, 10, 1)
+    amount = Decimal("-50.00")
+
+    # Test Case 1: City of Arvada - masked vs full account number
+    simplefin_1 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="CITY OF ARVADA UTIL XXXXXX7070 CO",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    csv_1 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="CITY OF ARVADA UTIL 7208987070 CO",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    assert simplefin_1.external_ids["fingerprint"] == csv_1.external_ids["fingerprint"]
+
+    # Test Case 2: Puget Sound Energy - masked vs full phone number
+    simplefin_2 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="PUGET SOUND ENERGY INC XXXXXX5773 WA",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    csv_2 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="PUGET SOUND ENERGY INC 8882255773 WA",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    assert simplefin_2.external_ids["fingerprint"] == csv_2.external_ids["fingerprint"]
+
+    # Test Case 3: Target - 4 X's vs leading zeros
+    simplefin_3 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="TARGET XXXX9969 ISSAQUAH WA",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    csv_3 = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=amount,
+        description="TARGET 00009969 ISSAQUAH WA",
+        transaction_date=tx_date,
+        posted_date=tx_date,
+        created_at=_tz_now(),
+        updated_at=_tz_now(),
+    )
+    assert simplefin_3.external_ids["fingerprint"] == csv_3.external_ids["fingerprint"]
+
+
+def test_transaction_dedup_key_respects_sign() -> None:
+    """Test that fingerprint includes sign (purchase vs refund are different)."""
     account_id = uuid4()
     tx_date = date(2025, 10, 4)
 
-    # Same transaction with different signs
-    tx_positive = Transaction(
+    # Purchase
+    tx_purchase = Transaction(
         id=uuid4(),
         account_id=account_id,
-        amount=Decimal("25.50"),
+        amount=Decimal("-25.50"),
         description="Coffee at Starbucks",
         transaction_date=tx_date,
         posted_date=tx_date,
@@ -264,10 +340,11 @@ def test_transaction_dedup_key_ignores_sign_flip() -> None:
         updated_at=_tz_now(),
     )
 
-    tx_negative = Transaction(
+    # Refund
+    tx_refund = Transaction(
         id=uuid4(),
         account_id=account_id,
-        amount=Decimal("-25.50"),  # Negative
+        amount=Decimal("25.50"),  # Positive (refund)
         description="Coffee at Starbucks",
         transaction_date=tx_date,
         posted_date=tx_date,
@@ -275,5 +352,5 @@ def test_transaction_dedup_key_ignores_sign_flip() -> None:
         updated_at=_tz_now(),
     )
 
-    # Should generate same fingerprint (abs amount used)
-    assert tx_positive.external_ids["fingerprint"] == tx_negative.external_ids["fingerprint"]
+    # Should generate DIFFERENT fingerprints (purchase vs refund)
+    assert tx_purchase.external_ids["fingerprint"] != tx_refund.external_ids["fingerprint"]

@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
 from types import MappingProxyType
 
@@ -18,6 +18,7 @@ class MockRepository(Repository):
     def __init__(self):
         self.get_transaction_counts_by_fingerprint = AsyncMock()
         self.bulk_upsert_transactions = AsyncMock()
+        self.execute_query = AsyncMock()
 
     async def ensure_db_exists(self):
         pass
@@ -239,7 +240,9 @@ async def test_import_transactions_with_existing_duplicates():
     # Remap to target account to get correct fingerprint (same way as ImportService)
     tx_dict = discovered_transactions[0].model_dump()
     tx_dict["account_id"] = account_id
-    tx_dict.pop("dedup_key", None)
+    ext_ids = dict(tx_dict.get("external_ids", {}))
+    ext_ids.pop("fingerprint", None)
+    tx_dict["external_ids"] = ext_ids
     remapped = Transaction(**tx_dict)
     expected_fingerprint = remapped.external_ids["fingerprint"]
 
@@ -292,7 +295,9 @@ async def test_import_transactions_all_duplicates():
     # Remap to get fingerprint (same way as ImportService)
     tx_dict = discovered_transactions[0].model_dump()
     tx_dict["account_id"] = account_id
-    tx_dict.pop("dedup_key", None)
+    ext_ids = dict(tx_dict.get("external_ids", {}))
+    ext_ids.pop("fingerprint", None)
+    tx_dict["external_ids"] = ext_ids
     remapped = Transaction(**tx_dict)
     expected_fingerprint = remapped.external_ids["fingerprint"]
 
@@ -448,7 +453,9 @@ async def test_import_mixed_fingerprints():
     def get_fingerprint(tx, target_account_id):
         tx_dict = tx.model_dump()
         tx_dict["account_id"] = target_account_id
-        tx_dict.pop("dedup_key", None)
+        ext_ids = dict(tx_dict.get("external_ids", {}))
+        ext_ids.pop("fingerprint", None)
+        tx_dict["external_ids"] = ext_ids
         return Transaction(**tx_dict).external_ids["fingerprint"]
 
     coffee_fp = get_fingerprint(discovered_transactions[0], account_id)
@@ -479,3 +486,138 @@ async def test_import_mixed_fingerprints():
     assert result.data["discovered"] == 6
     assert result.data["imported"] == 3  # 1 coffee + 1 lunch + 1 dinner
     assert result.data["skipped"] == 3  # 1 coffee + 2 lunches
+
+
+@pytest.mark.asyncio
+async def test_find_potential_duplicates_same_date_amount():
+    """Test finding potential duplicates with same account, date, and amount but different descriptions."""
+    mock_repository = MockRepository()
+
+    user_id = uuid4()
+    account_id = uuid4()
+
+    # Existing transaction in DB
+    existing_tx = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("50.00"),
+        description="TST*X-X-6-8 Sammamish WA",  # SimpleFIN masked version
+        transaction_date=date(2025, 8, 18),
+        posted_date=date(2025, 8, 18),
+        external_ids=MappingProxyType({"simplefin": "sf-123", "fingerprint": "abc123"}),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    # CSV transaction with slightly different description
+    csv_tx = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("50.00"),
+        description="TST*2-4-6-8 Sammamish WA",  # CSV unmasked version
+        transaction_date=date(2025, 8, 18),
+        posted_date=date(2025, 8, 18),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    # Mock: execute_query returns existing transaction as query result
+    import json
+    mock_repository.execute_query.return_value = Ok({
+        "rows": [[
+            str(existing_tx.id),
+            str(existing_tx.account_id),
+            json.dumps(dict(existing_tx.external_ids)),
+            float(existing_tx.amount),
+            existing_tx.description,
+            existing_tx.transaction_date,
+            existing_tx.posted_date,
+            list(existing_tx.tags),
+            existing_tx.created_at,
+            existing_tx.updated_at,
+        ]],
+        "columns": ["transaction_id", "account_id", "external_ids", "amount", "description",
+                   "transaction_date", "posted_date", "tags", "created_at", "updated_at"]
+    })
+
+    provider_registry = {"csv": None}
+    service = ImportService(mock_repository, provider_registry)
+
+    # Find potential duplicates
+    result = await service.find_potential_duplicates(
+        user_id=user_id,
+        account_id=account_id,
+        transactions=[csv_tx]
+    )
+
+    assert result.success
+    potential_dupes = result.data
+    assert len(potential_dupes) == 1
+    assert potential_dupes[0]["csv_transaction"] == csv_tx
+    assert potential_dupes[0]["existing_transaction"] == existing_tx
+    assert potential_dupes[0]["reason"] == "same_date_amount"
+
+
+@pytest.mark.asyncio
+async def test_find_potential_duplicates_no_matches():
+    """Test that truly unique transactions are not flagged as potential duplicates."""
+    mock_repository = MockRepository()
+
+    user_id = uuid4()
+    account_id = uuid4()
+
+    # Existing transaction
+    existing_tx = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("100.00"),
+        description="Different Store",
+        transaction_date=date(2025, 8, 1),
+        posted_date=date(2025, 8, 1),
+        external_ids=MappingProxyType({"fingerprint": "different"}),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    # CSV transaction - completely different
+    csv_tx = Transaction(
+        id=uuid4(),
+        account_id=account_id,
+        amount=Decimal("25.99"),
+        description="Coffee",
+        transaction_date=date(2025, 8, 20),
+        posted_date=date(2025, 8, 20),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    # Mock: execute_query returns existing transaction as query result
+    import json
+    mock_repository.execute_query.return_value = Ok({
+        "rows": [[
+            str(existing_tx.id),
+            str(existing_tx.account_id),
+            json.dumps(dict(existing_tx.external_ids)),
+            float(existing_tx.amount),
+            existing_tx.description,
+            existing_tx.transaction_date,
+            existing_tx.posted_date,
+            list(existing_tx.tags),
+            existing_tx.created_at,
+            existing_tx.updated_at,
+        ]],
+        "columns": ["transaction_id", "account_id", "external_ids", "amount", "description",
+                   "transaction_date", "posted_date", "tags", "created_at", "updated_at"]
+    })
+
+    provider_registry = {"csv": None}
+    service = ImportService(mock_repository, provider_registry)
+
+    result = await service.find_potential_duplicates(
+        user_id=user_id,
+        account_id=account_id,
+        transactions=[csv_tx]
+    )
+
+    assert result.success
+    assert len(result.data) == 0  # No potential duplicates

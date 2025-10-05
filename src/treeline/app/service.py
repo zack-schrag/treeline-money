@@ -167,7 +167,7 @@ class SyncService:
         if not discovered_result.success:
             return discovered_result
 
-        discovered_transactions = discovered_result.data or []
+        discovered_data = discovered_result.data or []
 
         # Map provider account IDs to internal account IDs
         account_id_map = {
@@ -177,22 +177,39 @@ class SyncService:
         }
 
         mapped_transactions = []
-        for tx in discovered_transactions:
-            # Get provider account ID from external_ids
-            provider_acc_id = tx.external_ids.get(f"{integration_name_lower}_account")
 
-            if not provider_acc_id:
-                # Skip transactions without account mapping - provider should always provide this
-                continue
+        # Handle provider-specific return formats
+        # SimpleFIN returns: List[(provider_account_id, Transaction)]
+        # CSV returns: List[Transaction] (account_id already set)
+        for item in discovered_data:
+            if isinstance(item, tuple):
+                # Format: (provider_account_id, transaction)
+                provider_acc_id, tx = item
+                internal_acc_id = account_id_map.get(provider_acc_id)
 
-            internal_acc_id = account_id_map.get(provider_acc_id)
+                # Skip transactions with unmapped accounts
+                if not internal_acc_id:
+                    continue
 
-            # Skip transactions with unmapped accounts
-            if not internal_acc_id:
-                continue
+                # Reconstruct transaction with correct account_id to force fingerprint recalculation
+                # Note: model_copy doesn't trigger @model_validator, so we use model_dump + reconstruct
+                tx_dict = tx.model_dump()
+                tx_dict["account_id"] = internal_acc_id
 
-            mapped_tx = tx.model_copy(update={"account_id": internal_acc_id})
-            mapped_transactions.append(mapped_tx)
+                # Remove old fingerprint to force recalculation
+                if "fingerprint" in tx_dict["external_ids"]:
+                    cleaned_external_ids = {
+                        k: v for k, v in tx_dict["external_ids"].items()
+                        if k != "fingerprint"
+                    }
+                    tx_dict["external_ids"] = cleaned_external_ids
+
+                # Reconstruct - this triggers @model_validator which auto-generates correct fingerprint
+                mapped_tx = Transaction(**tx_dict)
+                mapped_transactions.append(mapped_tx)
+            else:
+                # Format: Transaction (account_id already set, e.g., from CSV)
+                mapped_transactions.append(item)
 
         # Get existing transactions by external IDs to check for duplicates
         external_id_objects = [
@@ -237,7 +254,7 @@ class SyncService:
         return Result(
             success=True,
             data={
-                "discovered_transactions": discovered_transactions,
+                "discovered_transactions": mapped_transactions,
                 "ingested_transactions": ingested_result.data,
             },
         )
@@ -862,3 +879,132 @@ class ImportService:
                 "skipped_transactions": skipped_transactions,
             }
         )
+
+    async def find_potential_duplicates(
+        self,
+        user_id: UUID,
+        account_id: UUID,
+        transactions: List[Transaction],
+    ) -> Result[List[Dict[str, Any]]]:
+        """
+        Find potential duplicate transactions that weren't caught by fingerprint matching.
+
+        Checks for transactions with:
+        - Same account
+        - Same amount
+        - Same date (or within 1 day)
+
+        This catches edge cases like:
+        - Description differences (e.g., "TST*2-4-6-8" vs "TST*X-X-6-8")
+        - Negative zero vs positive zero amounts
+
+        Args:
+            user_id: User context
+            account_id: Account to check
+            transactions: List of transactions to check for potential duplicates
+
+        Returns:
+            Result with list of potential duplicates, each containing:
+            - csv_transaction: The transaction being imported
+            - existing_transaction: The existing transaction in the DB
+            - reason: Why they might be duplicates
+        """
+        if not transactions:
+            return Result(success=True, data=[])
+
+        # Get all existing transactions for this account using SQL query
+        query = f"""
+            SELECT
+                transaction_id,
+                account_id,
+                external_ids,
+                amount,
+                description,
+                transaction_date,
+                posted_date,
+                tags,
+                created_at,
+                updated_at
+            FROM sys_transactions
+            WHERE account_id = '{account_id}'
+        """
+
+        query_result = await self.repository.execute_query(user_id, query)
+        if not query_result.success:
+            return query_result
+
+        # Parse query results into Transaction objects
+        from types import MappingProxyType
+        from decimal import Decimal
+        import json
+        from datetime import datetime, timezone, date as date_type
+
+        def ensure_datetime_tz(dt):
+            """Ensure datetime has timezone info."""
+            if dt is None:
+                return None
+            if isinstance(dt, str):
+                dt = datetime.fromisoformat(dt)
+            if isinstance(dt, datetime):
+                if dt.tzinfo is None:
+                    return dt.replace(tzinfo=timezone.utc)
+                return dt
+            return dt
+
+        def ensure_date(d):
+            """Convert datetime to date or return date as-is."""
+            if isinstance(d, datetime):
+                return d.date()
+            if isinstance(d, date_type):
+                return d
+            if isinstance(d, str):
+                return datetime.fromisoformat(d).date()
+            return d
+
+        existing_txs = []
+        for row in query_result.data.get("rows", []):
+            existing_txs.append(Transaction(
+                id=UUID(row[0]),
+                account_id=UUID(row[1]),
+                external_ids=MappingProxyType(json.loads(row[2]) if row[2] else {}),
+                amount=Decimal(str(row[3])),
+                description=row[4],
+                transaction_date=ensure_date(row[5]),
+                posted_date=ensure_date(row[6]),
+                tags=tuple(row[7]) if row[7] else (),
+                created_at=ensure_datetime_tz(row[8]),
+                updated_at=ensure_datetime_tz(row[9]),
+            ))
+
+        # Build lookup by (date, amount) for fast matching
+        existing_by_date_amount: Dict[tuple, List[Transaction]] = {}
+        for tx in existing_txs:
+            key = (tx.transaction_date, tx.amount)
+            existing_by_date_amount.setdefault(key, []).append(tx)
+
+        potential_duplicates = []
+
+        for csv_tx in transactions:
+            csv_date = csv_tx.transaction_date
+            csv_amount = csv_tx.amount
+
+            # Check exact date + amount match
+            exact_key = (csv_date, csv_amount)
+            if exact_key in existing_by_date_amount:
+                for existing_tx in existing_by_date_amount[exact_key]:
+                    # Skip if fingerprints match (already handled by main dedup logic)
+                    csv_fp = csv_tx.external_ids.get("fingerprint")
+                    existing_fp = existing_tx.external_ids.get("fingerprint")
+                    if csv_fp and existing_fp and csv_fp == existing_fp:
+                        continue
+
+                    potential_duplicates.append({
+                        "csv_transaction": csv_tx,
+                        "existing_transaction": existing_tx,
+                        "reason": "same_date_amount"
+                    })
+
+            # TODO: Could add adjacent date checking here if needed
+            # For now, keeping it simple with exact date matches only
+
+        return Result(success=True, data=potential_duplicates)

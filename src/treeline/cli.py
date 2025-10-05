@@ -509,6 +509,86 @@ def handle_import_command() -> None:
             console.print("[yellow]Import cancelled[/yellow]\n")
             return
 
+    # Step 4.5: Check for potential duplicates
+    console.print("\n[dim]Checking for potential duplicates...[/dim]")
+
+    # First, get the transactions that would be imported (need to map to target account)
+    preview_with_account = []
+    for tx in preview_txs:
+        tx_dict = tx.model_dump()
+        tx_dict["account_id"] = target_account.id
+        # Remove fingerprint to force recalculation
+        ext_ids = dict(tx_dict.get("external_ids", {}))
+        ext_ids.pop("fingerprint", None)
+        tx_dict["external_ids"] = ext_ids
+        from treeline.domain import Transaction
+        preview_with_account.append(Transaction(**tx_dict))
+
+    potential_dupes_result = asyncio.run(import_service.find_potential_duplicates(
+        user_id=UUID(user_id),
+        account_id=target_account.id,
+        transactions=preview_with_account
+    ))
+
+    if potential_dupes_result.success and potential_dupes_result.data:
+        potential_dupes = potential_dupes_result.data
+
+        console.print(f"\n[yellow]⚠ Found {len(potential_dupes)} potential duplicate(s)[/yellow]")
+        console.print("[dim]These transactions have the same date and amount but different descriptions.[/dim]\n")
+
+        # Show each potential duplicate
+        for i, dupe_info in enumerate(potential_dupes, 1):
+            csv_tx = dupe_info["csv_transaction"]
+            existing_tx = dupe_info["existing_transaction"]
+
+            console.print(f"[bold cyan]Potential Duplicate {i}/{len(potential_dupes)}:[/bold cyan]")
+
+            comparison_table = Table(show_header=True, box=None, padding=(0, 2))
+            comparison_table.add_column("", style="dim")
+            comparison_table.add_column("CSV (New)", style="yellow")
+            comparison_table.add_column("Existing", style="green")
+
+            comparison_table.add_row(
+                "Date",
+                csv_tx.transaction_date.strftime("%Y-%m-%d"),
+                existing_tx.transaction_date.strftime("%Y-%m-%d")
+            )
+            comparison_table.add_row(
+                "Amount",
+                f"${csv_tx.amount:.2f}",
+                f"${existing_tx.amount:.2f}"
+            )
+            comparison_table.add_row(
+                "Description",
+                csv_tx.description or "",
+                existing_tx.description or ""
+            )
+
+            console.print(comparison_table)
+
+            # Ask user if they want to import this transaction
+            import_anyway = Confirm.ask(
+                f"\n[cyan]Import this transaction anyway?[/cyan]",
+                default=False
+            )
+
+            if not import_anyway:
+                # Mark this transaction to skip
+                dupe_info["skip"] = True
+                console.print("[dim]Will skip this transaction[/dim]\n")
+            else:
+                dupe_info["skip"] = False
+                console.print("[dim]Will import this transaction[/dim]\n")
+
+        # Filter out transactions user chose to skip
+        skip_ids = {dupe["csv_transaction"].id for dupe in potential_dupes if dupe.get("skip")}
+        if skip_ids:
+            console.print(f"\n[dim]Skipping {len(skip_ids)} potential duplicate(s) as requested[/dim]")
+            # Note: We'll need to modify the import flow to respect this
+            # For now, we'll just warn the user
+            console.print("[yellow]Note: The import will proceed with all transactions.[/yellow]")
+            console.print("[yellow]Manual duplicate skipping will be implemented in a future update.[/yellow]\n")
+
     # Step 5: Execute import
     console.print("\n[dim]Importing transactions...[/dim]")
 

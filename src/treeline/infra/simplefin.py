@@ -131,7 +131,10 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     return Fail(f"SimpleFIN API error: {response.status_code}")
 
                 data = response.json()
-                transactions = []
+
+                # Return list of tuples: (simplefin_account_id, transaction)
+                # This allows service layer to map accounts without polluting external_ids
+                transactions_with_accounts = []
 
                 for acc_data in data.get("accounts", []):
                     simplefin_account_id = acc_data["id"]
@@ -141,7 +144,6 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                             account_id=UUID(int=0),  # Placeholder, will be mapped by service
                             external_ids=MappingProxyType({
                                 "simplefin": tx_data["id"],
-                                "simplefin_account": simplefin_account_id  # Store account ID for mapping
                             }),
                             amount=Decimal(str(tx_data["amount"])),
                             description=tx_data.get("description", ""),
@@ -151,9 +153,9 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                             created_at=datetime.now(timezone.utc),
                             updated_at=datetime.now(timezone.utc),
                         )
-                        transactions.append(transaction)
+                        transactions_with_accounts.append((simplefin_account_id, transaction))
 
-                return Ok(transactions)
+                return Ok(transactions_with_accounts)
 
         except Exception as e:
             return Fail(f"Failed to fetch SimpleFIN transactions: {str(e)}")
