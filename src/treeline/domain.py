@@ -174,6 +174,11 @@ class Transaction(BaseModel):
 
         Uses: account_id, transaction_date, absolute amount, and normalized description.
         Note: Uses absolute value of amount so sign flips don't affect deduplication.
+
+        Description normalization removes common noise:
+        - Literal "null" strings
+        - Card number masks (XXXXXXXXXXXX1234)
+        - Whitespace and special characters
         """
         import hashlib
         import re
@@ -182,8 +187,19 @@ class Transaction(BaseModel):
         # Use absolute value so sign flips don't break deduplication
         amount_normalized = f"{abs(self.amount):.2f}"
 
-        # Normalize description: lowercase, remove whitespace and special chars
-        desc_normalized = re.sub(r'\s+', '', (self.description or "").lower())
+        # Normalize description to handle CSV vs SimpleFIN differences
+        desc = (self.description or "").lower()
+
+        # Remove literal "null" strings (common in CSV exports)
+        desc_normalized = re.sub(r'\bnull\b', '', desc)
+
+        # Remove card number masks (XXXXXXXXXXXX followed by 4 digits)
+        desc_normalized = re.sub(r'x{10,}\d+', '', desc_normalized)
+
+        # Remove whitespace
+        desc_normalized = re.sub(r'\s+', '', desc_normalized)
+
+        # Remove all special characters, keep only alphanumeric
         desc_normalized = re.sub(r'[^a-z0-9]', '', desc_normalized)
 
         fingerprint_str = f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
