@@ -1186,10 +1186,36 @@ def run_interactive_mode() -> None:
         sys.exit(1)
 
 
-@app.command()
-def main() -> None:
-    """Start Treeline interactive mode."""
-    run_interactive_mode()
+@app.command(name="status")
+def status_command() -> None:
+    """Shows summary of current state of your financial data."""
+    ensure_treeline_initialized()
+    handle_status_command()
+
+
+@app.command(name="query")
+def query_command(sql: str = typer.Argument(..., help="SQL query to execute (SELECT/WITH only)")) -> None:
+    """Execute a SQL query directly."""
+    ensure_treeline_initialized()
+    handle_query_command(sql)
+
+
+@app.command(name="sync")
+def sync_command() -> None:
+    """Run an on-demand data synchronization."""
+    ensure_treeline_initialized()
+    handle_sync_command()
+
+
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Treeline - AI-native personal finance in your terminal.
+
+    Run without arguments to enter interactive mode, or use a specific command.
+    """
+    if ctx.invoked_subcommand is None:
+        # No command specified - enter interactive mode
+        run_interactive_mode()
 
 
 if __name__ == "__main__":
