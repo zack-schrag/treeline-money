@@ -792,18 +792,23 @@ class ImportService:
         discovered_transactions = discovered_result.data or []
 
         # Map all transactions to the specified account
-        # Note: Reconstruct transactions to recalculate dedup_key with new account_id
+        # Note: Reconstruct transactions to recalculate fingerprint with new account_id
         mapped_transactions = []
         for tx in discovered_transactions:
             tx_dict = tx.model_dump()
             tx_dict["account_id"] = account_id
-            tx_dict.pop("dedup_key", None)  # Remove to force regeneration
+            # Remove fingerprint from external_ids to force regeneration with new account_id
+            ext_ids = dict(tx_dict.get("external_ids", {}))
+            ext_ids.pop("fingerprint", None)
+            tx_dict["external_ids"] = ext_ids
             mapped_transactions.append(Transaction(**tx_dict))
 
-        # Group by fingerprint (dedup_key is already set by domain model)
+        # Group by fingerprint (fingerprint is auto-set in external_ids by domain model)
         discovered_by_fingerprint: Dict[str, List[Transaction]] = {}
         for tx in mapped_transactions:
-            discovered_by_fingerprint.setdefault(tx.dedup_key, []).append(tx)
+            fingerprint = tx.external_ids.get("fingerprint")
+            if fingerprint:
+                discovered_by_fingerprint.setdefault(fingerprint, []).append(tx)
 
         # Query existing counts per fingerprint
         fingerprints = list(discovered_by_fingerprint.keys())

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, Dict, Generic, Mapping, Type, TypeVar
@@ -95,10 +95,9 @@ class Transaction(BaseModel):
     external_ids: Mapping[str, str] = Field(default_factory=dict)
     amount: Decimal
     description: str | None = None
-    transaction_date: datetime
-    posted_date: datetime
+    transaction_date: date  # Changed from datetime - no timezone needed
+    posted_date: date  # Changed from datetime - no timezone needed
     tags: tuple[str, ...] = ()
-    dedup_key: str = Field(default="")
     created_at: datetime
     updated_at: datetime
 
@@ -116,15 +115,21 @@ class Transaction(BaseModel):
         msg = "external_ids must be a mapping"
         raise TypeError(msg)
 
-    @field_validator("transaction_date")
+    @field_validator("transaction_date", mode="before")
     @classmethod
-    def _validate_transaction_date(cls, value: datetime) -> datetime:
-        return _ensure_tzinfo(value)
+    def _validate_transaction_date(cls, value: date | datetime) -> date:
+        """Accept date or datetime, return date."""
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
-    @field_validator("posted_date")
+    @field_validator("posted_date", mode="before")
     @classmethod
-    def _validate_posted_date(cls, value: datetime) -> datetime:
-        return _ensure_tzinfo(value)
+    def _validate_posted_date(cls, value: date | datetime) -> date:
+        """Accept date or datetime, return date."""
+        if isinstance(value, datetime):
+            return value.date()
+        return value
 
     @field_validator("created_at")
     @classmethod
@@ -162,11 +167,14 @@ class Transaction(BaseModel):
         return tuple(normalized)
 
     @model_validator(mode='after')
-    def _generate_dedup_key_if_missing(self) -> 'Transaction':
-        """Auto-generate dedup_key from transaction attributes if not provided or empty."""
-        if not self.dedup_key:
-            dedup_key = self._calculate_fingerprint()
-            object.__setattr__(self, 'dedup_key', dedup_key)
+    def _generate_fingerprint_if_missing(self) -> 'Transaction':
+        """Auto-generate fingerprint and store in external_ids if not present."""
+        if "fingerprint" not in self.external_ids:
+            fingerprint = self._calculate_fingerprint()
+            # external_ids is immutable (MappingProxyType), so we need to recreate it
+            ids_dict = dict(self.external_ids)
+            ids_dict["fingerprint"] = fingerprint
+            object.__setattr__(self, 'external_ids', MappingProxyType(ids_dict))
         return self
 
     def _calculate_fingerprint(self) -> str:
@@ -183,7 +191,7 @@ class Transaction(BaseModel):
         import hashlib
         import re
 
-        tx_date = self.transaction_date.date().isoformat()
+        tx_date = self.transaction_date.isoformat()  # Already a date object
         # Use absolute value so sign flips don't break deduplication
         amount_normalized = f"{abs(self.amount):.2f}"
 

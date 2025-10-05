@@ -85,7 +85,7 @@ class DuckDBRepository(Repository):
 
             conn.execute(
                 """
-                INSERT INTO accounts (
+                INSERT INTO sys_accounts (
                     account_id, name, nickname, account_type, currency,
                     external_ids, institution_name, institution_url, institution_domain,
                     created_at, updated_at
@@ -118,10 +118,10 @@ class DuckDBRepository(Repository):
 
             conn.execute(
                 """
-                INSERT INTO transactions (
+                INSERT INTO sys_transactions (
                     transaction_id, account_id, external_ids, amount, description,
-                    transaction_date, posted_date, tags, dedup_key, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    transaction_date, posted_date, tags, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     str(transaction.id),
@@ -132,7 +132,6 @@ class DuckDBRepository(Repository):
                     transaction.transaction_date,
                     transaction.posted_date,
                     list(transaction.tags),
-                    transaction.dedup_key,
                     transaction.created_at,
                     transaction.updated_at,
                 ],
@@ -150,7 +149,7 @@ class DuckDBRepository(Repository):
 
             conn.execute(
                 """
-                INSERT INTO balance_snapshots (
+                INSERT INTO sys_balance_snapshots (
                     snapshot_id, account_id, balance, snapshot_time, created_at
                 ) VALUES (?, ?, ?, ?, ?)
                 """,
@@ -176,7 +175,7 @@ class DuckDBRepository(Repository):
             for account in accounts:
                 conn.execute(
                     """
-                    INSERT INTO accounts (
+                    INSERT INTO sys_accounts (
                         account_id, name, nickname, account_type, currency,
                         external_ids, institution_name, institution_url, institution_domain,
                         created_at, updated_at
@@ -220,10 +219,10 @@ class DuckDBRepository(Repository):
             for transaction in transactions:
                 conn.execute(
                     """
-                    INSERT INTO transactions (
+                    INSERT INTO sys_transactions (
                         transaction_id, account_id, external_ids, amount, description,
-                        transaction_date, posted_date, tags, dedup_key, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        transaction_date, posted_date, tags, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (transaction_id) DO UPDATE SET
                         account_id = excluded.account_id,
                         external_ids = excluded.external_ids,
@@ -232,7 +231,6 @@ class DuckDBRepository(Repository):
                         transaction_date = excluded.transaction_date,
                         posted_date = excluded.posted_date,
                         tags = excluded.tags,
-                        dedup_key = excluded.dedup_key,
                         updated_at = excluded.updated_at
                     """,
                     [
@@ -244,7 +242,6 @@ class DuckDBRepository(Repository):
                         transaction.transaction_date,
                         transaction.posted_date,
                         list(transaction.tags),
-                        transaction.dedup_key,
                         transaction.created_at,
                         transaction.updated_at,
                     ],
@@ -263,7 +260,7 @@ class DuckDBRepository(Repository):
             for balance in balances:
                 conn.execute(
                     """
-                    INSERT INTO balance_snapshots (
+                    INSERT INTO sys_balance_snapshots (
                         snapshot_id, account_id, balance, snapshot_time, created_at
                     ) VALUES (?, ?, ?, ?, ?)
                     """,
@@ -318,7 +315,7 @@ class DuckDBRepository(Repository):
         try:
             conn = self._get_connection(user_id, read_only=True)
 
-            result = conn.execute("SELECT * FROM accounts").fetchall()
+            result = conn.execute("SELECT * FROM sys_accounts").fetchall()
             columns = [desc[0] for desc in conn.description]
 
             accounts = []
@@ -350,7 +347,7 @@ class DuckDBRepository(Repository):
             conn = self._get_connection(user_id, read_only=True)
 
             result = conn.execute(
-                "SELECT * FROM accounts WHERE account_id = ?", [str(account_id)]
+                "SELECT * FROM sys_accounts WHERE account_id = ?", [str(account_id)]
             ).fetchone()
 
             if not result:
@@ -395,7 +392,7 @@ class DuckDBRepository(Repository):
             for ext_id_obj in external_ids:
                 # Query for transactions with matching external IDs
                 result = conn.execute(
-                    "SELECT * FROM transactions WHERE external_ids::VARCHAR LIKE ?",
+                    "SELECT * FROM sys_transactions WHERE external_ids::VARCHAR LIKE ?",
                     [f'%{list(ext_id_obj.values())[0]}%']
                 ).fetchall()
 
@@ -429,7 +426,7 @@ class DuckDBRepository(Repository):
         try:
             conn = self._get_connection(user_id, read_only=True)
 
-            query = "SELECT * FROM balance_snapshots WHERE 1=1"
+            query = "SELECT * FROM sys_balance_snapshots WHERE 1=1"
             params = []
 
             if account_id:
@@ -529,7 +526,7 @@ class DuckDBRepository(Repository):
                     MIN(transaction_date) as earliest_date,
                     MAX(transaction_date) as latest_date,
                     COUNT(*) as total_transactions
-                FROM transactions
+                FROM sys_transactions
             """).fetchone()
 
             conn.close()
@@ -577,21 +574,21 @@ class DuckDBRepository(Repository):
 
             query = f"""
                 WITH requested_fingerprints AS (
-                    SELECT unnest([{fingerprints_list}]) as dedup_key
+                    SELECT unnest([{fingerprints_list}]) as fingerprint
                 ),
                 counts AS (
                     SELECT
-                        dedup_key,
+                        json_extract_string(external_ids, '$.fingerprint') as fingerprint,
                         COUNT(*) as count
-                    FROM transactions
-                    WHERE dedup_key IN ({fingerprints_list})
-                    GROUP BY dedup_key
+                    FROM sys_transactions
+                    WHERE json_extract_string(external_ids, '$.fingerprint') IN ({fingerprints_list})
+                    GROUP BY json_extract_string(external_ids, '$.fingerprint')
                 )
                 SELECT
-                    rf.dedup_key,
+                    rf.fingerprint,
                     COALESCE(c.count, 0) as count
                 FROM requested_fingerprints rf
-                LEFT JOIN counts c ON rf.dedup_key = c.dedup_key
+                LEFT JOIN counts c ON rf.fingerprint = c.fingerprint
             """
 
             results = conn.execute(query).fetchall()
@@ -614,13 +611,13 @@ class DuckDBRepository(Repository):
             now = datetime.now(timezone.utc)
             conn.execute(
                 """
-                INSERT INTO integrations (user_id, integration_name, integration_settings, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (user_id, integration_name) DO UPDATE SET
+                INSERT INTO sys_integrations (integration_name, integration_settings, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (integration_name) DO UPDATE SET
                     integration_settings = excluded.integration_settings,
                     updated_at = ?
                 """,
-                [str(user_id), integration_name, json.dumps(integration_options), now, now, now],
+                [integration_name, json.dumps(integration_options), now, now, now],
             )
 
             conn.close()
@@ -634,8 +631,7 @@ class DuckDBRepository(Repository):
             conn = self._get_connection(user_id, read_only=True)
 
             result = conn.execute(
-                "SELECT integration_name, integration_settings FROM integrations WHERE user_id = ?",
-                [str(user_id)],
+                "SELECT integration_name, integration_settings FROM sys_integrations",
             ).fetchall()
 
             integrations = [
@@ -654,8 +650,8 @@ class DuckDBRepository(Repository):
             conn = self._get_connection(user_id, read_only=True)
 
             result = conn.execute(
-                "SELECT integration_settings FROM integrations WHERE user_id = ? AND integration_name = ?",
-                [str(user_id), integration_name],
+                "SELECT integration_settings FROM sys_integrations WHERE integration_name = ?",
+                [integration_name],
             ).fetchone()
 
             if not result:
@@ -678,7 +674,7 @@ class DuckDBRepository(Repository):
                 SELECT
                     UNNEST(tags) as tag,
                     COUNT(*) as count
-                FROM transactions
+                FROM sys_transactions
                 WHERE tags IS NOT NULL AND len(tags) > 0
                 GROUP BY tag
                 ORDER BY count DESC
@@ -720,7 +716,7 @@ class DuckDBRepository(Repository):
                     tags,
                     created_at,
                     updated_at
-                FROM transactions
+                FROM sys_transactions
                 WHERE {where_sql}
                 ORDER BY transaction_date DESC
                 LIMIT ? OFFSET ?
@@ -775,7 +771,7 @@ class DuckDBRepository(Repository):
                     tags,
                     created_at,
                     updated_at
-                FROM transactions
+                FROM sys_transactions
                 WHERE transaction_id = ?
             """, [transaction_id]).fetchone()
 

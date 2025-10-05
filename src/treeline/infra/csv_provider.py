@@ -2,7 +2,7 @@
 
 import csv
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -187,10 +187,11 @@ class CSVProvider(DataAggregationProvider):
                 else:
                     return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
 
-            # Parse description
+            # Parse description and clean it
             description = ""
             if description_col:
-                description = row.get(description_col, "").strip()
+                raw_description = row.get(description_col, "").strip()
+                description = self._clean_description(raw_description)
 
             # Create transaction
             # Note: account_id will be set by ImportService when mapping to target account
@@ -210,8 +211,8 @@ class CSVProvider(DataAggregationProvider):
         except Exception as e:
             return Fail(f"Failed to parse transaction row: {str(e)}")
 
-    def _parse_date(self, date_str: str, date_format: str) -> datetime | None:
-        """Parse date string with various format support."""
+    def _parse_date(self, date_str: str, date_format: str) -> date | None:
+        """Parse date string and return date object (no timezone)."""
         if not date_str:
             return None
 
@@ -242,8 +243,8 @@ class CSVProvider(DataAggregationProvider):
         for fmt in formats:
             try:
                 dt = datetime.strptime(date_str, fmt)
-                # Add timezone info
-                return dt.replace(tzinfo=timezone.utc)
+                # Return date object, not datetime (no timezone conversion)
+                return dt.date()
             except ValueError:
                 continue
 
@@ -268,6 +269,30 @@ class CSVProvider(DataAggregationProvider):
             return Decimal(cleaned)
         except (InvalidOperation, ValueError):
             return None
+
+    def _clean_description(self, description: str) -> str:
+        """Remove CSV noise from descriptions before storing.
+
+        Removes:
+        - Literal "null" strings
+        - Card number masks (XXXXXXXXXXXX1234)
+        - Extra whitespace
+        """
+        if not description:
+            return ""
+
+        cleaned = description
+
+        # Remove literal "null" strings (case insensitive)
+        cleaned = re.sub(r'\bnull\b', '', cleaned, flags=re.IGNORECASE)
+
+        # Remove card number masks (XXXXXXXXXXXX followed by digits)
+        cleaned = re.sub(r'x{10,}\d+', '', cleaned, flags=re.IGNORECASE)
+
+        # Clean up extra whitespace (collapse multiple spaces, trim)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        return cleaned
 
     def detect_columns(self, file_path: str) -> Result[Dict[str, str]]:
         """Auto-detect column mapping from CSV headers.

@@ -549,7 +549,7 @@ def handle_import_command() -> None:
                         tx.transaction_date.strftime("%Y-%m-%d"),
                         tx.description or "",
                         f"{tx.amount:.2f}",
-                        tx.dedup_key,
+                        tx.external_ids.get("fingerprint", ""),
                         "0"
                     ])
 
