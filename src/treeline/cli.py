@@ -79,24 +79,75 @@ def ensure_treeline_initialized() -> bool:
 
 
 def show_welcome_message(first_time: bool = False) -> None:
-    """Display welcome message."""
-    console.print("\n[bold green]🌲 Welcome to Treeline![/bold green]\n")
+    """Display welcome message with ASCII art and useful information."""
+    from rich.panel import Panel
+    from rich.table import Table
+    from pathlib import Path
 
-    if first_time:
-        console.print("[dim]Initialized treeline directory in current folder[/dim]\n")
-
-    # Show authentication status using ConfigService
+    # Get container and services
     container = get_container()
     config_service = container.config_service()
 
+    # Build info content
+    info_parts = []
+
+    # Title
+    info_parts.append("[bold green]🌲 Treeline[/bold green]")
+    info_parts.append("")
+
+    # Authentication status
     if config_service.is_authenticated():
         email = config_service.get_current_user_email()
-        console.print(f"[dim]Logged in as {email}[/dim]\n")
-    else:
-        console.print("[yellow]⚠ Not authenticated. Please use [bold]/login[/bold] to sign in.[/yellow]\n")
+        info_parts.append(f"[green]✓[/green] Logged in as [bold]{email}[/bold]")
 
-    console.print("Type [bold]/help[/bold] to see available commands")
-    console.print("Type [bold]exit[/bold] or press [bold]Ctrl+C[/bold] to quit\n")
+        # Try to get quick stats
+        try:
+            user_id_str = config_service.get_current_user_id()
+            if user_id_str:
+                from uuid import UUID
+                user_id = UUID(user_id_str)
+                status_service = container.status_service()
+                result = asyncio.run(status_service.get_status(user_id))
+
+                if result.success:
+                    status = result.data
+                    info_parts.append("")
+                    info_parts.append(f"[cyan]📊 Quick Stats[/cyan]")
+                    info_parts.append(f"  Accounts: [bold]{len(status['accounts'])}[/bold]")
+                    info_parts.append(f"  Transactions: [bold]{status['total_transactions']}[/bold]")
+
+                    if status['latest_date']:
+                        info_parts.append(f"  Latest data: [bold]{status['latest_date']}[/bold]")
+        except Exception:
+            # If we can't get stats, just skip them
+            pass
+    else:
+        info_parts.append("[yellow]⚠ Not authenticated[/yellow]")
+        info_parts.append("Use [bold]/login[/bold] to sign in")
+
+    if first_time:
+        info_parts.append("")
+        info_parts.append("[green]✓[/green] Initialized treeline directory")
+
+    info_parts.append("")
+    info_parts.append("[dim]Type [bold]/help[/bold] for commands[/dim]")
+    info_parts.append("[dim]Type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit[/dim]")
+
+    # Get current directory name for display
+    cwd = Path.cwd().name
+
+    # Simple panel with just the info, fit to content
+    panel = Panel(
+        "\n".join(info_parts),
+        border_style="green",
+        padding=(1, 2),
+        subtitle=f"[dim]{cwd}[/dim]",
+        expand=False
+    )
+
+    console.print()
+    console.print(panel)
+    console.print()
 
 
 def handle_help_command() -> None:
