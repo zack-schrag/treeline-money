@@ -38,7 +38,7 @@ class Account(BaseModel):
     nickname: str | None = None
     account_type: str | None = None
     currency: str = Field(default="USD")
-    external_ids: Mapping[str, str] = Field(default_factory=dict)
+    external_ids: Dict[str, str] = Field(default_factory=dict)
     balance: Decimal | None = None
     institution_name: str | None = None
     institution_url: str | None = None
@@ -56,12 +56,12 @@ class Account(BaseModel):
 
     @field_validator("external_ids", mode="before")
     @classmethod
-    def _normalize_external_ids(cls, value: object) -> Mapping[str, str]:
+    def _normalize_external_ids(cls, value: object) -> Dict[str, str]:
         if value is None:
-            return MappingProxyType({})
+            return {}
         if isinstance(value, Mapping):
             normalized = {str(key): str(val) for key, val in value.items()}
-            return MappingProxyType(normalized)
+            return normalized
         msg = "external_ids must be a mapping"
         raise TypeError(msg)
 
@@ -92,7 +92,7 @@ class Transaction(BaseModel):
 
     id: UUID
     account_id: UUID
-    external_ids: Mapping[str, str] = Field(default_factory=dict)
+    external_ids: Dict[str, str] = Field(default_factory=dict)
     amount: Decimal
     description: str | None = None
     transaction_date: date  # Changed from datetime - no timezone needed
@@ -106,12 +106,12 @@ class Transaction(BaseModel):
 
     @field_validator("external_ids", mode="before")
     @classmethod
-    def _normalize_external_ids(cls, value: object) -> Mapping[str, str]:
+    def _normalize_external_ids(cls, value: object) -> Dict[str, str]:
         if value is None:
-            return MappingProxyType({})
+            return {}
         if isinstance(value, Mapping):
             normalized = {str(key): str(val) for key, val in value.items()}
-            return MappingProxyType(normalized)
+            return normalized
         msg = "external_ids must be a mapping"
         raise TypeError(msg)
 
@@ -171,10 +171,10 @@ class Transaction(BaseModel):
         """Auto-generate fingerprint and store in external_ids if not present."""
         if "fingerprint" not in self.external_ids:
             fingerprint = self._calculate_fingerprint()
-            # external_ids is immutable (MappingProxyType), so we need to recreate it
+            # external_ids is a dict, but the model is frozen, so we need to use object.__setattr__
             ids_dict = dict(self.external_ids)
             ids_dict["fingerprint"] = fingerprint
-            object.__setattr__(self, 'external_ids', MappingProxyType(ids_dict))
+            object.__setattr__(self, 'external_ids', ids_dict)
         return self
 
     def _calculate_fingerprint(self) -> str:
