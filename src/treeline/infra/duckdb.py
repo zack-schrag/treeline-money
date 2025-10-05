@@ -727,11 +727,11 @@ class DuckDBRepository(Repository):
                 transactions.append(Transaction(
                     id=UUID(row[0]),
                     account_id=UUID(row[1]),
-                    external_ids=MappingProxyType(json.loads(row[2]) if row[2] else {}),
+                    external_ids=json.loads(row[2]) if row[2] else {},
                     amount=Decimal(str(row[3])),
                     description=row[4],
-                    transaction_date=self._ensure_timezone(row[5]),
-                    posted_date=self._ensure_timezone(row[6]),
+                    transaction_date=row[5],  # Already a date, no timezone conversion needed
+                    posted_date=row[6],  # Already a date, no timezone conversion needed
                     tags=tuple(row[7]) if row[7] else (),
                     created_at=self._ensure_timezone(row[8]),
                     updated_at=self._ensure_timezone(row[9]),

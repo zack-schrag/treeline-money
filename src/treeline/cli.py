@@ -699,6 +699,7 @@ def handle_tag_command() -> None:
         if result.success:
             transactions = result.data
             return True
+        console.print(result.error)
         return False
 
     # Load initial transactions
