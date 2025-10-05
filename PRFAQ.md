@@ -19,7 +19,7 @@ Using natural language, users can ask direct questions about their finance data:
 The AI agent shows its work by always displaying the SQL it used to get to the answers, making it easy for users to tweak and iteratively edit the SQL directly to get exactly the answers they need.
 
 ### Chart Visualizations
-Users can build chart visualizations in the terminal directly from queries. Under the hood, Treeline pipes DuckDB query results into YouPlot for visualizations. Users are able to save the queries and chart for later usage, and configure their home terminal "dashboard" with charts and tables to display.
+Users can build chart visualizations in the terminal directly from queries. Under the hood, Treeline pipes DuckDB query results into PyPlot for visualizations. Users are able to save the queries and chart for later usage, and configure their home terminal "dashboard" with charts and tables to display.
 
 ### Tagging Power Mode
 Tagging power mode lets users rapidly apply tags to transactions with as little friction as possible. Users can jump around between transactions using keyboard shortcuts, and are provided suggested tags based on a combination of ML algorithms and frequently used tags. 
