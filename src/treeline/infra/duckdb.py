@@ -28,7 +28,14 @@ class DuckDBRepository(Repository):
 
     def _ensure_timezone(self, dt: datetime) -> datetime:
         """Ensure datetime is timezone-aware."""
-        if dt and dt.tzinfo is None:
+        from datetime import date
+        if dt is None:
+            return dt
+        # Handle datetime.date objects (from DATE columns) - convert to datetime at midnight UTC
+        if isinstance(dt, date) and not isinstance(dt, datetime):
+            return datetime.combine(dt, datetime.min.time(), tzinfo=timezone.utc)
+        # Handle datetime objects - ensure they have timezone
+        if isinstance(dt, datetime) and dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
         return dt
 
@@ -753,7 +760,7 @@ class DuckDBRepository(Repository):
 
             # Update the transaction
             conn.execute("""
-                UPDATE transactions
+                UPDATE sys_transactions
                 SET tags = ?, updated_at = ?
                 WHERE transaction_id = ?
             """, [tags, now, transaction_id])
