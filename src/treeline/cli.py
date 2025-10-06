@@ -150,20 +150,43 @@ class SlashCommandCompleter(Completer):
             )
 
 
-def prompt_for_file_path(prompt_text: str = "Enter file path") -> str:
+def prompt_for_file_path(prompt_text: str = "") -> str:
     """Prompt user for a file path with autocomplete.
 
     Args:
-        prompt_text: The prompt text to display
+        prompt_text: The prompt text to display (plain text, no Rich markup)
 
     Returns:
         The file path entered by the user
     """
     from prompt_toolkit import PromptSession
     from prompt_toolkit.completion import PathCompleter
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.filters import completion_is_selected
 
-    session = PromptSession(completer=PathCompleter(expanduser=True))
-    return session.prompt(f"{prompt_text}: ")
+    # PathCompleter with expanduser=True handles ~ expansion
+    # only_directories=False allows both files and directories
+    completer = PathCompleter(expanduser=True, only_directories=False)
+
+    # Create custom key bindings to handle Enter on directory selections
+    kb = KeyBindings()
+
+    @kb.add('enter', filter=completion_is_selected)
+    def _(event):
+        """When Enter is pressed on a selected completion, insert it and continue editing."""
+        # Get the current completion
+        completion = event.current_buffer.complete_state.current_completion
+        if completion:
+            # Insert the completion text
+            event.current_buffer.apply_completion(completion)
+        # Don't accept the input - let user continue typing
+
+    session = PromptSession(completer=completer, key_bindings=kb)
+
+    if prompt_text:
+        return session.prompt(f"{prompt_text}: ")
+    else:
+        return session.prompt(">: ")
 
 
 def get_treeline_dir() -> Path:

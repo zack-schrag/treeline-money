@@ -54,8 +54,9 @@ def handle_import_command() -> None:
 
     # Use prompt_toolkit for file path input with autocomplete
     from treeline.cli import prompt_for_file_path
+    console.print("[cyan]Enter path to CSV file:[/cyan]")
     try:
-        file_path = prompt_for_file_path("[cyan]Enter path to CSV file[/cyan]")
+        file_path = prompt_for_file_path("")
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Import cancelled[/yellow]\n")
         return
