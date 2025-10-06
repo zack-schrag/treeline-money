@@ -8,7 +8,7 @@ import traceback
 import typer
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.completion import Completer, Completion, PathCompleter
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
@@ -71,10 +71,66 @@ def get_slash_command_completions(text: str) -> list[str]:
     return [cmd for cmd in SLASH_COMMANDS if cmd.startswith(text.lower())]
 
 
+def get_file_path_completions(text: str) -> list[str]:
+    """Get file path completions for the given text.
+
+    Args:
+        text: The current partial path
+
+    Returns:
+        List of matching file/directory paths
+    """
+    import os
+    import glob
+
+    # Expand ~ to home directory
+    expanded_text = os.path.expanduser(text)
+
+    # If the text is empty or just ~, return home directory contents
+    if not text or text == "~" or text == "~/":
+        base_path = os.path.expanduser("~/")
+        try:
+            items = os.listdir(base_path)
+            return [os.path.join("~", item) for item in sorted(items)]
+        except (OSError, PermissionError):
+            return []
+
+    # Handle partial paths
+    try:
+        # Get the directory and partial filename
+        if os.path.isdir(expanded_text):
+            # If it's a directory, list its contents
+            base_dir = expanded_text
+            pattern = "*"
+        else:
+            # It's a partial path
+            base_dir = os.path.dirname(expanded_text) or "."
+            pattern = os.path.basename(expanded_text) + "*"
+
+        # Get matching paths
+        search_pattern = os.path.join(base_dir, pattern)
+        matches = glob.glob(search_pattern)
+
+        # Convert back to original format (preserve ~ if used)
+        if text.startswith("~/"):
+            home = os.path.expanduser("~")
+            matches = [m.replace(home, "~", 1) if m.startswith(home) else m for m in matches]
+
+        # Sort and return (directories first, then files)
+        def sort_key(p):
+            is_dir = os.path.isdir(os.path.expanduser(p))
+            return (not is_dir, p.lower())
+
+        return sorted(matches, key=sort_key)
+
+    except (OSError, PermissionError):
+        return []
+
+
 class SlashCommandCompleter(Completer):
     """Completer for slash commands in the REPL."""
 
-    def get_completions(self, document, complete_event):
+    def get_completions(self, document, _complete_event):
         """Generate completions for the current document."""
         text = document.text_before_cursor
 
@@ -92,6 +148,22 @@ class SlashCommandCompleter(Completer):
                 start_position=-len(text),
                 display=match,
             )
+
+
+def prompt_for_file_path(prompt_text: str = "Enter file path") -> str:
+    """Prompt user for a file path with autocomplete.
+
+    Args:
+        prompt_text: The prompt text to display
+
+    Returns:
+        The file path entered by the user
+    """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import PathCompleter
+
+    session = PromptSession(completer=PathCompleter(expanduser=True))
+    return session.prompt(f"{prompt_text}: ")
 
 
 def get_treeline_dir() -> Path:
