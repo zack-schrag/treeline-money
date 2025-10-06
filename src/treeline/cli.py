@@ -12,6 +12,9 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from treeline.app.container import Container
+from treeline.commands.help import handle_help_command
+from treeline.commands.login import handle_login_command
+from treeline.commands.status import handle_status_command
 
 # Load environment variables from .env file
 load_dotenv()
@@ -150,113 +153,14 @@ def show_welcome_message(first_time: bool = False) -> None:
     console.print()
 
 
-def handle_help_command() -> None:
-    """Display help information about available commands."""
-    table = Table(title="Available Slash Commands", show_header=True)
-    table.add_column("Command", style="cyan", no_wrap=True)
-    table.add_column("Description", style="white")
-
-    table.add_row("/help", "Show all available commands")
-    table.add_row("/login", "Login or create your Treeline account")
-    table.add_row("/status", "Shows summary of current state of your financial data")
-    table.add_row("/query <SQL>", "Execute a SQL query directly")
-    table.add_row("/simplefin", "Setup SimpleFIN connection")
-    table.add_row("/sync", "Run an on-demand data synchronization")
-    table.add_row("/import", "Import CSV file of transactions")
-    table.add_row("/tag", "Enter tagging power mode")
-    table.add_row("/clear", "Clear conversation history and start fresh")
-
-    console.print(table)
-    console.print("\n[dim]You can also ask questions about your financial data in natural language[/dim]\n")
-
-
-def handle_login_command() -> None:
-    """Handle /login command."""
-    console.print("\n[bold cyan]Login to Treeline[/bold cyan]\n")
-
-    container = get_container()
-    config_service = container.config_service()
-
-    try:
-        auth_service = container.auth_service()
-    except ValueError as e:
-        console.print(f"\n[red]Error: {str(e)}[/red]")
-        console.print("[dim]Please set SUPABASE_URL and SUPABASE_KEY in your .env file[/dim]\n")
-        return
-
-    # Ask if user wants to sign in or create account
-    create_account = Confirm.ask("Create a new account?", default=False)
-
-    email = Prompt.ask("Email")
-    password = Prompt.ask("Password", password=True)
-
-    console.print()
-    with console.status("[bold green]Authenticating..."):
-        if create_account:
-            result = asyncio.run(auth_service.sign_up_with_password(email, password))
-        else:
-            result = asyncio.run(auth_service.sign_in_with_password(email, password))
-
-    if not result.success:
-        console.print(f"[red]Authentication failed: {result.error}[/red]\n")
-        return
-
-    user = result.data
-    console.print(f"[green]✓[/green] Successfully authenticated as [bold]{user.email}[/bold]\n")
-
-    # Save credentials using config service
-    config_service.save_user_credentials(str(user.id), user.email)
-    console.print("[dim]Credentials saved to system keyring[/dim]\n")
-
-
-def handle_status_command() -> None:
-    """Handle /status command."""
-    container = get_container()
-    config_service = container.config_service()
-    status_service = container.status_service()
-
-    # Check authentication
-    user_id_str = config_service.get_current_user_id()
-    if not user_id_str:
-        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
-        return
-
-    user_id = UUID(user_id_str)
-
-    console.print("\n[bold cyan]📊 Financial Data Status[/bold cyan]\n")
-
-    with console.status("[bold green]Loading data..."):
-        result = asyncio.run(status_service.get_status(user_id))
-
-        if not result.success:
-            console.print(f"[red]Error loading status: {result.error}[/red]\n")
-            return
-
-        status = result.data
-
-    # Display summary
-    summary_table = Table(show_header=False, box=None, padding=(0, 2))
-    summary_table.add_column("Metric", style="cyan")
-    summary_table.add_column("Value", style="bold white")
-
-    summary_table.add_row("Accounts", str(len(status["accounts"])))
-    summary_table.add_row("Transactions", str(status["total_transactions"]))
-    summary_table.add_row("Balance Snapshots", str(status["total_snapshots"]))
-    summary_table.add_row("Integrations", str(len(status["integrations"])))
-
-    console.print(summary_table)
-
-    # Date range
-    if status["earliest_date"] and status["latest_date"]:
-        console.print(f"\n[dim]Date range: {status['earliest_date']} to {status['latest_date']}[/dim]")
-
-    # Show integrations
-    if status["integrations"]:
-        console.print("\n[bold]Connected Integrations:[/bold]")
-        for integration in status["integrations"]:
-            console.print(f"  • {integration['integrationName']}")
-
-    console.print()
+# TODO: Extract remaining command handlers to separate files:
+# - handle_simplefin_command
+# - handle_sync_command
+# - handle_import_command
+# - handle_tag_command
+# - handle_clear_command
+# - handle_query_command
+# - handle_chat_message
 
 
 def handle_simplefin_command() -> None:
