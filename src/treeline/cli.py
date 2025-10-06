@@ -1285,7 +1285,15 @@ def run_interactive_mode() -> None:
     try:
         while True:
             try:
-                user_input = Prompt.ask("[bold cyan]>[/bold cyan]")
+                # Print separator line before prompt
+                console.print("[dim]" + "─" * console.width + "[/dim]")
+                # Use input() with console cursor control for better spacing
+                console.print(">: ", end="")
+                user_input = input()
+                # Print separator line after prompt with spacing
+                console.print("[dim]" + "─" * console.width + "[/dim]")
+                console.print()  # Add blank line for cushion
+
                 should_continue = process_command(user_input)
                 if not should_continue:
                     break
