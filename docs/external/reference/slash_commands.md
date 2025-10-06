@@ -1,5 +1,7 @@
 # Slash Commands
 
+Slash commands in the Treeline REPL provide quick access to common operations. When you type `/` in the interactive mode, you'll see autocomplete suggestions for available commands. Use Tab to complete or arrow keys to navigate suggestions.
+
 Command | Description
 --- | ---
 /help | Show all available commands
@@ -11,6 +13,7 @@ Command | Description
 /plugins | Manage plugins
 /sync | Run an on-demand data synchronization from your connected accounts
 /query <SQL> | Execute a SQL query directly (SELECT and WITH queries only)
+/clear | Clear the screen
 
 ## Suggested Enhancements
 - Add success/error examples for each command so users understand expected output and side effects.

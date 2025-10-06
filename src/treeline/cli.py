@@ -7,6 +7,8 @@ from uuid import UUID
 import traceback
 import typer
 from dotenv import load_dotenv
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
@@ -34,6 +36,62 @@ console = Console()
 
 # Global container instance
 _container: Container | None = None
+
+# Available slash commands
+SLASH_COMMANDS = [
+    "/help",
+    "/login",
+    "/status",
+    "/simplefin",
+    "/sync",
+    "/import",
+    "/tag",
+    "/query",
+    "/clear",
+]
+
+
+def get_slash_command_completions(text: str) -> list[str]:
+    """Get slash command completions for the given text.
+
+    Args:
+        text: The current input text
+
+    Returns:
+        List of matching slash commands
+    """
+    if not text.startswith("/"):
+        return []
+
+    # Return all commands if just "/" is typed
+    if text == "/":
+        return SLASH_COMMANDS
+
+    # Return commands that start with the typed text
+    return [cmd for cmd in SLASH_COMMANDS if cmd.startswith(text.lower())]
+
+
+class SlashCommandCompleter(Completer):
+    """Completer for slash commands in the REPL."""
+
+    def get_completions(self, document, complete_event):
+        """Generate completions for the current document."""
+        text = document.text_before_cursor
+
+        # Only provide completions for slash commands
+        if not text.startswith("/"):
+            return
+
+        # Get matching commands
+        matches = get_slash_command_completions(text)
+
+        # Yield each match as a completion
+        for match in matches:
+            yield Completion(
+                match,
+                start_position=-len(text),
+                display=match,
+            )
 
 
 def get_treeline_dir() -> Path:
@@ -218,15 +276,19 @@ def run_interactive_mode() -> None:
     # Show welcome message
     show_welcome_message(first_time)
 
+    # Create prompt session with autocomplete
+    session = PromptSession(completer=SlashCommandCompleter())
+
     # Main REPL loop
     try:
         while True:
             try:
                 # Print separator line before prompt
                 console.print("[dim]" + "─" * console.width + "[/dim]")
-                # Use input() with console cursor control for better spacing
-                console.print(">: ", end="")
-                user_input = input()
+
+                # Use prompt_toolkit for input with autocomplete
+                user_input = session.prompt(">: ")
+
                 # Print separator line after prompt with spacing
                 console.print("[dim]" + "─" * console.width + "[/dim]")
                 console.print()  # Add blank line for cushion
