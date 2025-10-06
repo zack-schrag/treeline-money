@@ -4,3 +4,6 @@ Acceptance criteria:
 - The pyplot code is moved to a separate git project
 - The pyplot code has things added to it to make it open source ready: MIT license, documentation (quickstart, reference, examples, etc.)
 - If it's missing tests, add some simple unit tests, don't overcomplicate this though
+- Packaged as an installable python package. 
+- The project should use uv and pyproject.toml, *not* requirements.txt
+- The existing treeline CLI should be able to install the local package to verify everything works
