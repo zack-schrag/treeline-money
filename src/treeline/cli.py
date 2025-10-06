@@ -174,11 +174,19 @@ def prompt_for_file_path(prompt_text: str = "") -> str:
     @kb.add('enter', filter=completion_is_selected)
     def _(event):
         """When Enter is pressed on a selected completion, insert it and continue editing."""
+        import os
+
         # Get the current completion
         completion = event.current_buffer.complete_state.current_completion
         if completion:
             # Insert the completion text
             event.current_buffer.apply_completion(completion)
+
+            # If it's a directory and doesn't end with /, add one
+            current_text = event.current_buffer.text
+            expanded_path = os.path.expanduser(current_text)
+            if os.path.isdir(expanded_path) and not current_text.endswith('/'):
+                event.current_buffer.insert_text('/')
         # Don't accept the input - let user continue typing
 
     session = PromptSession(completer=completer, key_bindings=kb)
