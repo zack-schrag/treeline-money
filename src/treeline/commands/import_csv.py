@@ -382,43 +382,5 @@ def handle_import_command() -> None:
         console.print(f"  Discovered: {stats['discovered']} transactions")
         console.print(f"  Imported: {stats['imported']} new transactions")
         console.print(f"  Skipped: {stats['skipped']} duplicates\n")
-
-        # Write debug CSV
-        import csv as csv_module
-        from datetime import datetime as dt
-
-        debug_file = Path.cwd() / f"import_debug_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv"
-
-        try:
-            with open(debug_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv_module.writer(f)
-                writer.writerow(["Status", "Date", "Description", "Amount", "Fingerprint", "Existing Count"])
-
-                # Write imported transactions
-                for tx in stats.get('imported_transactions', []):
-                    writer.writerow([
-                        "IMPORTED",
-                        tx.transaction_date.strftime("%Y-%m-%d"),
-                        tx.description or "",
-                        f"{tx.amount:.2f}",
-                        tx.external_ids.get("fingerprint", ""),
-                        "0"
-                    ])
-
-                # Write skipped transactions
-                for skip_info in stats.get('skipped_transactions', []):
-                    tx = skip_info['transaction']
-                    writer.writerow([
-                        "SKIPPED",
-                        tx.transaction_date.strftime("%Y-%m-%d"),
-                        tx.description or "",
-                        f"{tx.amount:.2f}",
-                        skip_info['fingerprint'],
-                        str(skip_info['existing_count'])
-                    ])
-
-            console.print(f"[dim]Debug report written to: {debug_file}[/dim]\n")
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not write debug file: {e}[/yellow]\n")
     else:
         console.print(f"\n[red]Error: {import_result.error}[/red]\n")
