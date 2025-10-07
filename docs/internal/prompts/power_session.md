@@ -22,6 +22,7 @@ A "power session" is a focused work mode where I continuously implement tasks fr
      - Task dependencies (do prerequisite tasks first)
      - Explicit priority markers in task files (if any)
    - Tasks are intended to be independent unless noted otherwise
+   - Taking on complex tasks is good! Don't avoid them, but make sure to put together a plan before doing any major refactor or architectural decisions.
 
 2. **Task Execution**
    - Follow TDD approach: write failing tests first, then implement

@@ -1,0 +1,32 @@
+{
+  "name": "Treeline Default",
+  "description": "Default color scheme for Treeline CLI",
+  "colors": {
+    "primary": "green",
+    "success": "green",
+    "error": "red",
+    "warning": "yellow",
+    "info": "cyan",
+    "muted": "dim",
+    "emphasis": "bold",
+    "highlight": "bold cyan",
+    "separator": "dim",
+    "link": "blue underline",
+    "positive_amount": "green",
+    "negative_amount": "red",
+    "neutral": "white"
+  },
+  "status": {
+    "loading": "bold green",
+    "complete": "green",
+    "failed": "red"
+  },
+  "ui": {
+    "header": "bold cyan",
+    "subheader": "cyan",
+    "label": "dim",
+    "value": "white",
+    "selected": "bold cyan",
+    "unselected": "white"
+  }
+}
