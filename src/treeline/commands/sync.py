@@ -68,7 +68,21 @@ def handle_sync_command() -> None:
         else:
             console.print(f"[{theme.muted}]  Initial sync: fetching last 90 days of transactions[/{theme.muted}]")
 
-        console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['transactions_synced']} transaction(s)")
+        # Display transaction breakdown if stats are available
+        tx_stats = sync_result.get("transaction_stats", {})
+        if tx_stats:
+            discovered = tx_stats.get("discovered", 0)
+            new = tx_stats.get("new", 0)
+            skipped = tx_stats.get("skipped", 0)
+
+            console.print(f"[{theme.success}]  ✓[/{theme.success}] Transaction breakdown:")
+            console.print(f"[{theme.muted}]    Discovered: {discovered}[/{theme.muted}]")
+            console.print(f"[{theme.muted}]    New: {new}[/{theme.muted}]")
+            console.print(f"[{theme.muted}]    Skipped: {skipped} (already exists)[/{theme.muted}]")
+        else:
+            # Fallback to old display if stats not available
+            console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['transactions_synced']} transaction(s)")
+
         console.print(f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]")
 
     console.print(f"\n[{theme.success}]✓[/{theme.success}] Sync completed!\n")

@@ -233,21 +233,24 @@ class SyncService:
             if tx.external_ids.get(integration_name_lower)
         }
 
-        # Separate new vs updated transactions
-        transactions_to_upsert = []
+        # Separate new vs skipped transactions
+        # IMPORTANT: Skip existing transactions to preserve user-added data like tags
+        transactions_to_insert = []
+        new_count = 0
+        skipped_count = 0
+
         for discovered_tx in mapped_transactions:
             ext_id = discovered_tx.external_ids.get(integration_name_lower)
             if ext_id and ext_id in existing_by_ext_id:
-                # Update: preserve existing transaction ID
-                existing_tx = existing_by_ext_id[ext_id]
-                updated_tx = discovered_tx.model_copy(update={"id": existing_tx.id})
-                transactions_to_upsert.append(updated_tx)
+                # Skip: transaction already exists, preserve user data (tags, etc.)
+                skipped_count += 1
             else:
                 # New transaction
-                transactions_to_upsert.append(discovered_tx)
+                transactions_to_insert.append(discovered_tx)
+                new_count += 1
 
-        # Bulk upsert
-        ingested_result = await self.repository.bulk_upsert_transactions(user_id, transactions_to_upsert)
+        # Bulk insert only new transactions
+        ingested_result = await self.repository.bulk_upsert_transactions(user_id, transactions_to_insert)
         if not ingested_result.success:
             return ingested_result
 
@@ -256,6 +259,11 @@ class SyncService:
             data={
                 "discovered_transactions": mapped_transactions,
                 "ingested_transactions": ingested_result.data,
+                "stats": {
+                    "discovered": len(mapped_transactions),
+                    "new": new_count,
+                    "skipped": skipped_count,
+                },
             },
         )
 
@@ -410,11 +418,13 @@ class SyncService:
                 continue
 
             num_transactions = len(transactions_result.data.get("ingested_transactions", []))
+            tx_stats = transactions_result.data.get("stats", {})
 
             sync_results.append({
                 "integration": integration_name,
                 "accounts_synced": num_accounts,
                 "transactions_synced": num_transactions,
+                "transaction_stats": tx_stats,
                 "sync_type": date_range["sync_type"],
                 "start_date": date_range["start_date"],
                 "end_date": date_range["end_date"]

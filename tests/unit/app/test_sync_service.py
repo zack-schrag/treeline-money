@@ -244,17 +244,23 @@ async def test_sync_transactions_deduplicates_by_external_id():
     result = await service.sync_transactions(user_id, "plaid", provider_options={})
 
     assert result.success is True
-    # Verify the updated transaction preserves the existing ID
+    # Verify existing transactions are skipped (not updated) to preserve user data like tags
     call_args = mock_repository.bulk_upsert_transactions.call_args
-    upserted_txs = call_args[0][1]
+    inserted_txs = call_args[0][1]
 
-    # Should have 2 transactions: 1 update + 1 new
-    assert len(upserted_txs) == 2
+    # Should have only 1 transaction: the new one (existing tx123 is skipped)
+    assert len(inserted_txs) == 1
 
-    # Find the updated transaction
-    updated_tx = next(tx for tx in upserted_txs if tx.external_ids.get("plaid") == "tx123")
-    assert updated_tx.id == existing_tx_id
-    assert updated_tx.amount == Decimal("-55.00")
+    # The only transaction should be the new one (tx456)
+    new_tx = inserted_txs[0]
+    assert new_tx.external_ids.get("plaid") == "tx456"
+    assert new_tx.amount == Decimal("-25.00")
+
+    # Verify stats show 1 skipped and 1 new
+    stats = result.data.get("stats", {})
+    assert stats["discovered"] == 2
+    assert stats["new"] == 1
+    assert stats["skipped"] == 1
 
 
 @pytest.mark.asyncio
