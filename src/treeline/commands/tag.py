@@ -61,6 +61,17 @@ def handle_tag_command() -> None:
     current_offset = 0
     show_untagged_only = False
     transactions = []
+    account_map = {}  # Map of account_id -> account name
+
+    def load_accounts():
+        """Load accounts and create mapping."""
+        nonlocal account_map
+        accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
+        if accounts_result.success:
+            account_map = {acc.id: acc.nickname or acc.name for acc in accounts_result.data}
+            return True
+        console.print(f"[red]Error loading accounts: {accounts_result.error}[/red]\n")
+        return False
 
     def load_transactions():
         """Load transactions with current filter and offset."""
@@ -78,8 +89,12 @@ def handle_tag_command() -> None:
         console.print(result.error)
         return False
 
-    # Load initial transactions
-    console.print("[dim]Loading transactions...[/dim]")
+    # Load accounts and initial transactions
+    console.print("[dim]Loading accounts and transactions...[/dim]")
+    if not load_accounts():
+        console.print(f"[red]Error loading accounts[/red]\n")
+        return
+
     if not load_transactions():
         console.print(f"[red]Error loading transactions[/red]\n")
         return
@@ -100,9 +115,10 @@ def handle_tag_command() -> None:
         list_table = Table(show_header=True, box=None, padding=(0, 1))
         list_table.add_column("", width=2)
         list_table.add_column("Date", width=12)
-        list_table.add_column("Description", width=40)
+        list_table.add_column("Account", width=20)
+        list_table.add_column("Description", width=30)
         list_table.add_column("Amount", justify="right", width=12)
-        list_table.add_column("Tags", width=30)
+        list_table.add_column("Tags", width=20)
 
         # Show page of transactions around current index
         start_idx = max(0, current_index - page_size // 2)
@@ -116,7 +132,8 @@ def handle_tag_command() -> None:
             txn = transactions[i]
             marker = "→" if i == current_index else " "
             date_str = txn.transaction_date.strftime("%Y-%m-%d")
-            desc = (txn.description or "")[:38]
+            account_name = account_map.get(txn.account_id, "Unknown")[:18]
+            desc = (txn.description or "")[:28]
 
             # Format amount with proper sign placement and color
             if txn.amount < 0:
@@ -124,12 +141,12 @@ def handle_tag_command() -> None:
             else:
                 amount_str = f"[green]${txn.amount:.2f}[/green]"
 
-            tags_str = ", ".join(txn.tags[:3]) if txn.tags else ""
-            if len(txn.tags) > 3:
+            tags_str = ", ".join(txn.tags[:2]) if txn.tags else ""
+            if len(txn.tags) > 2:
                 tags_str += "..."
 
             style = "bold cyan" if i == current_index else ""
-            list_table.add_row(marker, date_str, desc, amount_str, tags_str, style=style)
+            list_table.add_row(marker, date_str, account_name, desc, amount_str, tags_str, style=style)
 
         console.print(list_table)
 
@@ -147,6 +164,7 @@ def handle_tag_command() -> None:
         else:
             amount_display = f"[green]${txn.amount:.2f}[/green]"
 
+        detail_table.add_row("Account", account_map.get(txn.account_id, "Unknown"))
         detail_table.add_row("Description", txn.description or "")
         detail_table.add_row("Amount", amount_display)
         detail_table.add_row("Current tags", ", ".join(txn.tags) if txn.tags else "[dim](none)[/dim]")

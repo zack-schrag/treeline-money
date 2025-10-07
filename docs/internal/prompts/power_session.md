@@ -56,8 +56,4 @@ A "power session" is a focused work mode where I continuously implement tasks fr
 The session ends when:
 - No more tasks remain in the tasks directory
 - User explicitly ends the session
-- A complex architectural decision is needed
-
-## Example Flow
-```
-User: "we are going to start a power session..."
+- A complex architectural decision is needed and the user determines to defer the task to later.
