@@ -194,3 +194,34 @@ async def test_calculate_sync_date_range_handles_empty_result_set():
     end_date = result.data["end_date"]
     days_diff = (end_date - start_date).days
     assert 89 <= days_diff <= 91
+
+
+@pytest.mark.asyncio
+async def test_calculate_sync_date_range_handles_date_objects():
+    """Test that incremental sync works when database returns date objects (not datetime)."""
+    from datetime import date
+
+    mock_repository = MockRepository()
+
+    # Mock: latest transaction is a date object (as returned by DuckDB for DATE columns)
+    latest_transaction_date = date.today() - timedelta(days=30)
+    mock_repository.execute_query.return_value = Ok(
+        data={"rows": [[latest_transaction_date]], "columns": ["max_date"]}
+    )
+
+    service = SyncService({}, mock_repository)
+    user_id = uuid4()
+
+    result = await service.calculate_sync_date_range(user_id)
+
+    assert result.success
+    assert result.data["sync_type"] == "incremental"
+
+    # Verify start date is 7 days before latest transaction
+    start_date = result.data["start_date"]
+    # Convert date to datetime for comparison
+    expected_start = datetime.combine(latest_transaction_date, datetime.min.time(), tzinfo=timezone.utc) - timedelta(days=7)
+
+    # Allow for small time differences (within 1 second)
+    time_diff = abs((start_date - expected_start).total_seconds())
+    assert time_diff < 1

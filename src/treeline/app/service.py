@@ -309,19 +309,25 @@ class SyncService:
             # Incremental sync: start from last transaction date minus 7 days overlap
             max_date = rows[0][0]
 
-            # Ensure it's a datetime object and timezone-aware
-            if isinstance(max_date, datetime):
+            # Convert date to datetime if needed, and ensure timezone-aware
+            from datetime import date
+            if isinstance(max_date, date) and not isinstance(max_date, datetime):
+                # DATE column - convert to datetime at midnight UTC
+                max_date = datetime.combine(max_date, datetime.min.time(), tzinfo=timezone.utc)
+            elif isinstance(max_date, datetime):
+                # TIMESTAMP column - ensure timezone-aware
                 if max_date.tzinfo is None:
                     max_date = max_date.replace(tzinfo=timezone.utc)
-                start_date = max_date - timedelta(days=7)
-                return Result(
-                    success=True,
-                    data={
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "sync_type": "incremental"
-                    }
-                )
+
+            start_date = max_date - timedelta(days=7)
+            return Result(
+                success=True,
+                data={
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "sync_type": "incremental"
+                }
+            )
 
         # Initial sync: fetch last 90 days
         return Result(
