@@ -2,15 +2,17 @@
 
 from rich.console import Console
 from rich.table import Table
+from treeline.theme import get_theme
 
 console = Console()
+theme = get_theme()
 
 
 def handle_help_command() -> None:
     """Display help information about available commands."""
     table = Table(title="Available Slash Commands", show_header=True)
-    table.add_column("Command", style="cyan", no_wrap=True)
-    table.add_column("Description", style="white")
+    table.add_column("Command", style=theme.info, no_wrap=True)
+    table.add_column("Description", style=theme.neutral)
 
     table.add_row("/help", "Show all available commands")
     table.add_row("/login", "Login or create your Treeline account")
@@ -23,4 +25,4 @@ def handle_help_command() -> None:
     table.add_row("/clear", "Clear conversation history and start fresh")
 
     console.print(table)
-    console.print("\n[dim]You can also ask questions about your financial data in natural language[/dim]\n")
+    console.print(f"\n[{theme.muted}]You can also ask questions about your financial data in natural language[/{theme.muted}]\n")

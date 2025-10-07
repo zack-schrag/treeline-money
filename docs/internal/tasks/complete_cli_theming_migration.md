@@ -1,33 +1,29 @@
-## Complete CLI Theming Migration
+## Complete CLI Theming Migration - Final 4 Files
 
-The theme infrastructure has been implemented with:
-- Theme class and JSON-based theme system (`src/treeline/theme.py`)
-- Default theme file (`src/treeline/themes/default.json`)
-- Unit tests for theme loading and validation
-- Example refactoring in `status.py`
+The theme infrastructure is complete and 6 out of 10 files have been refactored to use the theme system.
 
-**Remaining Work**: Systematically refactor hardcoded colors in remaining files to use the theme system.
+### ✅ Completed Files (6/10):
+1. ✅ `src/treeline/cli.py` - Main CLI entry point
+2. ✅ `src/treeline/commands/status.py` - Status command
+3. ✅ `src/treeline/commands/sync.py` - Sync command
+4. ✅ `src/treeline/commands/simplefin.py` - SimpleFIN setup
+5. ✅ `src/treeline/commands/login.py` - Login/signup
+6. ✅ `src/treeline/commands/help.py` - Help command
 
-### Files Needing Refactoring
+### ⏳ Remaining Files (4/10):
 
-The following files still have hardcoded Rich markup colors:
+1. **`src/treeline/commands/query.py`** (~11 occurrences)
+2. **`src/treeline/commands/chat.py`** (~7 occurrences)
+3. **`src/treeline/commands/tag.py`** (~20 occurrences)
+4. **`src/treeline/commands/import_csv.py`** (~48 occurrences)
 
-1. `src/treeline/cli.py` - ~23 occurrences
-2. `src/treeline/commands/tag.py` - ~20 occurrences
-3. `src/treeline/commands/import_csv.py` - ~48 occurrences
-4. `src/treeline/commands/sync.py` - ~16 occurrences
-5. `src/treeline/commands/simplefin.py` - ~9 occurrences
-6. `src/treeline/commands/query.py` - ~11 occurrences
-7. `src/treeline/commands/login.py` - ~7 occurrences
-8. `src/treeline/commands/chat.py` - ~7 occurrences
-
-Total: ~141 occurrences remaining
+Total remaining: ~86 color occurrences
 
 ### Pattern to Follow
 
-See `src/treeline/commands/status.py` for the complete example. The pattern is:
+See completed files for examples. The pattern is:
 
-1. Add import at top:
+1. Add imports at top:
 ```python
 from treeline.theme import get_theme
 
@@ -38,11 +34,15 @@ theme = get_theme()
 ```python
 # Before:
 console.print("[red]Error message[/red]")
+console.print("[green]✓[/green] Success")
 console.print("[bold cyan]Header[/bold cyan]")
+console.print("[dim]Muted text[/dim]")
 
 # After:
 console.print(f"[{theme.error}]Error message[/{theme.error}]")
+console.print(f"[{theme.success}]✓[/{theme.success}] Success")
 console.print(f"[{theme.ui_header}]Header[/{theme.ui_header}]")
+console.print(f"[{theme.muted}]Muted text[/{theme.muted}]")
 ```
 
 3. Common mappings:
@@ -54,17 +54,28 @@ console.print(f"[{theme.ui_header}]Header[/{theme.ui_header}]")
 - `[bold]` → `theme.emphasis`
 - `[bold cyan]` → `theme.ui_header`
 - Money amounts: Use `theme.positive_amount` or `theme.negative_amount`
+- Table styles: Use `theme.info`, `theme.ui_value`, `theme.ui_selected`, etc.
 
 ### Acceptance Criteria
 
-- All 8 files refactored to use theme system
-- No hardcoded color strings in command files
-- All 132+ unit tests still passing
+- All 4 remaining files refactored to use theme system
+- No hardcoded color strings remain in command files
+- All unit tests still passing (currently 132/132 passing)
 - Manual testing confirms colors display correctly
-- Consider adding a second theme (e.g., "minimal" or "high-contrast") to prove the system works
+- Consider adding a second theme file (e.g., "minimal" or "high-contrast") to prove customization works
 
-### Notes
+### Testing
 
-- This is purely refactoring - no functional changes
-- Rich markup syntax stays the same, just using theme properties
-- If a color combo doesn't exist in theme, add it to the theme JSON first
+After refactoring, test each command:
+- `/query SELECT * FROM transactions LIMIT 5`
+- Natural language chat
+- `/tag` (interactive mode)
+- `/import` (with a sample CSV)
+
+### Progress
+
+- **Infrastructure**: ✅ 100% complete (Theme class, JSON, tests)
+- **File Migration**: 🔄 60% complete (6/10 files done)
+- **Total Colors**: 🔄 42% migrated (~62/148 occurrences done)
+
+The theming system is fully functional. The remaining work is straightforward refactoring following the established pattern.

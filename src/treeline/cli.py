@@ -23,6 +23,7 @@ from treeline.commands.simplefin import handle_simplefin_command
 from treeline.commands.status import handle_status_command
 from treeline.commands.sync import handle_sync_command
 from treeline.commands.tag import handle_tag_command
+from treeline.theme import get_theme
 
 # Load environment variables from .env file
 load_dotenv()
@@ -33,6 +34,7 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 console = Console()
+theme = get_theme()
 
 # Global container instance
 _container: Container | None = None
@@ -242,7 +244,7 @@ def ensure_treeline_initialized() -> bool:
 
     result = asyncio.run(db_service.initialize_db())
     if not result.success:
-        console.print(f"[red]Error initializing database: {result.error}[/red]")
+        console.print(f"[{theme.error}]Error initializing database: {result.error}[/{theme.error}]")
         sys.exit(1)
 
     return needs_init
@@ -262,13 +264,13 @@ def show_welcome_message(first_time: bool = False) -> None:
     info_parts = []
 
     # Title
-    info_parts.append("[bold green]🌲 Treeline[/bold green]")
+    info_parts.append(f"[{theme.ui_header}]🌲 Treeline[/{theme.ui_header}]")
     info_parts.append("")
 
     # Authentication status
     if config_service.is_authenticated():
         email = config_service.get_current_user_email()
-        info_parts.append(f"[green]✓[/green] Logged in as [bold]{email}[/bold]")
+        info_parts.append(f"[{theme.success}]✓[/{theme.success}] Logged in as [{theme.emphasis}]{email}[/{theme.emphasis}]")
 
         # Try to get quick stats
         try:
@@ -282,26 +284,26 @@ def show_welcome_message(first_time: bool = False) -> None:
                 if result.success:
                     status = result.data
                     info_parts.append("")
-                    info_parts.append(f"[cyan]📊 Quick Stats[/cyan]")
-                    info_parts.append(f"  Accounts: [bold]{len(status['accounts'])}[/bold]")
-                    info_parts.append(f"  Transactions: [bold]{status['total_transactions']}[/bold]")
+                    info_parts.append(f"[{theme.info}]📊 Quick Stats[/{theme.info}]")
+                    info_parts.append(f"  Accounts: [{theme.emphasis}]{len(status['accounts'])}[/{theme.emphasis}]")
+                    info_parts.append(f"  Transactions: [{theme.emphasis}]{status['total_transactions']}[/{theme.emphasis}]")
 
                     if status['latest_date']:
-                        info_parts.append(f"  Latest data: [bold]{status['latest_date']}[/bold]")
+                        info_parts.append(f"  Latest data: [{theme.emphasis}]{status['latest_date']}[/{theme.emphasis}]")
         except Exception:
             # If we can't get stats, just skip them
             pass
     else:
-        info_parts.append("[yellow]⚠ Not authenticated[/yellow]")
-        info_parts.append("Use [bold]/login[/bold] to sign in")
+        info_parts.append(f"[{theme.warning}]⚠ Not authenticated[/{theme.warning}]")
+        info_parts.append(f"Use [{theme.emphasis}]/login[/{theme.emphasis}] to sign in")
 
     if first_time:
         info_parts.append("")
-        info_parts.append("[green]✓[/green] Initialized treeline directory")
+        info_parts.append(f"[{theme.success}]✓[/{theme.success}] Initialized treeline directory")
 
     info_parts.append("")
-    info_parts.append("[dim]Type [bold]/help[/bold] for commands[/dim]")
-    info_parts.append("[dim]Type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit[/dim]")
+    info_parts.append(f"[{theme.muted}]Type [{theme.emphasis}]/help[/{theme.emphasis}] for commands[/{theme.muted}]")
+    info_parts.append(f"[{theme.muted}]Type [{theme.emphasis}]exit[/{theme.emphasis}] or [{theme.emphasis}]Ctrl+C[/{theme.emphasis}] to quit[/{theme.muted}]")
 
     # Get current directory name for display
     cwd = Path.cwd().name
@@ -356,14 +358,14 @@ def process_command(user_input: str) -> bool:
         elif command == "/query":
             # Extract SQL from command
             if len(command_parts) < 2:
-                console.print("[red]Error: /query requires a SQL statement[/red]")
-                console.print("[dim]Usage: /query SELECT * FROM transactions LIMIT 5[/dim]\n")
+                console.print(f"[{theme.error}]Error: /query requires a SQL statement[/{theme.error}]")
+                console.print(f"[{theme.muted}]Usage: /query SELECT * FROM transactions LIMIT 5[/{theme.muted}]\n")
             else:
                 sql = command_parts[1]
                 handle_query_command(sql)
         else:
-            console.print(f"[red]Unknown command: {command}[/red]")
-            console.print("[dim]Type /help to see available commands[/dim]")
+            console.print(f"[{theme.error}]Unknown command: {command}[/{theme.error}]")
+            console.print(f"[{theme.muted}]Type /help to see available commands[/{theme.muted}]")
     else:
         # Natural language query - send to AI agent
         handle_chat_message(user_input)
@@ -387,26 +389,26 @@ def run_interactive_mode() -> None:
         while True:
             try:
                 # Print separator line before prompt
-                console.print("[dim]" + "─" * console.width + "[/dim]")
+                console.print(f"[{theme.separator}]" + "─" * console.width + f"[/{theme.separator}]")
 
                 # Use prompt_toolkit for input with autocomplete
                 user_input = session.prompt(">: ")
 
                 # Print separator line after prompt with spacing
-                console.print("[dim]" + "─" * console.width + "[/dim]")
+                console.print(f"[{theme.separator}]" + "─" * console.width + f"[/{theme.separator}]")
                 console.print()  # Add blank line for cushion
 
                 should_continue = process_command(user_input)
                 if not should_continue:
                     break
             except KeyboardInterrupt:
-                console.print("\n[dim]Goodbye! =K[/dim]")
+                console.print(f"\n[{theme.muted}]Goodbye! =K[/{theme.muted}]")
                 break
             except EOFError:
-                console.print("\n[dim]Goodbye! =K[/dim]")
+                console.print(f"\n[{theme.muted}]Goodbye! =K[/{theme.muted}]")
                 break
     except Exception as e:
-        console.print("[red]Unexpected error:[/red]")
+        console.print(f"[{theme.error}]Unexpected error:[/{theme.error}]")
         # Don't use markup since error messages may contain square brackets
         console.print(str(e), markup=False)
         console.print(traceback.format_exc(), markup=False)
