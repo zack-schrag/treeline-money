@@ -37,10 +37,17 @@ def handle_simplefin_command() -> None:
     )
 
     # Prompt for setup token
-    setup_token = Prompt.ask("Enter your SimpleFIN setup token")
+    console.print(f"[{theme.info}]Enter your SimpleFIN setup token[/{theme.info}]")
+    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
+
+    try:
+        setup_token = Prompt.ask("Token")
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+        return
 
     if not setup_token or not setup_token.strip():
-        console.print(f"[{theme.warning}]Setup cancelled.[/{theme.warning}]\n")
+        console.print(f"[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
         return
 
     setup_token = setup_token.strip()

@@ -14,6 +14,7 @@ Command | Description
 /sync | Run an on-demand data synchronization from your connected accounts
 /query <SQL> | Execute a SQL query directly (SELECT and WITH queries only)
 /clear | Clear the screen
+/exit | Exit the Treeline REPL
 
 ## Suggested Enhancements
 - Add success/error examples for each command so users understand expected output and side effects.

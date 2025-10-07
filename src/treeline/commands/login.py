@@ -31,10 +31,15 @@ def handle_login_command() -> None:
         return
 
     # Ask if user wants to sign in or create account
-    create_account = Confirm.ask("Create a new account?", default=False)
+    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
 
-    email = Prompt.ask("Email")
-    password = Prompt.ask("Password", password=True)
+    try:
+        create_account = Confirm.ask("Create a new account?", default=False)
+        email = Prompt.ask("Email")
+        password = Prompt.ask("Password", password=True)
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Login cancelled[/{theme.warning}]\n")
+        return
 
     console.print()
     with console.status(f"[{theme.status_loading}]Authenticating..."):

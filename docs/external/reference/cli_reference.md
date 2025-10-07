@@ -34,6 +34,9 @@ treeline
 | `/import` | Import CSV file of transactions |
 | `/tag` | Enter tagging power mode |
 | `/clear` | Clear conversation history and start fresh |
+| `/exit` | Exit the Treeline REPL |
+
+**Note:** Press `Ctrl+C` at any prompt to cancel and return to the main REPL prompt. Use `/exit` or type `exit` to quit the program.
 
 ## Scriptable Commands
 

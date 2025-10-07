@@ -50,6 +50,7 @@ SLASH_COMMANDS = [
     "/tag",
     "/query",
     "/clear",
+    "/exit",
 ]
 
 
@@ -331,7 +332,7 @@ def process_command(user_input: str) -> bool:
         return True
 
     if user_input.lower() in ("exit", "quit"):
-        console.print("[dim]Goodbye! =K[/dim]")
+        console.print(f"[{theme.muted}]Goodbye![/{theme.muted}]")
         return False
 
     # Handle slash commands
@@ -355,6 +356,9 @@ def process_command(user_input: str) -> bool:
             handle_tag_command()
         elif command == "/clear":
             handle_clear_command()
+        elif command == "/exit":
+            console.print(f"[{theme.muted}]Goodbye![/{theme.muted}]")
+            return False
         elif command == "/query":
             # Extract SQL from command
             if len(command_parts) < 2:

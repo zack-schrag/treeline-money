@@ -86,10 +86,15 @@ def handle_import_command() -> None:
 
     # Display accounts for selection
     console.print(f"\n[{theme.info}]Select account to import into:[/{theme.info}]")
+    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
     for i, account in enumerate(accounts, 1):
         console.print(f"  [{i}] {account.name}" + (f" - {account.institution_name}" if account.institution_name else ""))
 
-    account_choice = Prompt.ask(f"\n[{theme.info}]Account number[/{theme.info}]", default="1")
+    try:
+        account_choice = Prompt.ask(f"\n[{theme.info}]Account number[/{theme.info}]", default="1")
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Import cancelled[/{theme.warning}]\n")
+        return
 
     try:
         account_idx = int(account_choice) - 1
@@ -183,8 +188,13 @@ def handle_import_command() -> None:
         console.print("  [3] Flip all signs (if spending shows positive)")
         console.print("  [4] Try different column mapping")
         console.print("  [5] Cancel import")
+        console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
 
-        choice = Prompt.ask(f"\n[{theme.info}]Choice[/{theme.info}]", choices=["1", "2", "3", "4", "5"], default="1")
+        try:
+            choice = Prompt.ask(f"\n[{theme.info}]Choice[/{theme.info}]", choices=["1", "2", "3", "4", "5"], default="1")
+        except (KeyboardInterrupt, EOFError):
+            console.print(f"\n[{theme.warning}]Import cancelled[/{theme.warning}]\n")
+            return
 
         if choice == "1":
             # Proceed with import
@@ -341,10 +351,14 @@ def handle_import_command() -> None:
             console.print(comparison_table)
 
             # Ask user if they want to import this transaction
-            import_anyway = Confirm.ask(
-                f"\n[{theme.info}]Import this transaction anyway?[/{theme.info}]",
-                default=False
-            )
+            try:
+                import_anyway = Confirm.ask(
+                    f"\n[{theme.info}]Import this transaction anyway?[/{theme.info}]",
+                    default=False
+                )
+            except (KeyboardInterrupt, EOFError):
+                console.print(f"\n[{theme.warning}]Import cancelled[/{theme.warning}]\n")
+                return
 
             if not import_anyway:
                 # Mark this transaction to skip
