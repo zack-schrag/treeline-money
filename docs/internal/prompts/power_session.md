@@ -51,6 +51,7 @@ A "power session" is a focused work mode where I continuously implement tasks fr
 - **Communicate Clearly**: Provide concise updates on progress
 - **Ask When Stuck**: Don't waste time if blocked - ask for clarification
 - **Update Documentation**: Always update relevant docs when adding features
+- **Ask for approval before moving to next task and marking as done**: Don't move on to next task until user approves. Then you can commit and mark task as done.
 
 ### Session End
 The session ends when:
