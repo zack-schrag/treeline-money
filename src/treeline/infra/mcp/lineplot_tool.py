@@ -5,8 +5,8 @@ from uuid import UUID
 
 from treeline.domain import Result, Fail, Ok
 from treeline.infra.mcp.base import Tool
-from treeline.pyplot import lineplot
-from treeline.pyplot.utils.colors import strip_colors
+from pyplot import lineplot
+from pyplot.utils.colors import strip_colors
 
 
 class LineplotTool(Tool):

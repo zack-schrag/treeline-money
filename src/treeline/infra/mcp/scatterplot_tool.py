@@ -5,8 +5,8 @@ from uuid import UUID
 
 from treeline.domain import Result, Fail, Ok
 from treeline.infra.mcp.base import Tool
-from treeline.pyplot import scatterplot
-from treeline.pyplot.utils.colors import strip_colors
+from pyplot import scatterplot
+from pyplot.utils.colors import strip_colors
 
 
 class ScatterplotTool(Tool):
