@@ -9,7 +9,7 @@ from treeline.theme import Theme, get_theme, set_theme
 def test_theme_loads_default():
     """Test that default theme loads successfully."""
     theme = Theme.load("default")
-    assert theme.name == "Treeline Default"
+    assert theme.name == "Treeline Default (Dark)"
     assert theme.description != ""
 
 
@@ -45,7 +45,7 @@ def test_theme_load_nonexistent_fails():
 def test_get_theme_returns_default():
     """Test that get_theme() returns default theme."""
     theme = get_theme()
-    assert theme.name == "Treeline Default"
+    assert theme.name == "Treeline Default (Dark)"
 
 
 def test_theme_colors_are_strings():

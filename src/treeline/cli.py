@@ -311,9 +311,9 @@ def show_welcome_message(first_time: bool = False) -> None:
     # Simple panel with just the info, fit to content
     panel = Panel(
         "\n".join(info_parts),
-        border_style="green",
+        border_style=theme.primary,
         padding=(1, 2),
-        subtitle=f"[dim]{cwd}[/dim]",
+        subtitle=f"[{theme.muted}]{cwd}[/{theme.muted}]",
         expand=False
     )
 

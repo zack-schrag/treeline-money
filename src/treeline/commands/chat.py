@@ -4,8 +4,10 @@ import asyncio
 from uuid import UUID
 
 from rich.console import Console
+from treeline.theme import get_theme
 
 console = Console()
+theme = get_theme()
 
 
 def get_container():
@@ -29,7 +31,7 @@ def handle_chat_message(message: str) -> None:
     # Check authentication
     user_id_str = config_service.get_current_user_id()
     if not user_id_str:
-        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        console.print(f"[{theme.error}]Error: Not authenticated. Please use /login first.[/{theme.error}]\n")
         return
 
     user_id = UUID(user_id_str)
@@ -39,11 +41,11 @@ def handle_chat_message(message: str) -> None:
     db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
 
     # Send message to agent
-    with console.status("[dim]Thinking...[/dim]"):
+    with console.status(f"[{theme.muted}]Thinking...[/{theme.muted}]"):
         result = asyncio.run(agent_service.chat(user_id, db_path, message))
 
     if not result.success:
-        console.print(f"[red]Error: {result.error}[/red]\n")
+        console.print(f"[{theme.error}]Error: {result.error}[/{theme.error}]\n")
         return
 
     # Stream the response
@@ -74,8 +76,8 @@ def handle_chat_message(message: str) -> None:
 
                     # Display tool usage in a panel
                     console.print(Panel(
-                        f"[cyan]Using tool:[/cyan] [bold]{tool_name}[/bold]",
-                        border_style="dim",
+                        f"[{theme.muted}]Using tool:[/{theme.muted}] [{theme.emphasis}]{tool_name}[/{theme.emphasis}]",
+                        border_style=theme.muted,
                         padding=(0, 1),
                     ))
 
@@ -122,8 +124,8 @@ def handle_chat_message(message: str) -> None:
                             syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
                             console.print(Panel(
                                 syntax,
-                                title="[bold cyan]SQL Query[/bold cyan]",
-                                border_style="cyan",
+                                title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                                border_style=theme.primary,
                                 padding=(0, 1),
                             ))
 
@@ -157,14 +159,14 @@ def handle_chat_message(message: str) -> None:
                     syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
                     console.print(Panel(
                         syntax,
-                        title="[bold cyan]SQL Query[/bold cyan]",
-                        border_style="cyan",
+                        title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                        border_style=theme.primary,
                         padding=(0, 1),
                     ))
 
         asyncio.run(consume_stream())
 
     except Exception as e:
-        console.print(f"[red]Error streaming response: {str(e)}[/red]")
+        console.print(f"[{theme.error}]Error streaming response: {str(e)}[/{theme.error}]")
 
     console.print()  # Blank line after response

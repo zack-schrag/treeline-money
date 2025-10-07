@@ -7,8 +7,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.syntax import Syntax
 from rich.panel import Panel
+from treeline.theme import get_theme
 
 console = Console()
+theme = get_theme()
 
 # Global conversation history for chat mode
 conversation_history = []
@@ -40,9 +42,9 @@ def handle_clear_command() -> None:
     result = asyncio.run(agent_service.clear_session())
 
     if result.success:
-        console.print("[green]✓[/green] Conversation cleared. Starting fresh!\n")
+        console.print(f"[{theme.success}]✓[/{theme.success}] Conversation cleared. Starting fresh!\n")
     else:
-        console.print(f"[yellow]Note: {result.error}[/yellow]\n")
+        console.print(f"[{theme.warning}]Note: {result.error}[/{theme.warning}]\n")
 
 
 def handle_query_command(sql: str) -> None:
@@ -58,7 +60,7 @@ def handle_query_command(sql: str) -> None:
     # Check authentication
     user_id_str = config_service.get_current_user_id()
     if not user_id_str:
-        console.print("[red]Error: Not authenticated. Please use /login first.[/red]\n")
+        console.print(f"[{theme.error}]Error: Not authenticated. Please use /login first.[/{theme.error}]\n")
         return
 
     user_id = UUID(user_id_str)
@@ -68,8 +70,8 @@ def handle_query_command(sql: str) -> None:
     sql_upper = sql_stripped.upper()
 
     if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
-        console.print("[red]Error: Only SELECT and WITH queries are allowed.[/red]")
-        console.print("[dim]For data modifications, use the AI agent.[/dim]\n")
+        console.print(f"[{theme.error}]Error: Only SELECT and WITH queries are allowed.[/{theme.error}]")
+        console.print(f"[{theme.muted}]For data modifications, use the AI agent.[/{theme.muted}]\n")
         return
 
     # Display the SQL query
@@ -77,17 +79,17 @@ def handle_query_command(sql: str) -> None:
     syntax = Syntax(sql_stripped, "sql", theme="monokai", line_numbers=False)
     console.print(Panel(
         syntax,
-        title="[bold cyan]Executing Query[/bold cyan]",
-        border_style="cyan",
+        title=f"[{theme.ui_header}]Executing Query[/{theme.ui_header}]",
+        border_style=theme.primary,
         padding=(0, 1),
     ))
 
     # Execute query
-    with console.status("[dim]Running query...[/dim]"):
+    with console.status(f"[{theme.muted}]Running query...[/{theme.muted}]"):
         result = asyncio.run(db_service.execute_query(user_id, sql_stripped))
 
     if not result.success:
-        console.print(f"\n[red]Error: {result.error}[/red]\n")
+        console.print(f"\n[{theme.error}]Error: {result.error}[/{theme.error}]\n")
         return
 
     # Format and display results
@@ -98,11 +100,11 @@ def handle_query_command(sql: str) -> None:
     console.print()
 
     if len(rows) == 0:
-        console.print("[dim]No results returned.[/dim]\n")
+        console.print(f"[{theme.muted}]No results returned.[/{theme.muted}]\n")
         return
 
     # Create Rich table
-    table = Table(show_header=True, header_style="bold cyan", border_style="dim")
+    table = Table(show_header=True, header_style=theme.ui_header, border_style=theme.separator)
 
     # Add columns
     for col in columns:
@@ -111,10 +113,10 @@ def handle_query_command(sql: str) -> None:
     # Add rows
     for row in rows:
         # Convert row values to strings
-        str_row = [str(val) if val is not None else "[dim]NULL[/dim]" for val in row]
+        str_row = [str(val) if val is not None else f"[{theme.muted}]NULL[/{theme.muted}]" for val in row]
         table.add_row(*str_row)
 
     console.print(table)
-    console.print(f"\n[dim]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/dim]\n")
+    console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
 
 

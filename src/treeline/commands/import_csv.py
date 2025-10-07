@@ -6,10 +6,12 @@ from pathlib import Path
 from uuid import UUID
 
 from rich.console import Console
-from rich.prompt import Prompt
+from rich.prompt import Prompt, Confirm
 from rich.table import Table
+from treeline.theme import get_theme
 
 console = Console()
+theme = get_theme()
 
 
 def get_container():
@@ -36,13 +38,13 @@ def handle_import_command() -> None:
     from pathlib import Path
 
     if not is_authenticated():
-        console.print("[red]Error: You must be logged in to import data.[/red]")
-        console.print("[dim]Run /login to authenticate[/dim]\n")
+        console.print(f"[{theme.error}]Error: You must be logged in to import data.[/{theme.error}]")
+        console.print(f"[{theme.muted}]Run /login to authenticate[/{theme.muted}]\n")
         return
 
     user_id = get_current_user_id()
     if not user_id:
-        console.print("[red]Error: Could not get user ID[/red]\n")
+        console.print(f"[{theme.error}]Error: Could not get user ID[/{theme.error}]\n")
         return
 
     container = get_container()
@@ -50,82 +52,82 @@ def handle_import_command() -> None:
     repository = container.repository()
 
     # Step 1: Get CSV file path
-    console.print("\n[bold cyan]CSV Import[/bold cyan]\n")
+    console.print(f"\n[{theme.ui_header}]CSV Import[/{theme.ui_header}]\n")
 
     # Use prompt_toolkit for file path input with autocomplete
     from treeline.cli import prompt_for_file_path
-    console.print("[cyan]Enter path to CSV file:[/cyan]")
+    console.print(f"[{theme.info}]Enter path to CSV file:[/{theme.info}]")
     try:
         file_path = prompt_for_file_path("")
     except (KeyboardInterrupt, EOFError):
-        console.print("\n[yellow]Import cancelled[/yellow]\n")
+        console.print(f"\n[{theme.warning}]Import cancelled[/{theme.warning}]\n")
         return
 
     if not file_path:
-        console.print("[yellow]Import cancelled[/yellow]\n")
+        console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
         return
 
     # Check if file exists - expand ~ manually using os.path
     expanded_path = os.path.expanduser(file_path)
     csv_path = Path(expanded_path)
     if not csv_path.exists():
-        console.print(f"[red]Error: File not found: {file_path}[/red]\n")
+        console.print(f"[{theme.error}]Error: File not found: {file_path}[/{theme.error}]\n")
         return
 
     # Step 2: Get or select account to import into
-    console.print("\n[dim]Fetching accounts...[/dim]")
+    console.print(f"\n[{theme.muted}]Fetching accounts...[/{theme.muted}]")
     accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
 
     if not accounts_result.success or not accounts_result.data:
-        console.print("[red]No accounts found. Please sync with SimpleFIN first.[/red]\n")
+        console.print(f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n")
         return
 
     accounts = accounts_result.data
 
     # Display accounts for selection
-    console.print("\n[cyan]Select account to import into:[/cyan]")
+    console.print(f"\n[{theme.info}]Select account to import into:[/{theme.info}]")
     for i, account in enumerate(accounts, 1):
         console.print(f"  [{i}] {account.name}" + (f" - {account.institution_name}" if account.institution_name else ""))
 
-    account_choice = Prompt.ask("\n[cyan]Account number[/cyan]", default="1")
+    account_choice = Prompt.ask(f"\n[{theme.info}]Account number[/{theme.info}]", default="1")
 
     try:
         account_idx = int(account_choice) - 1
         if account_idx < 0 or account_idx >= len(accounts):
-            console.print("[red]Invalid account selection[/red]\n")
+            console.print(f"[{theme.error}]Invalid account selection[/{theme.error}]\n")
             return
         target_account = accounts[account_idx]
     except ValueError:
-        console.print("[red]Invalid account selection[/red]\n")
+        console.print(f"[{theme.error}]Invalid account selection[/{theme.error}]\n")
         return
 
     # Step 3: Auto-detect columns and show preview
     csv_provider = container.provider_registry()["csv"]
 
-    console.print("\n[dim]Detecting CSV columns...[/dim]")
+    console.print(f"\n[{theme.muted}]Detecting CSV columns...[/{theme.muted}]")
     detect_result = csv_provider.detect_columns(str(csv_path))
 
     if not detect_result.success:
-        console.print(f"[red]Error detecting columns: {detect_result.error}[/red]\n")
+        console.print(f"[{theme.error}]Error detecting columns: {detect_result.error}[/{theme.error}]\n")
         return
 
     column_mapping = detect_result.data
     flip_signs = False
 
     if not column_mapping.get("date") or not (column_mapping.get("amount") or (column_mapping.get("debit") and column_mapping.get("credit"))):
-        console.print("[yellow]Warning: Could not auto-detect all required columns[/yellow]")
-        console.print("[dim]You'll need to manually specify column mapping[/dim]\n")
+        console.print(f"[{theme.warning}]Warning: Could not auto-detect all required columns[/{theme.warning}]")
+        console.print(f"[{theme.muted}]You'll need to manually specify column mapping[/{theme.muted}]\n")
         # TODO: Fallback to manual mapping
         return
 
     # Show detected columns
-    console.print("\n[green]✓ Detected columns:[/green]")
+    console.print(f"\n[{theme.success}]✓ Detected columns:[/{theme.success}]")
     for key, value in column_mapping.items():
         if value:
             console.print(f"  {key}: {value}")
 
     # Preview first 5 transactions
-    console.print("\n[dim]Loading preview...[/dim]")
+    console.print(f"\n[{theme.muted}]Loading preview...[/{theme.muted}]")
 
     preview_result = csv_provider.preview_transactions(
         str(csv_path),
@@ -136,17 +138,17 @@ def handle_import_command() -> None:
     )
 
     if not preview_result.success:
-        console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+        console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")
         return
 
     preview_txs = preview_result.data
 
     if not preview_txs:
-        console.print("[yellow]No transactions found in CSV[/yellow]\n")
+        console.print(f"[{theme.warning}]No transactions found in CSV[/{theme.warning}]\n")
         return
 
     # Display preview table
-    console.print("\n[bold cyan]Preview - First 5 Transactions:[/bold cyan]\n")
+    console.print(f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n")
 
     preview_table = Table(show_header=True, box=None, padding=(0, 1))
     preview_table.add_column("Date", width=12)
@@ -164,25 +166,25 @@ def handle_import_command() -> None:
             amount_str = f"${tx.amount:,.2f}"
 
         # Color code: negative = red, positive = green
-        amount_style = "red" if tx.amount < 0 else "green"
+        amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
         preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
 
     console.print(preview_table)
 
     # Step 4: Validate preview with combined options
-    console.print("\n[bold cyan]Preview Check[/bold cyan]")
-    console.print("[dim]Spending should appear as NEGATIVE (red), income/refunds as POSITIVE (green)[/dim]\n")
+    console.print(f"\n[{theme.ui_header}]Preview Check[/{theme.ui_header}]")
+    console.print(f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n")
 
     # Main preview validation loop
     while True:
-        console.print("[cyan]What would you like to do?[/cyan]")
+        console.print(f"[{theme.info}]What would you like to do?[/{theme.info}]")
         console.print("  [1] Proceed with import")
         console.print("  [2] View more transactions (next 10)")
         console.print("  [3] Flip all signs (if spending shows positive)")
         console.print("  [4] Try different column mapping")
         console.print("  [5] Cancel import")
 
-        choice = Prompt.ask("\n[cyan]Choice[/cyan]", choices=["1", "2", "3", "4", "5"], default="1")
+        choice = Prompt.ask(f"\n[{theme.info}]Choice[/{theme.info}]", choices=["1", "2", "3", "4", "5"], default="1")
 
         if choice == "1":
             # Proceed with import
@@ -190,7 +192,7 @@ def handle_import_command() -> None:
 
         elif choice == "2":
             # Show more transactions
-            console.print("\n[dim]Loading more transactions...[/dim]")
+            console.print(f"\n[{theme.muted}]Loading more transactions...[/{theme.muted}]")
 
             preview_result = csv_provider.preview_transactions(
                 str(csv_path),
@@ -201,13 +203,13 @@ def handle_import_command() -> None:
             )
 
             if not preview_result.success:
-                console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+                console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")
                 continue
 
             preview_txs = preview_result.data
 
             # Display extended preview
-            console.print("\n[bold cyan]Extended Preview - First 15 Transactions:[/bold cyan]\n")
+            console.print(f"\n[{theme.ui_header}]Extended Preview - First 15 Transactions:[/{theme.ui_header}]\n")
 
             preview_table = Table(show_header=True, box=None, padding=(0, 1))
             preview_table.add_column("Date", width=12)
@@ -222,7 +224,7 @@ def handle_import_command() -> None:
                     amount_str = f"-${abs(tx.amount):,.2f}"
                 else:
                     amount_str = f"${tx.amount:,.2f}"
-                amount_style = "red" if tx.amount < 0 else "green"
+                amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
                 preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
 
             console.print(preview_table)
@@ -233,7 +235,7 @@ def handle_import_command() -> None:
             flip_signs = True
 
             # Show preview with flipped signs
-            console.print("\n[dim]Regenerating preview with flipped signs...[/dim]")
+            console.print(f"\n[{theme.muted}]Regenerating preview with flipped signs...[/{theme.muted}]")
 
             preview_result = csv_provider.preview_transactions(
                 str(csv_path),
@@ -244,13 +246,13 @@ def handle_import_command() -> None:
             )
 
             if not preview_result.success:
-                console.print(f"[red]Error generating preview: {preview_result.error}[/red]\n")
+                console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")
                 continue
 
             preview_txs = preview_result.data
 
             # Display updated preview
-            console.print("\n[bold cyan]Updated Preview - First 5 Transactions:[/bold cyan]\n")
+            console.print(f"\n[{theme.ui_header}]Updated Preview - First 5 Transactions:[/{theme.ui_header}]\n")
 
             preview_table = Table(show_header=True, box=None, padding=(0, 1))
             preview_table.add_column("Date", width=12)
@@ -265,7 +267,7 @@ def handle_import_command() -> None:
                     amount_str = f"-${abs(tx.amount):,.2f}"
                 else:
                     amount_str = f"${tx.amount:,.2f}"
-                amount_style = "red" if tx.amount < 0 else "green"
+                amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
                 preview_table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
 
             console.print(preview_table)
@@ -273,16 +275,16 @@ def handle_import_command() -> None:
 
         elif choice == "4":
             # Manual column mapping not implemented
-            console.print("[yellow]Manual column mapping not yet implemented[/yellow]\n")
+            console.print(f"[{theme.warning}]Manual column mapping not yet implemented[/{theme.warning}]\n")
             continue
 
         else:  # choice == "5"
             # Cancel
-            console.print("[yellow]Import cancelled[/yellow]\n")
+            console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
             return
 
     # Step 4.5: Check for potential duplicates
-    console.print("\n[dim]Checking for potential duplicates...[/dim]")
+    console.print(f"\n[{theme.muted}]Checking for potential duplicates...[/{theme.muted}]")
 
     # First, get the transactions that would be imported (need to map to target account)
     preview_with_account = []
@@ -305,20 +307,20 @@ def handle_import_command() -> None:
     if potential_dupes_result.success and potential_dupes_result.data:
         potential_dupes = potential_dupes_result.data
 
-        console.print(f"\n[yellow]⚠ Found {len(potential_dupes)} potential duplicate(s)[/yellow]")
-        console.print("[dim]These transactions have the same date and amount but different descriptions.[/dim]\n")
+        console.print(f"\n[{theme.warning}]⚠ Found {len(potential_dupes)} potential duplicate(s)[/{theme.warning}]")
+        console.print(f"[{theme.muted}]These transactions have the same date and amount but different descriptions.[/{theme.muted}]\n")
 
         # Show each potential duplicate
         for i, dupe_info in enumerate(potential_dupes, 1):
             csv_tx = dupe_info["csv_transaction"]
             existing_tx = dupe_info["existing_transaction"]
 
-            console.print(f"[bold cyan]Potential Duplicate {i}/{len(potential_dupes)}:[/bold cyan]")
+            console.print(f"[{theme.ui_header}]Potential Duplicate {i}/{len(potential_dupes)}:[/{theme.ui_header}]")
 
             comparison_table = Table(show_header=True, box=None, padding=(0, 2))
-            comparison_table.add_column("", style="dim")
-            comparison_table.add_column("CSV (New)", style="yellow")
-            comparison_table.add_column("Existing", style="green")
+            comparison_table.add_column("", style=theme.muted)
+            comparison_table.add_column("CSV (New)", style=theme.warning)
+            comparison_table.add_column("Existing", style=theme.success)
 
             comparison_table.add_row(
                 "Date",
@@ -340,29 +342,29 @@ def handle_import_command() -> None:
 
             # Ask user if they want to import this transaction
             import_anyway = Confirm.ask(
-                f"\n[cyan]Import this transaction anyway?[/cyan]",
+                f"\n[{theme.info}]Import this transaction anyway?[/{theme.info}]",
                 default=False
             )
 
             if not import_anyway:
                 # Mark this transaction to skip
                 dupe_info["skip"] = True
-                console.print("[dim]Will skip this transaction[/dim]\n")
+                console.print(f"[{theme.muted}]Will skip this transaction[/{theme.muted}]\n")
             else:
                 dupe_info["skip"] = False
-                console.print("[dim]Will import this transaction[/dim]\n")
+                console.print(f"[{theme.muted}]Will import this transaction[/{theme.muted}]\n")
 
         # Filter out transactions user chose to skip
         skip_ids = {dupe["csv_transaction"].id for dupe in potential_dupes if dupe.get("skip")}
         if skip_ids:
-            console.print(f"\n[dim]Skipping {len(skip_ids)} potential duplicate(s) as requested[/dim]")
+            console.print(f"\n[{theme.muted}]Skipping {len(skip_ids)} potential duplicate(s) as requested[/{theme.muted}]")
             # Note: We'll need to modify the import flow to respect this
             # For now, we'll just warn the user
-            console.print("[yellow]Note: The import will proceed with all transactions.[/yellow]")
-            console.print("[yellow]Manual duplicate skipping will be implemented in a future update.[/yellow]\n")
+            console.print(f"[{theme.warning}]Note: The import will proceed with all transactions.[/{theme.warning}]")
+            console.print(f"[{theme.warning}]Manual duplicate skipping will be implemented in a future update.[/{theme.warning}]\n")
 
     # Step 5: Execute import
-    console.print("\n[dim]Importing transactions...[/dim]")
+    console.print(f"\n[{theme.muted}]Importing transactions...[/{theme.muted}]")
 
     import_result = asyncio.run(import_service.import_transactions(
         user_id=UUID(user_id),
@@ -378,9 +380,9 @@ def handle_import_command() -> None:
 
     if import_result.success:
         stats = import_result.data
-        console.print(f"\n[bold green]✓ Import complete![/bold green]")
+        console.print(f"\n[{theme.success}]✓ Import complete![/{theme.success}]")
         console.print(f"  Discovered: {stats['discovered']} transactions")
         console.print(f"  Imported: {stats['imported']} new transactions")
         console.print(f"  Skipped: {stats['skipped']} duplicates\n")
     else:
-        console.print(f"\n[red]Error: {import_result.error}[/red]\n")
+        console.print(f"\n[{theme.error}]Error: {import_result.error}[/{theme.error}]\n")

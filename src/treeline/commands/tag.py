@@ -6,8 +6,10 @@ from uuid import UUID
 from rich.console import Console
 from rich.table import Table
 from readchar import readkey, key as readkey_keys
+from treeline.theme import get_theme
 
 console = Console()
+theme = get_theme()
 
 
 def get_container():
@@ -36,13 +38,13 @@ def handle_tag_command() -> None:
     from treeline.infra.tag_suggesters import FrequencyTagSuggester, CommonTagSuggester, CombinedTagSuggester
 
     if not is_authenticated():
-        console.print("[red]Error: You must be logged in to use tagging mode.[/red]")
-        console.print("[dim]Run /login to authenticate[/dim]\n")
+        console.print(f"[{theme.error}]Error: You must be logged in to use tagging mode.[/{theme.error}]")
+        console.print(f"[{theme.muted}]Run /login to authenticate[/{theme.muted}]\n")
         return
 
     user_id = get_current_user_id()
     if not user_id:
-        console.print("[red]Error: Could not get user ID[/red]\n")
+        console.print(f"[{theme.error}]Error: Could not get user ID[/{theme.error}]\n")
         return
 
     container = get_container()
@@ -70,7 +72,7 @@ def handle_tag_command() -> None:
         if accounts_result.success:
             account_map = {acc.id: acc.nickname or acc.name for acc in accounts_result.data}
             return True
-        console.print(f"[red]Error loading accounts: {accounts_result.error}[/red]\n")
+        console.print(f"[{theme.error}]Error loading accounts: {accounts_result.error}[/{theme.error}]\n")
         return False
 
     def load_transactions():
@@ -90,17 +92,17 @@ def handle_tag_command() -> None:
         return False
 
     # Load accounts and initial transactions
-    console.print("[dim]Loading accounts and transactions...[/dim]")
+    console.print(f"[{theme.muted}]Loading accounts and transactions...[/{theme.muted}]")
     if not load_accounts():
-        console.print(f"[red]Error loading accounts[/red]\n")
+        console.print(f"[{theme.error}]Error loading accounts[/{theme.error}]\n")
         return
 
     if not load_transactions():
-        console.print(f"[red]Error loading transactions[/red]\n")
+        console.print(f"[{theme.error}]Error loading transactions[/{theme.error}]\n")
         return
 
     if not transactions:
-        console.print("[yellow]No transactions found![/yellow]\n")
+        console.print(f"[{theme.warning}]No transactions found![/{theme.warning}]\n")
         return
 
     def render_view():
@@ -108,8 +110,8 @@ def handle_tag_command() -> None:
         console.clear()
         filter_text = "untagged only" if show_untagged_only else "all transactions"
         page_info = f"(showing {current_offset + 1}-{current_offset + len(transactions)})"
-        console.print(f"\n[green]Tagging Power Mode[/green] - {filter_text} {page_info}")
-        console.print("[dim]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear | u: toggle untagged | n/p: next/prev page | q: quit[/dim]\n")
+        console.print(f"\n[{theme.ui_header}]Tagging Power Mode[/{theme.ui_header}] - {filter_text} {page_info}")
+        console.print(f"[{theme.muted}]↑/↓: navigate | 1-5: quick tag | t: type tags | c: clear | u: toggle untagged | n/p: next/prev page | q: quit[/{theme.muted}]\n")
 
         # Transaction list
         list_table = Table(show_header=True, box=None, padding=(0, 1))
@@ -137,44 +139,44 @@ def handle_tag_command() -> None:
 
             # Format amount with proper sign placement and color
             if txn.amount < 0:
-                amount_str = f"[red]-${abs(txn.amount):.2f}[/red]"
+                amount_str = f"[{theme.negative_amount}]-${abs(txn.amount):.2f}[/{theme.negative_amount}]"
             else:
-                amount_str = f"[green]${txn.amount:.2f}[/green]"
+                amount_str = f"[{theme.positive_amount}]${txn.amount:.2f}[/{theme.positive_amount}]"
 
             tags_str = ", ".join(txn.tags[:2]) if txn.tags else ""
             if len(txn.tags) > 2:
                 tags_str += "..."
 
-            style = "bold cyan" if i == current_index else ""
+            style = theme.ui_selected if i == current_index else ""
             list_table.add_row(marker, date_str, account_name, desc, amount_str, tags_str, style=style)
 
         console.print(list_table)
 
         # Selected transaction details
         txn = transactions[current_index]
-        console.print(f"\n[bold cyan]Selected Transaction ({current_index + 1}/{len(transactions)})[/bold cyan]")
+        console.print(f"\n[{theme.ui_header}]Selected Transaction ({current_index + 1}/{len(transactions)})[/{theme.ui_header}]")
 
         detail_table = Table(show_header=False, box=None, padding=(0, 1))
-        detail_table.add_column(style="dim", width=15)
+        detail_table.add_column(style=theme.muted, width=15)
         detail_table.add_column()
 
         # Format amount with proper sign placement and color
         if txn.amount < 0:
-            amount_display = f"[red]-${abs(txn.amount):.2f}[/red]"
+            amount_display = f"[{theme.negative_amount}]-${abs(txn.amount):.2f}[/{theme.negative_amount}]"
         else:
-            amount_display = f"[green]${txn.amount:.2f}[/green]"
+            amount_display = f"[{theme.positive_amount}]${txn.amount:.2f}[/{theme.positive_amount}]"
 
         detail_table.add_row("Account", account_map.get(txn.account_id, "Unknown"))
         detail_table.add_row("Description", txn.description or "")
         detail_table.add_row("Amount", amount_display)
-        detail_table.add_row("Current tags", ", ".join(txn.tags) if txn.tags else "[dim](none)[/dim]")
+        detail_table.add_row("Current tags", ", ".join(txn.tags) if txn.tags else f"[{theme.muted}](none)[/{theme.muted}]")
 
         # Get suggested tags
         suggestions_result = asyncio.run(tagging_service.get_suggested_tags(UUID(user_id), txn, limit=5))
         suggested_tags = suggestions_result.data if suggestions_result.success else []
 
         if suggested_tags:
-            suggestions_str = "  ".join([f"[bold][{i+1}][/bold] {tag}" for i, tag in enumerate(suggested_tags)])
+            suggestions_str = "  ".join([f"[{theme.emphasis}][{i+1}][/{theme.emphasis}] {tag}" for i, tag in enumerate(suggested_tags)])
             detail_table.add_row("Suggested", suggestions_str)
 
         console.print(detail_table)
@@ -213,7 +215,7 @@ def handle_tag_command() -> None:
                             transactions[current_index] = result.data
 
             elif key == 't':
-                console.print("[cyan]Enter tags (comma-separated):[/cyan] ", end="")
+                console.print(f"[{theme.info}]Enter tags (comma-separated):[/{theme.info}] ", end="")
                 tags_input = input()
 
                 if tags_input.strip():
@@ -268,12 +270,12 @@ def handle_tag_command() -> None:
 
             elif key == 'q':
                 console.clear()
-                console.print("\n[green]✓[/green] Exited tagging mode\n")
+                console.print(f"\n[{theme.success}]✓[/{theme.success}] Exited tagging mode\n")
                 return
 
         except KeyboardInterrupt:
             console.clear()
-            console.print("\n[green]✓[/green] Exited tagging mode\n")
+            console.print(f"\n[{theme.success}]✓[/{theme.success}] Exited tagging mode\n")
             return
 
 
