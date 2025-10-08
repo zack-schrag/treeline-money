@@ -14,7 +14,7 @@ Command | Description
 /sync | Run an on-demand data synchronization from your connected accounts
 /query <SQL> | Execute a single-line SQL query directly (SELECT and WITH queries only)
 /query:name | Run a saved query by name (e.g., /query:dining_this_month)
-/sql | Open multi-line SQL editor with syntax highlighting (use Alt+Enter or Ctrl+D to execute)
+/sql | Open multi-line SQL editor with syntax highlighting (press F5 to execute)
 /schema [table] | Browse database schema - list all tables or show columns for a specific table
 /queries [list\|show\|delete] | Manage saved queries - list all, show SQL, or delete a query
 /clear | Clear the screen

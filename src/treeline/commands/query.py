@@ -191,16 +191,15 @@ def handle_sql_command() -> None:
 
     # Show instructions
     console.print(f"\n[{theme.ui_header}]Multi-line SQL Editor[/{theme.ui_header}]")
-    console.print(f"[{theme.muted}]Press [Alt+Enter] or [Esc Enter] to execute[/{theme.muted}]")
-    console.print(f"[{theme.muted}]Press [Ctrl+D] on empty line to execute[/{theme.muted}]")
+    console.print(f"[{theme.muted}]Press [F5] to execute query (or [Ctrl+D])[/{theme.muted}]")
     console.print(f"[{theme.muted}]Press [Ctrl+C] to cancel[/{theme.muted}]\n")
 
-    # Create custom key bindings for Alt+Enter (Escape, Enter sequence)
+    # Create custom key bindings for F5 to execute
     bindings = KeyBindings()
 
-    @bindings.add('escape', 'enter')
+    @bindings.add('f5')
     def _(event):
-        """Accept input on Alt+Enter (Escape followed by Enter)."""
+        """Execute query on F5."""
         event.current_buffer.validate_and_handle()
 
     # Create prompt session with syntax highlighting and custom key bindings
@@ -211,11 +210,17 @@ def handle_sql_command() -> None:
     )
 
     try:
-        # Get SQL input
+        # Get SQL input (Ctrl+D triggers EOFError which we'll catch and execute)
         sql = session.prompt(">: ")
-    except (KeyboardInterrupt, EOFError):
+    except KeyboardInterrupt:
         console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
         return
+    except EOFError:
+        # Ctrl+D pressed - get the current buffer content
+        sql = session.default_buffer.text if hasattr(session, 'default_buffer') else ""
+        if not sql or not sql.strip():
+            console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
+            return
 
     # Handle empty input
     if not sql or not sql.strip():
