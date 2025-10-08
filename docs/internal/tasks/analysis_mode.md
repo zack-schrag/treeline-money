@@ -1,6 +1,3 @@
-NOT READY TO COMPLETE YET - DO NOT IMPLEMENT
----
-
 Currently, a user's ability to analyze their data in the TUI is fairly limited. They have 2 options currently:
 1. AI chat mode and explicitly ask the agent to run some analysis and maybe display a chart
 2. /query, which only accepts a single line, inline query
