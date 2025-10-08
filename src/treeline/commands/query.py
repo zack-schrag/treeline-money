@@ -3,6 +3,9 @@
 import asyncio
 from uuid import UUID
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.lexers import PygmentsLexer
+from pygments.lexers.sql import SqlLexer
 from rich.console import Console
 from rich.table import Table
 from rich.syntax import Syntax
@@ -118,5 +121,43 @@ def handle_query_command(sql: str) -> None:
 
     console.print(table)
     console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
+
+
+def handle_sql_command() -> None:
+    """Handle /sql command - open multi-line SQL editor."""
+    container = get_container()
+    config_service = container.config_service()
+
+    # Check authentication
+    user_id_str = config_service.get_current_user_id()
+    if not user_id_str:
+        console.print(f"[{theme.error}]Error: Not authenticated. Please use /login first.[/{theme.error}]\n")
+        return
+
+    # Show instructions
+    console.print(f"\n[{theme.ui_header}]Multi-line SQL Editor[/{theme.ui_header}]")
+    console.print(f"[{theme.muted}]Press [Meta+Enter] or [Esc] followed by [Enter] to execute[/{theme.muted}]")
+    console.print(f"[{theme.muted}]Press [Ctrl+C] to cancel[/{theme.muted}]\n")
+
+    # Create prompt session with syntax highlighting
+    session = PromptSession(
+        lexer=PygmentsLexer(SqlLexer),
+        multiline=True,
+    )
+
+    try:
+        # Get SQL input
+        sql = session.prompt(">: ")
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
+        return
+
+    # Handle empty input
+    if not sql or not sql.strip():
+        console.print(f"[{theme.muted}]No query entered[/{theme.muted}]\n")
+        return
+
+    # Execute using the existing query handler
+    handle_query_command(sql)
 
 

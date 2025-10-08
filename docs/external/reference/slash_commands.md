@@ -12,7 +12,8 @@ Command | Description
 /tag | Enter tagging power mode
 /plugins | Manage plugins
 /sync | Run an on-demand data synchronization from your connected accounts
-/query <SQL> | Execute a SQL query directly (SELECT and WITH queries only)
+/query <SQL> | Execute a single-line SQL query directly (SELECT and WITH queries only)
+/sql | Open multi-line SQL editor with syntax highlighting
 /clear | Clear the screen
 /exit | Exit the Treeline REPL
 

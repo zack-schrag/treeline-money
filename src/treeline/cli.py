@@ -18,7 +18,7 @@ from treeline.commands.chat import handle_chat_message
 from treeline.commands.help import handle_help_command
 from treeline.commands.import_csv import handle_import_command
 from treeline.commands.login import handle_login_command
-from treeline.commands.query import handle_clear_command, handle_query_command
+from treeline.commands.query import handle_clear_command, handle_query_command, handle_sql_command
 from treeline.commands.simplefin import handle_simplefin_command
 from treeline.commands.status import handle_status_command
 from treeline.commands.sync import handle_sync_command
@@ -49,6 +49,7 @@ SLASH_COMMANDS = [
     "/import",
     "/tag",
     "/query",
+    "/sql",
     "/clear",
     "/exit",
 ]
@@ -367,6 +368,8 @@ def process_command(user_input: str) -> bool:
             else:
                 sql = command_parts[1]
                 handle_query_command(sql)
+        elif command == "/sql":
+            handle_sql_command()
         else:
             console.print(f"[{theme.error}]Unknown command: {command}[/{theme.error}]")
             console.print(f"[{theme.muted}]Type /help to see available commands[/{theme.muted}]")
