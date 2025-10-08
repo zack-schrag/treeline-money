@@ -19,6 +19,8 @@ from treeline.commands.help import handle_help_command
 from treeline.commands.import_csv import handle_import_command
 from treeline.commands.login import handle_login_command
 from treeline.commands.query import handle_clear_command, handle_query_command, handle_sql_command
+from treeline.commands.saved_queries import handle_queries_command, load_query
+from treeline.commands.schema import handle_schema_command
 from treeline.commands.simplefin import handle_simplefin_command
 from treeline.commands.status import handle_status_command
 from treeline.commands.sync import handle_sync_command
@@ -50,6 +52,8 @@ SLASH_COMMANDS = [
     "/tag",
     "/query",
     "/sql",
+    "/schema",
+    "/queries",
     "/clear",
     "/exit",
 ]
@@ -368,8 +372,30 @@ def process_command(user_input: str) -> bool:
             else:
                 sql = command_parts[1]
                 handle_query_command(sql)
+        elif command.startswith("/query:"):
+            # Handle /query:name syntax for saved queries
+            query_name = command[7:]  # Remove "/query:" prefix
+            if not query_name:
+                console.print(f"[{theme.error}]Error: /query: requires a query name[/{theme.error}]")
+                console.print(f"[{theme.muted}]Usage: /query:dining_this_month[/{theme.muted}]\n")
+            else:
+                sql = load_query(query_name)
+                if sql is None:
+                    console.print(f"[{theme.error}]Query '{query_name}' not found.[/{theme.error}]")
+                    console.print(f"[{theme.muted}]Use /queries list to see available queries.[/{theme.muted}]\n")
+                else:
+                    handle_query_command(sql)
         elif command == "/sql":
             handle_sql_command()
+        elif command == "/schema":
+            # Extract optional table name
+            table_name = command_parts[1] if len(command_parts) > 1 else None
+            handle_schema_command(table_name)
+        elif command == "/queries":
+            # Handle /queries subcommands
+            subcommand = command_parts[1] if len(command_parts) > 1 else None
+            query_name = command_parts[2] if len(command_parts) > 2 else None
+            handle_queries_command(subcommand, query_name)
         else:
             console.print(f"[{theme.error}]Unknown command: {command}[/{theme.error}]")
             console.print(f"[{theme.muted}]Type /help to see available commands[/{theme.muted}]")

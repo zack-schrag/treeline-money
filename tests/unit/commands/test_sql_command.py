@@ -27,8 +27,9 @@ def test_sql_command_exists():
 
 @patch('treeline.commands.query.get_container')
 @patch('treeline.commands.query.asyncio.run')
+@patch('treeline.commands.query.Confirm')
 @patch('treeline.commands.query.PromptSession')
-def test_sql_command_opens_multiline_editor(mock_prompt_session, mock_asyncio_run, mock_get_container):
+def test_sql_command_opens_multiline_editor(mock_prompt_session, mock_confirm, mock_asyncio_run, mock_get_container):
     """Test that /sql opens a multi-line editor."""
     # Setup mocks
     container = Mock()
@@ -50,6 +51,9 @@ def test_sql_command_opens_multiline_editor(mock_prompt_session, mock_asyncio_ru
         success=True,
         data={"rows": [[1, "test"]], "columns": ["id", "description"]}
     )
+
+    # Mock the save prompt to decline saving
+    mock_confirm.ask.return_value = False
 
     # Execute command
     handle_sql_command()

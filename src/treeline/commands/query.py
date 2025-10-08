@@ -4,13 +4,16 @@ import asyncio
 from uuid import UUID
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
 from pygments.lexers.sql import SqlLexer
 from rich.console import Console
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.syntax import Syntax
 from rich.panel import Panel
 from treeline.theme import get_theme
+from treeline.commands.saved_queries import save_query, validate_query_name, get_queries_dir
 
 console = Console()
 theme = get_theme()
@@ -35,6 +38,55 @@ def get_current_user_id():
     """Get current user ID."""
     from treeline.cli import get_current_user_id as _get_current_user_id
     return _get_current_user_id()
+
+
+def _prompt_to_save_query(sql: str) -> None:
+    """Prompt user to save a query after execution.
+
+    Args:
+        sql: The SQL query that was executed
+    """
+    try:
+        # Ask if user wants to save
+        save = Confirm.ask(f"[{theme.info}]Save this query?[/{theme.info}]", default=False)
+
+        if not save:
+            return
+
+        # Get query name
+        while True:
+            name = Prompt.ask(f"[{theme.info}]Query name[/{theme.info}]")
+
+            if not name:
+                console.print(f"[{theme.warning}]Cancelled[/{theme.warning}]\n")
+                return
+
+            # Validate name
+            if not validate_query_name(name):
+                console.print(f"[{theme.error}]Invalid name. Use only letters, numbers, and underscores.[/{theme.error}]")
+                continue
+
+            # Check if file already exists
+            queries_dir = get_queries_dir()
+            query_file = queries_dir / f"{name}.sql"
+
+            if query_file.exists():
+                overwrite = Confirm.ask(
+                    f"[{theme.warning}]Query '{name}' already exists. Overwrite?[/{theme.warning}]",
+                    default=False
+                )
+                if not overwrite:
+                    continue
+
+            # Save the query
+            if save_query(name, sql):
+                console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{query_file}[/{theme.emphasis}]\n")
+            else:
+                console.print(f"[{theme.error}]Failed to save query[/{theme.error}]\n")
+            break
+
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
 
 
 def handle_clear_command() -> None:
@@ -122,6 +174,9 @@ def handle_query_command(sql: str) -> None:
     console.print(table)
     console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
 
+    # Prompt to save query
+    _prompt_to_save_query(sql_stripped)
+
 
 def handle_sql_command() -> None:
     """Handle /sql command - open multi-line SQL editor."""
@@ -136,13 +191,23 @@ def handle_sql_command() -> None:
 
     # Show instructions
     console.print(f"\n[{theme.ui_header}]Multi-line SQL Editor[/{theme.ui_header}]")
-    console.print(f"[{theme.muted}]Press [Meta+Enter] or [Esc] followed by [Enter] to execute[/{theme.muted}]")
+    console.print(f"[{theme.muted}]Press [Alt+Enter] or [Esc Enter] to execute[/{theme.muted}]")
+    console.print(f"[{theme.muted}]Press [Ctrl+D] on empty line to execute[/{theme.muted}]")
     console.print(f"[{theme.muted}]Press [Ctrl+C] to cancel[/{theme.muted}]\n")
 
-    # Create prompt session with syntax highlighting
+    # Create custom key bindings for Alt+Enter (Escape, Enter sequence)
+    bindings = KeyBindings()
+
+    @bindings.add('escape', 'enter')
+    def _(event):
+        """Accept input on Alt+Enter (Escape followed by Enter)."""
+        event.current_buffer.validate_and_handle()
+
+    # Create prompt session with syntax highlighting and custom key bindings
     session = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
         multiline=True,
+        key_bindings=bindings,
     )
 
     try:
