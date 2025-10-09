@@ -40,6 +40,60 @@ def get_current_user_id():
     return _get_current_user_id()
 
 
+def _prompt_to_save_query_with_loopback(sql: str, loop_back_handler) -> None:
+    """Prompt user to save a query and optionally return to editor.
+
+    Args:
+        sql: The SQL query that was executed
+        loop_back_handler: Callback to invoke to return to editor
+    """
+    try:
+        # Ask if user wants to save
+        save = Confirm.ask(f"[{theme.info}]Save this query?[/{theme.info}]", default=False)
+
+        if save:
+            # Get query name
+            while True:
+                name = Prompt.ask(f"[{theme.info}]Query name[/{theme.info}]")
+
+                if not name:
+                    console.print(f"[{theme.warning}]Cancelled[/{theme.warning}]\n")
+                    break
+
+                # Validate name
+                if not validate_query_name(name):
+                    console.print(f"[{theme.error}]Invalid name. Use only letters, numbers, and underscores.[/{theme.error}]")
+                    continue
+
+                # Check if file already exists
+                queries_dir = get_queries_dir()
+                query_file = queries_dir / f"{name}.sql"
+
+                if query_file.exists():
+                    overwrite = Confirm.ask(
+                        f"[{theme.warning}]Query '{name}' already exists. Overwrite?[/{theme.warning}]",
+                        default=False
+                    )
+                    if not overwrite:
+                        continue
+
+                # Save the query
+                if save_query(name, sql):
+                    console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{query_file}[/{theme.emphasis}]\n")
+                else:
+                    console.print(f"[{theme.error}]Failed to save query[/{theme.error}]\n")
+                break
+
+        # Ask if they want to continue editing
+        console.print()
+        continue_editing = Confirm.ask(f"[{theme.info}]Continue editing?[/{theme.info}]", default=True)
+        if continue_editing:
+            loop_back_handler()
+
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
+
+
 def _prompt_to_save_query(sql: str) -> None:
     """Prompt user to save a query after execution.
 
@@ -102,8 +156,13 @@ def handle_clear_command() -> None:
         console.print(f"[{theme.warning}]Note: {result.error}[/{theme.warning}]\n")
 
 
-def handle_query_command(sql: str) -> None:
-    """Handle /query command - execute SQL directly."""
+def handle_query_command(sql: str, loop_back_handler=None) -> None:
+    """Handle /query command - execute SQL directly.
+
+    Args:
+        sql: The SQL query to execute
+        loop_back_handler: Optional callback to invoke after saving query (for looping back to editor)
+    """
     from rich.table import Table
     from rich.panel import Panel
     from rich.syntax import Syntax
@@ -174,12 +233,19 @@ def handle_query_command(sql: str) -> None:
     console.print(table)
     console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
 
-    # Prompt to save query
-    _prompt_to_save_query(sql_stripped)
+    # Prompt to save query, and loop back if requested
+    if loop_back_handler:
+        _prompt_to_save_query_with_loopback(sql_stripped, loop_back_handler)
+    else:
+        _prompt_to_save_query(sql_stripped)
 
 
-def handle_sql_command() -> None:
-    """Handle /sql command - open multi-line SQL editor."""
+def handle_sql_command(prefill_sql: str = "") -> None:
+    """Handle /sql command - open multi-line SQL editor.
+
+    Args:
+        prefill_sql: Optional SQL to prefill the editor with (for looping after save)
+    """
     container = get_container()
     config_service = container.config_service()
 
@@ -189,13 +255,21 @@ def handle_sql_command() -> None:
         console.print(f"[{theme.error}]Error: Not authenticated. Please use /login first.[/{theme.error}]\n")
         return
 
-    # Show instructions
+    # Show instructions with platform-specific key names
+    import platform
+    meta_key = "Option+Enter" if platform.system() == "Darwin" else "Alt+Enter"
+
     console.print(f"\n[{theme.ui_header}]Multi-line SQL Editor[/{theme.ui_header}]")
-    console.print(f"[{theme.muted}]Press [F5] to execute query (or [Ctrl+D])[/{theme.muted}]")
+    console.print(f"[{theme.muted}]Press [{meta_key}] or [F5] to execute query[/{theme.muted}]")
     console.print(f"[{theme.muted}]Press [Ctrl+C] to cancel[/{theme.muted}]\n")
 
-    # Create custom key bindings for F5 to execute
+    # Create custom key bindings for Meta+Enter and F5 to execute
     bindings = KeyBindings()
+
+    @bindings.add('escape', 'enter')
+    def _(event):
+        """Execute query on Meta+Enter (Alt/Option+Enter)."""
+        event.current_buffer.validate_and_handle()
 
     @bindings.add('f5')
     def _(event):
@@ -210,8 +284,8 @@ def handle_sql_command() -> None:
     )
 
     try:
-        # Get SQL input (Ctrl+D triggers EOFError which we'll catch and execute)
-        sql = session.prompt(">: ")
+        # Get SQL input (with optional prefill)
+        sql = session.prompt(">: ", default=prefill_sql)
     except KeyboardInterrupt:
         console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
         return
@@ -227,7 +301,7 @@ def handle_sql_command() -> None:
         console.print(f"[{theme.muted}]No query entered[/{theme.muted}]\n")
         return
 
-    # Execute using the existing query handler
-    handle_query_command(sql)
+    # Execute using the existing query handler, passing the sql for potential loop-back
+    handle_query_command(sql, loop_back_handler=lambda: handle_sql_command(prefill_sql=sql))
 
 
