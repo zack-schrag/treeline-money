@@ -4,6 +4,7 @@ import asyncio
 from uuid import UUID
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
 from pygments.lexers.sql import SqlLexer
@@ -13,13 +14,62 @@ from rich.table import Table
 from rich.syntax import Syntax
 from rich.panel import Panel
 from treeline.theme import get_theme
-from treeline.commands.saved_queries import save_query, validate_query_name, get_queries_dir
+from treeline.commands.saved_queries import (
+    get_queries_dir,
+    list_queries,
+    load_query,
+    save_query,
+    validate_query_name,
+)
 
 console = Console()
 theme = get_theme()
 
 # Global conversation history for chat mode
 conversation_history = []
+
+
+class SavedQueryCompleter(Completer):
+    """Completer that suggests saved query names when typing in SQL editor."""
+
+    def get_completions(self, document, complete_event):
+        """Generate completions for saved queries.
+
+        Triggers when user types '/load ' or just starts typing a query name.
+        """
+        text = document.text_before_cursor
+
+        # Get all saved queries
+        queries = list_queries()
+
+        if not queries:
+            return
+
+        # Check if user is trying to load a query (typed "/load ")
+        if text.lower().startswith("/load "):
+            query_prefix = text[6:]  # Remove "/load "
+            for query_name in queries:
+                if query_name.lower().startswith(query_prefix.lower()):
+                    # Load the actual SQL content
+                    sql_content = load_query(query_name)
+                    if sql_content:
+                        yield Completion(
+                            sql_content,
+                            start_position=-len(query_prefix),
+                            display=f"📄 {query_name}",
+                        )
+        # Also suggest at the beginning if buffer is empty or just whitespace
+        elif len(text.strip()) == 0 or text.strip().startswith("/"):
+            for query_name in queries:
+                # Load the actual SQL content
+                sql_content = load_query(query_name)
+                if sql_content:
+                    yield Completion(
+                        sql_content,
+                        start_position=-len(text),
+                        display=f"📄 {query_name}",
+                        display_meta="(saved query)",
+                    )
 
 
 def get_container():
@@ -259,8 +309,12 @@ def handle_sql_command(prefill_sql: str = "") -> None:
     import platform
     meta_key = "Option+Enter" if platform.system() == "Darwin" else "Alt+Enter"
 
+    # Show instructions and saved queries count
+    saved_queries = list_queries()
     console.print(f"\n[{theme.ui_header}]Multi-line SQL Editor[/{theme.ui_header}]")
     console.print(f"[{theme.muted}]Press [{meta_key}] or [F5] to execute query[/{theme.muted}]")
+    if saved_queries:
+        console.print(f"[{theme.muted}]Press [Tab] to load a saved query ({len(saved_queries)} available)[/{theme.muted}]")
     console.print(f"[{theme.muted}]Press [Ctrl+C] to cancel[/{theme.muted}]\n")
 
     # Create custom key bindings for Meta+Enter and F5 to execute
@@ -276,11 +330,13 @@ def handle_sql_command(prefill_sql: str = "") -> None:
         """Execute query on F5."""
         event.current_buffer.validate_and_handle()
 
-    # Create prompt session with syntax highlighting and custom key bindings
+    # Create prompt session with syntax highlighting, completer, and custom key bindings
     session = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
         multiline=True,
         key_bindings=bindings,
+        completer=SavedQueryCompleter(),
+        complete_while_typing=False,  # Only show completions when Tab is pressed
     )
 
     try:
