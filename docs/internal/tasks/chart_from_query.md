@@ -58,21 +58,15 @@ After query results are displayed:
 6. Prompt to save config
 
 ### Chart Config File Format (.tl)
+The file format should be humand readable as look somewhat similar to markdown, with a bit extra. We want these components captured in the config file format:
+- the query itself
+- any variables / macros. We want, in the future, to allow users to execute queries with custom inputs.
+- chart configs (type, x, y column, title, colors, etc.)
+- optional description
+
+Do NOT overcomplicate this. We want the format to be easy to read for a human, and easy to parse for a machine. Make sure the parsing logic is properly isolated and abstracted according to Hexgonal and our overall architecture. For example, we probably want a new abstraction to handle the config file logic (saving and parsing), so if we want to change the underlying format later we can do so without a major refactor.
+
 Store as JSON in `~/.treeline/charts/{name}.tl`:
-```json
-{
-  "query": "SELECT date_trunc('month', transaction_date)::DATE as month...",
-  "chart": {
-    "type": "line",
-    "x_column": "month",
-    "y_column": "spending",
-    "title": "Monthly Spending Trend",
-    "color": "blue",
-    "width": 60,
-    "height": 20
-  }
-}
-```
 
 ### Running Saved Charts
 - `/chart name` - runs saved chart
@@ -122,5 +116,6 @@ Skip boxplot for now (has bugs per pyplot tests).
 - Start simple - just basic chart types and options
 - Can add more customization later (legends, annotations, etc.)
 - Focus on making the wizard intuitive and fast
-- The `.tl` format is human-readable JSON (users can edit)
+- The `.tl` format is human-readable (users can edit)
 - This unlocks the "saved chart" feature mentioned in PRFAQ
+- We don't have to support multi-series line charts right now, but the implementation should consider that will be a future feature.

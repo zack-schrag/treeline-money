@@ -21,6 +21,16 @@ from treeline.commands.saved_queries import (
     save_query,
     validate_query_name,
 )
+from treeline.commands.chart_config import (
+    ChartConfig,
+    ChartConfigStore,
+    get_charts_dir,
+)
+from treeline.commands.chart_wizard import (
+    ChartWizardConfig,
+    create_chart_from_config,
+    validate_chart_data,
+)
 
 console = Console()
 theme = get_theme()
@@ -193,6 +203,135 @@ def _prompt_to_save_query(sql: str) -> None:
         console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
 
 
+def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None:
+    """Prompt user to create a chart from query results.
+
+    Args:
+        sql: The SQL query that was executed
+        columns: Column names from query results
+        rows: Query result rows
+    """
+    try:
+        # Ask if user wants to create a chart
+        create = Confirm.ask(f"[{theme.info}]Create a chart?[/{theme.info}]", default=False)
+
+        if not create:
+            return
+
+        console.print()
+
+        # Get chart type
+        chart_type = Prompt.ask(
+            f"[{theme.info}]Chart type[/{theme.info}]",
+            choices=["bar", "line", "scatter", "histogram"],
+            default="line"
+        )
+
+        # Show available columns
+        console.print(f"\n[{theme.muted}]Available columns: {', '.join(columns)}[/{theme.muted}]\n")
+
+        # Get X column
+        while True:
+            x_column = Prompt.ask(f"[{theme.info}]X axis column[/{theme.info}]")
+            if x_column in columns:
+                break
+            console.print(f"[{theme.error}]Column '{x_column}' not found. Try again.[/{theme.error}]")
+
+        # Get Y column (not needed for histogram)
+        y_column = ""
+        if chart_type != "histogram":
+            while True:
+                y_column = Prompt.ask(f"[{theme.info}]Y axis column[/{theme.info}]")
+                if y_column in columns:
+                    break
+                console.print(f"[{theme.error}]Column '{y_column}' not found. Try again.[/{theme.error}]")
+
+        # Optional: title
+        title = Prompt.ask(f"[{theme.info}]Chart title (optional)[/{theme.info}]", default="")
+
+        # Optional: color
+        color_choices = ["green", "blue", "red", "yellow", "cyan", "magenta"]
+        default_colors = {"bar": "green", "line": "blue", "scatter": "red", "histogram": "cyan"}
+        color = Prompt.ask(
+            f"[{theme.info}]Color[/{theme.info}]",
+            choices=color_choices,
+            default=default_colors.get(chart_type, "blue"),
+            show_choices=False,
+        )
+
+        # Create wizard config
+        config = ChartWizardConfig(
+            chart_type=chart_type,
+            x_column=x_column,
+            y_column=y_column,
+            title=title if title else None,
+            color=color,
+        )
+
+        # Generate chart
+        console.print()
+        with console.status(f"[{theme.muted}]Generating chart...[/{theme.muted}]"):
+            result = create_chart_from_config(config, columns, rows)
+
+        if not result.success:
+            console.print(f"[{theme.error}]Error: {result.error}[/{theme.error}]\n")
+            return
+
+        # Display chart
+        console.print(result.data)
+
+        # Ask if user wants to save chart config
+        console.print()
+        save_chart = Confirm.ask(f"[{theme.info}]Save chart config?[/{theme.info}]", default=False)
+
+        if not save_chart:
+            return
+
+        # Get chart name
+        store = ChartConfigStore(get_charts_dir())
+        while True:
+            name = Prompt.ask(f"[{theme.info}]Chart name[/{theme.info}]")
+
+            if not name:
+                console.print(f"[{theme.warning}]Cancelled[/{theme.warning}]\n")
+                return
+
+            # Validate name
+            if not store.validate_name(name):
+                console.print(f"[{theme.error}]Invalid name. Use only letters, numbers, and underscores.[/{theme.error}]")
+                continue
+
+            # Check if already exists
+            if name in store.list():
+                overwrite = Confirm.ask(
+                    f"[{theme.warning}]Chart '{name}' already exists. Overwrite?[/{theme.warning}]",
+                    default=False
+                )
+                if not overwrite:
+                    continue
+
+            # Save the chart
+            chart_config = ChartConfig(
+                name=name,
+                query=sql,
+                chart_type=chart_type,
+                x_column=x_column,
+                y_column=y_column,
+                title=title if title else None,
+                color=color,
+            )
+
+            if store.save(name, chart_config):
+                chart_file = get_charts_dir() / f"{name}.tl"
+                console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{chart_file}[/{theme.emphasis}]\n")
+            else:
+                console.print(f"[{theme.error}]Failed to save chart[/{theme.error}]\n")
+            break
+
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
+
+
 def handle_clear_command() -> None:
     """Handle /clear command - reset conversation session."""
     container = get_container()
@@ -282,6 +421,9 @@ def handle_query_command(sql: str, loop_back_handler=None) -> None:
 
     console.print(table)
     console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
+
+    # Prompt to create chart
+    _prompt_chart_wizard(sql_stripped, columns, rows)
 
     # Prompt to save query, and loop back if requested
     if loop_back_handler:

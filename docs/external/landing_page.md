@@ -182,26 +182,6 @@ Treeline is built for technical users who want:
 - Custom plugin development
 - API access
 
-## Getting Started
-
-```bash
-# Install Treeline
-brew install treeline
-
-# Initialize
-treeline init
-
-# Connect your bank
-treeline /simplefin
-
-# Start exploring
-treeline
-
-> What's my net worth?
-> /tag
-> /chart
-```
-
 ## Testimonials
 
 > "I've spent years trying every budgeting app and building custom spreadsheets. Treeline is the first tool that actually lets me ask the questions I want. As a data analyst, working in SQL feels natural - and the AI helps when I need it."

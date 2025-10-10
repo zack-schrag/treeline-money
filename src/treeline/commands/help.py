@@ -22,6 +22,7 @@ def handle_help_command() -> None:
     table.add_row("/sql", "Open multi-line SQL editor")
     table.add_row("/schema [table]", "Browse database schema and tables")
     table.add_row("/queries [list|show|delete]", "Manage saved queries")
+    table.add_row("/chart [name]", "Run saved chart or list all charts")
     table.add_row("/simplefin", "Setup SimpleFIN connection")
     table.add_row("/sync", "Run an on-demand data synchronization")
     table.add_row("/import", "Import CSV file of transactions")

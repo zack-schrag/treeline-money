@@ -17,6 +17,7 @@ Command | Description
 /sql | Open multi-line SQL editor with syntax highlighting and saved query autocomplete (press Tab to see saved queries, Option/Alt+Enter or F5 to execute)
 /schema [table] | Browse database schema - list all tables or show columns for a specific table
 /queries [list\|show\|delete] | Manage saved queries - list all, show SQL, or delete a query
+/chart [name] | Run a saved chart by name, or list all saved charts if no name provided. Charts are created after running queries via the chart wizard.
 /clear | Clear the screen
 /exit | Exit the Treeline REPL
 
