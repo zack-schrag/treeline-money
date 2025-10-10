@@ -224,9 +224,46 @@ def test_mode_transitions():
 - [ ] Unit tests for all state transitions
 - [ ] Session is isolated (no global state)
 
+## ⚠️ Architecture Checkpoint
+
+**BEFORE IMPLEMENTATION:**
+Review `docs/internal/architecture.md` - State management patterns
+
+**Key Questions:**
+- Is `AnalysisSession` domain logic or presentation logic?
+- Should it live in `app/` or `commands/`?
+- Does it need to go through the service layer?
+
+**Decision:** This is **presentation state** (CLI-specific, not domain).
+- Lives in `src/treeline/commands/analysis_session.py`
+- Simple dataclass, no business rules
+- Used only by CLI command handlers
+- No service layer interaction needed (just holds UI state)
+
+**Red Flags to Avoid:**
+❌ Don't put business logic in session (e.g., transaction deduplication)
+❌ Don't make session talk to database/services directly
+❌ Don't store domain objects (Transaction, Account) - only primitives/DTOs
+
+**Good Patterns:**
+✅ Simple dataclass with clear state transitions
+✅ Immutable where possible (use `replace()` for updates)
+✅ No dependencies on services/repos
+✅ Pure state container
+
+**AFTER IMPLEMENTATION:**
+Use architecture-guardian agent to verify:
+```
+Review src/treeline/commands/analysis_session.py:
+- Ensure it's just state (no business logic)
+- Verify no service/repository imports
+- Check it only stores presentation data
+```
+
 ## Notes
 
 - Session is NOT persisted between invocations (fresh start each time)
 - Could add persistence later if users request it
 - State management is foundation for modal navigation (next task)
 - Keep session immutable where possible for predictability
+- **Architecture:** Presentation state, not domain state

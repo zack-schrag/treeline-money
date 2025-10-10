@@ -35,3 +35,59 @@ The tasks should be completed in this order to minimize risk and maximize value:
 ## Testing Strategy
 
 Each task should include unit tests where applicable. The final task (07) should include a comprehensive smoke test that exercises the full `/analysis` workflow.
+
+## ⚠️ Architecture Guidelines
+
+**CRITICAL:** This is a large feature that touches core CLI flows. We must maintain hexagonal architecture principles throughout.
+
+### Before Starting Each Task:
+1. Review `docs/internal/architecture.md` for hexagonal principles
+2. Identify which layer each new module belongs to:
+   - **CLI layer** (`src/treeline/cli.py`, `commands/*.py`) - thin presentation, NO business logic
+   - **Service layer** (`src/treeline/app/service.py`) - business logic, independent of tech choices
+   - **Abstractions** (`src/treeline/abstractions.py`) - ports/interfaces
+   - **Infrastructure** (`src/treeline/infra/`) - adapters for specific technologies
+
+### After Completing Each Task:
+**MANDATORY:** Use the `architecture-guardian` agent to review your changes:
+
+```
+Use the architecture-guardian agent to review the implementation in:
+- src/treeline/commands/analysis.py (or relevant files)
+- Ensure no business logic leaked into CLI layer
+- Verify abstractions are technology-agnostic
+- Check that state management follows clean patterns
+```
+
+### Red Flags to Avoid:
+❌ **Business logic in CLI commands** - Commands should only parse input, call services, display output
+❌ **Direct database/API calls from commands** - Always go through service layer
+❌ **Technology-specific details in abstractions** - Keep interfaces generic
+❌ **Global state or singletons** - Pass dependencies explicitly
+❌ **Mixing concerns** - State management ≠ UI rendering ≠ business logic
+
+### Good Patterns to Follow:
+✅ **Thin command handlers** - Parse → Call service → Display
+✅ **State as data class** - Simple, immutable where possible
+✅ **Services coordinate logic** - But defer to domain/repository for operations
+✅ **Dependency injection** - Use container, no hardcoded imports
+✅ **Testable units** - Each module independently testable
+
+## Architecture Review Checkpoints
+
+**Task 01 (Simplify SQL prompts):**
+- Review: UI refactoring only, no new business logic
+
+**Task 03 (Histogram bucketing):**
+- Review: SQL transformation logic - should this be a service? An abstraction?
+
+**Task 04 (Session state):**
+- Review: State management structure - is it properly isolated?
+
+**Task 05 (Modal navigation):**
+- Review: CLI command structure - are handlers thin enough?
+
+**FINAL REVIEW** (After Task 07):
+- Comprehensive architecture-guardian review of entire feature
+- Verify no hexagonal violations
+- Check for code smells or architectural drift

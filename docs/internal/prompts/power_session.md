@@ -60,3 +60,8 @@ The session ends when:
 - No more tasks remain in the tasks directory
 - User explicitly ends the session
 - A complex architectural decision is needed and the user determines to defer the task to later.
+
+## Advanced Variations
+- The user may prompt you to implement a larger feature, in this case, they will direct you to a specific subfolder within the tasks folder, which will contain all related tasks.
+- In this case, the user will be responsible for specifying order. If none is given, use your best judgement.
+- Look for a CLAUDE.md, AGENTS.md, or README.md for a full overview first.

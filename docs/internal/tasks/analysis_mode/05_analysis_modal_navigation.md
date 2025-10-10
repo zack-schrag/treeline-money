@@ -329,9 +329,65 @@ SQL> [previous query prefilled]
 - [ ] Unit tests for mode transitions
 - [ ] Manual testing confirms smooth UX
 
+## ⚠️ Architecture Checkpoint
+
+**BEFORE IMPLEMENTATION:**
+Review `docs/internal/architecture.md` - CLI command structure
+
+**Critical Architecture Rule:**
+The CLI must be a **thin presentation layer**. All handlers should follow:
+
+```python
+def _handle_X_mode(session, user_id):
+    # 1. Display UI
+    # 2. Get user input
+    # 3. Call SERVICE layer for business logic
+    # 4. Update session state
+    # 5. Return next action
+```
+
+**Red Flags to Avoid:**
+❌ **NO business logic in handlers** - Don't write SQL, transform data, apply rules
+❌ **NO direct DB calls** - Always use `db_service` from container
+❌ **NO importing from infra** - Only use abstractions via container
+
+**Example - WRONG:**
+```python
+def _handle_sql_mode(session, user_id):
+    # ❌ Direct database import
+    from treeline.infra.duckdb import DuckDBRepository
+    repo = DuckDBRepository()
+    result = repo.execute_query(...)  # ❌ Bypasses service layer
+```
+
+**Example - RIGHT:**
+```python
+def _handle_sql_mode(session, user_id):
+    # ✅ Get service from container
+    container = get_container()
+    db_service = container.db_service()
+
+    # ✅ Service handles business logic
+    result = asyncio.run(db_service.execute_query(user_id, sql))
+
+    # ✅ CLI just displays
+    _display_results(result.data)
+```
+
+**AFTER IMPLEMENTATION:**
+Use architecture-guardian agent to verify:
+```
+Review src/treeline/commands/analysis.py:
+- Ensure handlers are thin (display + service calls only)
+- Verify no business logic in CLI layer
+- Check all service calls go through container
+- Confirm no direct imports from infra/
+```
+
 ## Notes
 
 - This is the core UX of analysis mode
 - Depends on session state (task 04)
 - Should feel like an integrated workspace, not separate commands
 - Visual clarity is key - users should always know where they are
+- **Architecture:** Thin command handlers, thick service layer

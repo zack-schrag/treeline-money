@@ -357,8 +357,34 @@ def test_bucket_range_contains():
 - [ ] Unit tests for all bucketing logic
 - [ ] Works with both integer and decimal ranges
 
+## ⚠️ Architecture Checkpoint
+
+**BEFORE IMPLEMENTATION:**
+Review `docs/internal/architecture.md` - Where should SQL transformation logic live?
+
+**Key Questions:**
+- Is `HistogramBucketingHelper` business logic or presentation logic?
+- Should SQL generation be a service in `app/service.py`?
+- Or is it a utility tied to chart presentation in `commands/`?
+
+**Decision:** This is **presentation layer** logic (transforms user input for display).
+- Lives in `src/treeline/commands/histogram_helper.py`
+- Pure functions, no state, no database access
+- Testable independently
+- CLI calls it directly (no service layer needed)
+
+**AFTER IMPLEMENTATION:**
+Use architecture-guardian agent to verify:
+```
+Review src/treeline/commands/histogram_helper.py:
+- Ensure no business logic (no domain rules)
+- Verify no database/external dependencies
+- Check it's purely transformational (SQL → SQL)
+```
+
 ## Notes
 
 - This is a high-value feature that removes a major friction point
 - Can be extended later for other smart helpers (e.g., time bucketing for line charts)
 - Isolated in its own module for clean separation
+- **Architecture:** Presentation layer helper, not business logic
