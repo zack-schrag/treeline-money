@@ -276,3 +276,50 @@ def Ok(data: T | None = None, context: Dict[str, Any] | None = None) -> Result[T
 
 def Fail(error: str, context: Dict[str, Any] | None = None) -> Result[T]:
     return Result(success=False, error=error, context=context)
+
+
+# Analysis Mode Models
+
+class AnalysisSession(BaseModel):
+    """State for an analysis mode session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sql: str = ""
+    results: list[list[Any]] | None = None
+    columns: list[str] | None = None
+    chart: Any | None = None  # Will be ChartDisplay later
+    view_mode: str = "results"  # "results" or "chart"
+    scroll_offset: int = 0  # Current scroll position in results (vertical)
+    column_offset: int = 0  # Current column offset (horizontal scroll)
+    selected_row: int = 0  # Currently selected/highlighted row (absolute index in results)
+
+    def has_results(self) -> bool:
+        """Check if session has query results."""
+        return self.results is not None and self.columns is not None
+
+    def has_chart(self) -> bool:
+        """Check if session has a chart."""
+        return self.chart is not None
+
+    def toggle_view(self) -> None:
+        """Toggle between results and chart view."""
+        if self.view_mode == "results":
+            self.view_mode = "chart"
+        else:
+            self.view_mode = "results"
+
+    def reset(self) -> None:
+        """Reset results and chart, keep SQL."""
+        self.results = None
+        self.columns = None
+        self.chart = None
+        self.view_mode = "results"
+
+    def clear(self) -> None:
+        """Clear everything."""
+        self.sql = ""
+        self.results = None
+        self.columns = None
+        self.chart = None
+        self.view_mode = "results"
