@@ -621,3 +621,112 @@ async def test_find_potential_duplicates_no_matches():
 
     assert result.success
     assert len(result.data) == 0  # No potential duplicates
+
+
+@pytest.mark.asyncio
+async def test_detect_csv_columns_success():
+    """Test detecting CSV columns successfully."""
+    mock_repository = MockRepository()
+
+    # Create a mock CSV provider with detect_columns method
+    class MockCSVProvider(MockDataAggregationProvider):
+        def detect_columns(self, file_path):
+            from treeline.domain import Ok
+            return Ok({"date": "Date", "amount": "Amount", "description": "Description"})
+
+    mock_csv_provider = MockCSVProvider()
+    provider_registry = {"csv": mock_csv_provider}
+    service = ImportService(mock_repository, provider_registry)
+
+    result = await service.detect_csv_columns("/test.csv")
+
+    assert result.success
+    assert result.data["date"] == "Date"
+    assert result.data["amount"] == "Amount"
+    assert result.data["description"] == "Description"
+
+
+@pytest.mark.asyncio
+async def test_detect_csv_columns_provider_failure():
+    """Test detecting CSV columns handles provider errors."""
+    mock_repository = MockRepository()
+
+    class MockCSVProvider(MockDataAggregationProvider):
+        def detect_columns(self, file_path):
+            from treeline.domain import Fail
+            return Fail("File not found")
+
+    mock_csv_provider = MockCSVProvider()
+    provider_registry = {"csv": mock_csv_provider}
+    service = ImportService(mock_repository, provider_registry)
+
+    result = await service.detect_csv_columns("/nonexistent.csv")
+
+    assert not result.success
+    assert "File not found" in result.error
+
+
+@pytest.mark.asyncio
+async def test_preview_csv_import_success():
+    """Test previewing CSV import successfully."""
+    mock_repository = MockRepository()
+
+    preview_transactions = [
+        Transaction(
+            id=uuid4(),
+            account_id=uuid4(),
+            amount=Decimal("10.00"),
+            description="Coffee",
+            transaction_date=date(2024, 10, 1),
+            posted_date=date(2024, 10, 1),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ),
+    ]
+
+    class MockCSVProvider(MockDataAggregationProvider):
+        def preview_transactions(self, file_path, column_mapping, date_format="auto", limit=5, flip_signs=False):
+            from treeline.domain import Ok
+            return Ok(preview_transactions)
+
+    mock_csv_provider = MockCSVProvider()
+    provider_registry = {"csv": mock_csv_provider}
+    service = ImportService(mock_repository, provider_registry)
+
+    result = await service.preview_csv_import(
+        file_path="/test.csv",
+        column_mapping={"date": "Date", "amount": "Amount"},
+        date_format="auto",
+        limit=5,
+        flip_signs=False
+    )
+
+    assert result.success
+    assert len(result.data) == 1
+    assert result.data[0].description == "Coffee"
+
+
+@pytest.mark.asyncio
+async def test_preview_csv_import_provider_failure():
+    """Test previewing CSV import handles provider errors."""
+    mock_repository = MockRepository()
+
+    class MockCSVProvider(MockDataAggregationProvider):
+        def preview_transactions(self, file_path, column_mapping, date_format="auto", limit=5, flip_signs=False):
+            from treeline.domain import Fail
+            return Fail("Invalid column mapping")
+
+    mock_csv_provider = MockCSVProvider()
+    provider_registry = {"csv": mock_csv_provider}
+    service = ImportService(mock_repository, provider_registry)
+
+    result = await service.preview_csv_import(
+        file_path="/test.csv",
+        column_mapping={"invalid": "columns"},
+        date_format="auto",
+        limit=5,
+        flip_signs=False
+    )
+
+    assert not result.success
+    assert "Invalid column mapping" in result.error

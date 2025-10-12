@@ -107,10 +107,8 @@ def handle_import_command() -> None:
         return
 
     # Step 3: Auto-detect columns and show preview
-    csv_provider = container.provider_registry()["csv"]
-
     console.print(f"\n[{theme.muted}]Detecting CSV columns...[/{theme.muted}]")
-    detect_result = csv_provider.detect_columns(str(csv_path))
+    detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
 
     if not detect_result.success:
         console.print(f"[{theme.error}]Error detecting columns: {detect_result.error}[/{theme.error}]\n")
@@ -134,13 +132,13 @@ def handle_import_command() -> None:
     # Preview first 5 transactions
     console.print(f"\n[{theme.muted}]Loading preview...[/{theme.muted}]")
 
-    preview_result = csv_provider.preview_transactions(
-        str(csv_path),
-        column_mapping,
+    preview_result = asyncio.run(import_service.preview_csv_import(
+        file_path=str(csv_path),
+        column_mapping=column_mapping,
         date_format="auto",
         limit=5,
         flip_signs=flip_signs
-    )
+    ))
 
     if not preview_result.success:
         console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")
@@ -204,13 +202,13 @@ def handle_import_command() -> None:
             # Show more transactions
             console.print(f"\n[{theme.muted}]Loading more transactions...[/{theme.muted}]")
 
-            preview_result = csv_provider.preview_transactions(
-                str(csv_path),
-                column_mapping,
+            preview_result = asyncio.run(import_service.preview_csv_import(
+                file_path=str(csv_path),
+                column_mapping=column_mapping,
                 date_format="auto",
                 limit=15,  # Show 15 total (5 already shown + 10 more)
                 flip_signs=flip_signs
-            )
+            ))
 
             if not preview_result.success:
                 console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")
@@ -247,13 +245,13 @@ def handle_import_command() -> None:
             # Show preview with flipped signs
             console.print(f"\n[{theme.muted}]Regenerating preview with flipped signs...[/{theme.muted}]")
 
-            preview_result = csv_provider.preview_transactions(
-                str(csv_path),
-                column_mapping,
+            preview_result = asyncio.run(import_service.preview_csv_import(
+                file_path=str(csv_path),
+                column_mapping=column_mapping,
                 date_format="auto",
                 limit=5,
                 flip_signs=flip_signs
-            )
+            ))
 
             if not preview_result.success:
                 console.print(f"[{theme.error}]Error generating preview: {preview_result.error}[/{theme.error}]\n")

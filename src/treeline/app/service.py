@@ -1035,3 +1035,55 @@ class ImportService:
             # For now, keeping it simple with exact date matches only
 
         return Result(success=True, data=potential_duplicates)
+
+    async def detect_csv_columns(
+        self,
+        file_path: str
+    ) -> Result[Dict[str, Any]]:
+        """
+        Detect CSV columns automatically for import.
+
+        Args:
+            file_path: Path to CSV file
+
+        Returns:
+            Result with column mapping dict like {"date": "Date", "amount": "Amount", ...}
+        """
+        # Get CSV provider
+        provider = self.provider_registry.get("csv")
+        if not provider:
+            return Result(success=False, error="CSV provider not available")
+
+        # Call provider-specific detection method
+        return provider.detect_columns(file_path)
+
+    async def preview_csv_import(
+        self,
+        file_path: str,
+        column_mapping: Dict[str, str],
+        date_format: str = "auto",
+        limit: int = 5,
+        flip_signs: bool = False
+    ) -> Result[List[Transaction]]:
+        """
+        Preview transactions from CSV file before importing.
+
+        Args:
+            file_path: Path to CSV file
+            column_mapping: Mapping of standard fields to CSV columns
+            date_format: Date format string or "auto"
+            limit: Maximum number of transactions to preview
+            flip_signs: Whether to flip signs (for credit card statements)
+
+        Returns:
+            Result with list of preview Transaction objects
+        """
+        # Get CSV provider
+        provider = self.provider_registry.get("csv")
+        if not provider:
+            return Result(success=False, error="CSV provider not available")
+
+        # Call provider-specific preview method
+        return provider.preview_transactions(
+            file_path, column_mapping, date_format, limit, flip_signs
+        )
