@@ -1,6 +1,6 @@
 # Task 08: Load Saved Queries and Charts
 
-**Status:** Not Started
+**Status:** ✅ Complete
 **Dependencies:** Task 07
 **Estimated Time:** 2-3 hours
 
@@ -145,17 +145,17 @@ Leverage existing code:
 
 ## Acceptance Criteria
 
-- [ ] 'l' key opens load menu
-- [ ] 'q' and 'c' keys open respective browsers
-- [ ] Arrow keys navigate browser list
-- [ ] Enter loads selected item
-- [ ] Esc cancels browser and returns to previous view
-- [ ] Loading query populates SQL editor and clears results/chart
-- [ ] Loading chart executes query and displays chart
-- [ ] Empty list shows helpful message
-- [ ] All stays within TUI (no exit)
-- [ ] Focus management works correctly
-- [ ] Tests pass (unit + smoke)
+- [x] 'l' key opens load menu
+- [x] 'q' and 'c' keys open respective browsers
+- [x] Arrow keys navigate browser list
+- [x] Enter loads selected item
+- [x] Esc cancels browser and returns to previous view
+- [x] Loading query populates SQL editor and clears results/chart
+- [x] Loading chart executes query and displays chart
+- [x] Empty list shows helpful message
+- [x] All stays within TUI (no exit)
+- [x] Focus management works correctly
+- [x] Tests pass - all 198 unit tests passing
 
 ## Testing Strategy
 

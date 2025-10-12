@@ -59,15 +59,19 @@ def get_current_user_id():
 
 async def _execute_query(session: AnalysisSession) -> None:
     """Execute SQL and update session with results."""
+    # Clear previous error
+    session.error_message = ""
+
     if not session.sql.strip():
         return
 
     # Validate SELECT only
     sql_upper = session.sql.strip().upper()
-    if not sql_upper.startswith("SELECT"):
+    if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
         # Store error in session
         session.results = None
         session.columns = None
+        session.error_message = "Only SELECT and WITH queries are allowed in analysis mode"
         return
 
     # Get container and execute
@@ -88,6 +92,12 @@ async def _execute_query(session: AnalysisSession) -> None:
         session.scroll_offset = 0  # Reset vertical scroll on new query
         session.column_offset = 0  # Reset horizontal scroll on new query
         session.selected_row = 0  # Reset selection to first row
+        session.error_message = ""  # Clear any previous errors
+    else:
+        # Store error message
+        session.results = None
+        session.columns = None
+        session.error_message = f"Query failed: {result.error}"
 
 
 def _run_chart_wizard(session: AnalysisSession) -> bool:
@@ -182,6 +192,14 @@ def format_results_table(session: AnalysisSession, start_row: int = 0, page_size
     Returns:
         List of (style, text) tuples for FormattedText
     """
+    # Show error message if there is one
+    if session.error_message:
+        return [
+            ("fg:red bold", "Error\n\n"),
+            ("fg:red", session.error_message),
+            ("", "\n\nFix the SQL below and press Ctrl+Enter to execute again.")
+        ]
+
     if not session.has_results():
         return [("", "No results yet.\n\nType SQL below and press Ctrl+Enter to execute.")]
 
@@ -280,7 +298,7 @@ def format_results_table(session: AnalysisSession, start_row: int = 0, page_size
 
 
 def format_chart_or_wizard(session: AnalysisSession) -> list:
-    """Format chart, wizard, or save UI for display.
+    """Format chart, wizard, save, or browser UI for display.
 
     Args:
         session: AnalysisSession with chart or wizard state
@@ -288,6 +306,20 @@ def format_chart_or_wizard(session: AnalysisSession) -> list:
     Returns:
         List of (style, text) tuples for FormattedTextControl
     """
+    # Show help overlay if in help mode
+    if session.view_mode == "help":
+        return _format_help_overlay()
+
+    # Show load menu
+    if session.view_mode == "load_menu":
+        return _format_load_menu()
+
+    # Show browser UIs
+    if session.view_mode == "browse_query":
+        return _format_browser_ui(session, "query")
+    if session.view_mode == "browse_chart":
+        return _format_browser_ui(session, "chart")
+
     # Show wizard if in wizard mode
     if session.view_mode == "wizard":
         return _format_wizard_ui(session)
@@ -382,6 +414,137 @@ def _create_chart_from_wizard(session: AnalysisSession) -> None:
         session.view_mode = "chart"
         session.chart_scroll_offset = 0
         session.wizard_step = ""
+
+
+def _format_load_menu() -> list:
+    """Format the load menu showing options to load query or chart.
+
+    Returns:
+        List of (style, text) tuples for load menu
+    """
+    result = []
+    result.append(("bold #44755a", "Load Saved Item"))
+    result.append(("", "\n\n"))
+    result.append(("", "What would you like to load?\n\n"))
+    result.append(("", "  [q] Query\n"))
+    result.append(("", "  [c] Chart\n\n"))
+    result.append(("class:muted", "Press q or c to select, Esc to cancel"))
+    return result
+
+
+def _format_browser_ui(session: AnalysisSession, browser_type: str) -> list:
+    """Format the browser UI for saved queries or charts.
+
+    Args:
+        session: AnalysisSession with browser state
+        browser_type: "query" or "chart"
+
+    Returns:
+        List of (style, text) tuples for browser UI
+    """
+    result = []
+    result.append(("bold #44755a", f"Load {browser_type.title()}"))
+    result.append(("", "\n\n"))
+
+    if not session.browse_items:
+        result.append(("class:muted", f"No saved {browser_type}s found"))
+        result.append(("", "\n\n"))
+        result.append(("class:muted", "Press Esc to cancel"))
+        return result
+
+    # Show list with selection indicator
+    for i, item in enumerate(session.browse_items):
+        if i == session.browse_selected_index:
+            # Highlight selected item with green background
+            result.append(("bg:#44755a fg:white", f"→ {item}"))
+        else:
+            result.append(("", f"  {item}"))
+        result.append(("", "\n"))
+
+    result.append(("", "\n"))
+    result.append(("class:muted", "↑↓ to navigate, Enter to load, Esc to cancel"))
+    return result
+
+
+def _format_help_overlay() -> list:
+    """Format the help overlay showing all keybindings.
+
+    Returns:
+        List of (style, text) tuples for help overlay
+    """
+    result = []
+    result.append(("bold #44755a", "╭─ Analysis Mode Shortcuts "))
+    result.append(("bold #44755a", "─" * 30))
+    result.append(("bold #44755a", "╮\n"))
+    result.append(("bold", "│ SQL Execution"))
+    result.append(("", " " * 38))
+    result.append(("", "│\n"))
+    result.append(("", "│   Ctrl+Enter  - Execute query"))
+    result.append(("", " " * 24))
+    result.append(("", "│\n"))
+    result.append(("", "│"))
+    result.append(("", " " * 59))
+    result.append(("", "│\n"))
+    result.append(("bold", "│ Navigation"))
+    result.append(("", " " * 42))
+    result.append(("", "│\n"))
+    result.append(("", "│   Tab         - Switch focus (SQL ↔ Data panel)"))
+    result.append(("", " " * 6))
+    result.append(("", "│\n"))
+    result.append(("", "│   ↑↓←→        - Context-aware (edit SQL or scroll)"))
+    result.append(("", " " * 3))
+    result.append(("", "│\n"))
+    result.append(("", "│"))
+    result.append(("", " " * 59))
+    result.append(("", "│\n"))
+    result.append(("bold", "│ Data Panel (when focused)"))
+    result.append(("", " " * 27))
+    result.append(("", "│\n"))
+    result.append(("", "│   ↑↓          - Scroll results vertically"))
+    result.append(("", " " * 12))
+    result.append(("", "│\n"))
+    result.append(("", "│   Shift+←→    - Scroll columns horizontally"))
+    result.append(("", " " * 10))
+    result.append(("", "│\n"))
+    result.append(("", "│   v           - Toggle results ↔ chart view"))
+    result.append(("", " " * 10))
+    result.append(("", "│\n"))
+    result.append(("", "│"))
+    result.append(("", " " * 59))
+    result.append(("", "│\n"))
+    result.append(("bold", "│ Charts"))
+    result.append(("", " " * 46))
+    result.append(("", "│\n"))
+    result.append(("", "│   g           - Create/edit chart (wizard)"))
+    result.append(("", " " * 12))
+    result.append(("", "│\n"))
+    result.append(("", "│   s           - Save query or chart"))
+    result.append(("", " " * 19))
+    result.append(("", "│\n"))
+    result.append(("", "│   l           - Load saved query or chart"))
+    result.append(("", " " * 12))
+    result.append(("", "│\n"))
+    result.append(("", "│"))
+    result.append(("", " " * 59))
+    result.append(("", "│\n"))
+    result.append(("bold", "│ Actions"))
+    result.append(("", " " * 45))
+    result.append(("", "│\n"))
+    result.append(("", "│   r           - Reset (clear results/chart)"))
+    result.append(("", " " * 11))
+    result.append(("", "│\n"))
+    result.append(("", "│   Ctrl+C      - Exit analysis mode"))
+    result.append(("", " " * 19))
+    result.append(("", "│\n"))
+    result.append(("", "│   ?           - Show this help"))
+    result.append(("", " " * 23))
+    result.append(("", "│\n"))
+    result.append(("bold #44755a", "╰"))
+    result.append(("bold #44755a", "─" * 59))
+    result.append(("bold #44755a", "╯\n\n"))
+    result.append(("class:muted", "Press any key to close"))
+
+    return result
 
 
 def _format_save_ui(session: AnalysisSession) -> list:
@@ -498,10 +661,10 @@ def create_analysis_app(session: AnalysisSession) -> Application:
     # Create a focusable buffer for results (read-only)
     results_buffer = Buffer(read_only=True)
 
-    # Create data window that toggles between results, chart, wizard, and save based on view_mode
+    # Create data window that toggles between results, chart, wizard, save, and browser based on view_mode
     def get_data_content():
-        """Return formatted text for data panel (results, chart, wizard, or save)."""
-        if session.view_mode in ["chart", "wizard", "save_query", "save_chart"]:
+        """Return formatted text for data panel (results, chart, wizard, save, or browser)."""
+        if session.view_mode in ["chart", "wizard", "save_query", "save_chart", "help", "load_menu", "browse_query", "browse_chart"]:
             return format_chart_or_wizard(session)
         else:
             return format_results_table(session, start_row=session.scroll_offset)
@@ -645,11 +808,11 @@ def create_analysis_app(session: AnalysisSession) -> Application:
         session.wizard_step = ""
         event.app.invalidate()
 
-    # 's' key to save query or chart (works globally except in wizard/save mode)
+    # 's' key to save query or chart (only when data panel focused, not while typing SQL)
     not_wizard_or_save = Condition(lambda: session.view_mode not in ["wizard", "save_query", "save_chart"])
-    @kb.add("s", filter=not_wizard_or_save)
+    @kb.add("s", filter=data_focused & not_wizard_or_save)
     def save_handler(event):
-        """Save current SQL query or chart ('s' key)."""
+        """Save current SQL query or chart ('s' when data panel focused)."""
         if session.view_mode == "chart" and session.has_chart():
             # Save chart
             session.view_mode = "save_chart"
@@ -706,9 +869,40 @@ def create_analysis_app(session: AnalysisSession) -> Application:
                     session.chart = "Error: Failed to save query"
                     session.view_mode = "chart"
             else:  # save_chart
-                # TODO: Implement chart saving
-                session.chart = "Chart saving not yet implemented"
-                session.view_mode = "chart"
+                # Save chart config
+                from treeline.commands.chart_config import ChartConfig, ChartConfigStore, get_charts_dir, serialize_chart_config
+
+                # Build chart config from current state
+                if session.has_chart() and session.has_results() and session.wizard_chart_type:
+                    chart_config = ChartConfig(
+                        name=name,
+                        query=session.sql,
+                        chart_type=session.wizard_chart_type,
+                        x_column=session.wizard_x_column,
+                        y_column=session.wizard_y_column or "",
+                        title=f"{session.wizard_y_column} by {session.wizard_x_column}" if session.wizard_y_column else session.wizard_x_column,
+                    )
+                    store = ChartConfigStore(get_charts_dir())
+                    if store.save(name, chart_config):
+                        prev_chart = session.chart
+                        session.chart = f"✓ Chart saved as '{name}'"
+                        session.view_mode = "chart"
+                        event.app.invalidate()
+                        # Schedule return to previous view
+                        import threading
+                        def restore_view():
+                            import time
+                            time.sleep(1.5)
+                            session.chart = prev_chart
+                            session.view_mode = "chart"
+                            event.app.invalidate()
+                        threading.Thread(target=restore_view, daemon=True).start()
+                    else:
+                        session.chart = "Error: Failed to save chart"
+                        session.view_mode = "chart"
+                else:
+                    session.chart = "Error: No chart to save"
+                    session.view_mode = "chart"
             session.save_input_buffer = ""
         event.app.invalidate()
 
@@ -721,10 +915,10 @@ def create_analysis_app(session: AnalysisSession) -> Application:
         session.save_input_buffer = ""
         event.app.invalidate()
 
-    # 'r' key to reset (clear results/chart, keep SQL)
-    @kb.add("r", filter=not_wizard_or_save)
+    # 'r' key to reset (clear results/chart, keep SQL) - only when data panel focused
+    @kb.add("r", filter=data_focused & not_wizard_or_save)
     def reset_handler(event):
-        """Reset results and chart, keep SQL ('r' key)."""
+        """Reset results and chart, keep SQL ('r' when data panel focused)."""
         session.results = None
         session.columns = None
         session.chart = None
@@ -735,13 +929,171 @@ def create_analysis_app(session: AnalysisSession) -> Application:
         session.chart_scroll_offset = 0
         event.app.invalidate()
 
+    # '?' key to show help overlay - only when data panel focused
+    not_help_or_wizard_or_save = Condition(lambda: session.view_mode not in ["help", "wizard", "save_query", "save_chart"])
+    @kb.add("?", filter=data_focused & not_help_or_wizard_or_save)
+    def show_help(event):
+        """Show help overlay ('?' when data panel focused)."""
+        session.view_mode = "help"
+        event.app.invalidate()
+
+    # Help mode key handler (any key dismisses help)
+    help_mode = Condition(lambda: session.view_mode == "help")
+    # Use a catch-all handler for any key in help mode
+    @kb.add("<any>", filter=help_mode)
+    def dismiss_help(event):
+        """Dismiss help overlay (any key when in help mode)."""
+        # Return to results view
+        session.view_mode = "results" if session.has_results() else "results"
+        event.app.invalidate()
+
+    # 'l' key to show load menu - only when data panel focused
+    not_special_mode = Condition(lambda: session.view_mode not in ["help", "wizard", "save_query", "save_chart", "load_menu", "browse_query", "browse_chart"])
+    @kb.add("l", filter=data_focused & not_special_mode)
+    def show_load_menu(event):
+        """Show load menu ('l' when data panel focused)."""
+        session.view_mode = "load_menu"
+        event.app.invalidate()
+
+    # Load menu key handlers
+    load_menu_mode = Condition(lambda: session.view_mode == "load_menu")
+
+    @kb.add("q", filter=load_menu_mode)
+    def browse_queries(event):
+        """Browse saved queries ('q' in load menu)."""
+        from treeline.commands.saved_queries import list_queries
+        session.view_mode = "browse_query"
+        session.browse_items = list_queries()
+        session.browse_selected_index = 0
+        event.app.invalidate()
+
+    @kb.add("c", filter=load_menu_mode)
+    def browse_charts(event):
+        """Browse saved charts ('c' in load menu)."""
+        from treeline.commands.chart_config import ChartConfigStore, get_charts_dir
+        store = ChartConfigStore(get_charts_dir())
+        session.view_mode = "browse_chart"
+        session.browse_items = store.list()
+        session.browse_selected_index = 0
+        event.app.invalidate()
+
+    @kb.add("escape", filter=load_menu_mode)
+    def cancel_load_menu(event):
+        """Cancel load menu and return to previous view."""
+        session.view_mode = "results"
+        event.app.invalidate()
+
+    # Browser key handlers
+    browse_query_mode = Condition(lambda: session.view_mode == "browse_query")
+    browse_chart_mode = Condition(lambda: session.view_mode == "browse_chart")
+    browse_mode = browse_query_mode | browse_chart_mode
+
+    @kb.add("up", filter=browse_mode)
+    def browse_up(event):
+        """Move selection up in browser."""
+        if session.browse_selected_index > 0:
+            session.browse_selected_index -= 1
+            event.app.invalidate()
+
+    @kb.add("down", filter=browse_mode)
+    def browse_down(event):
+        """Move selection down in browser."""
+        if session.browse_selected_index < len(session.browse_items) - 1:
+            session.browse_selected_index += 1
+            event.app.invalidate()
+
+    @kb.add("enter", filter=browse_query_mode)
+    def load_selected_query(event):
+        """Load selected query and execute it."""
+        if session.browse_items:
+            from treeline.commands.saved_queries import load_query
+            query_name = session.browse_items[session.browse_selected_index]
+            query_sql = load_query(query_name)
+            if query_sql:
+                session.sql = query_sql
+                # Update the buffer's document to show the loaded SQL
+                sql_buffer.document = Document(query_sql, len(query_sql))
+                # Clear previous results/chart when loading new query
+                session.results = None
+                session.columns = None
+                session.chart = None
+                session.view_mode = "results"
+                session.browse_items = []
+                # Execute the query immediately
+                async def run_query():
+                    await _execute_query(session)
+                    # Focus data panel to show results
+                    event.app.layout.focus(data_window)
+                    event.app.invalidate()
+                asyncio.ensure_future(run_query())
+            event.app.invalidate()
+
+    @kb.add("enter", filter=browse_chart_mode)
+    def load_selected_chart(event):
+        """Load selected chart, execute query, and display chart."""
+        if session.browse_items:
+            from treeline.commands.chart_config import ChartConfigStore, get_charts_dir
+            from treeline.commands.chart_wizard import create_chart_from_config
+            chart_name = session.browse_items[session.browse_selected_index]
+            store = ChartConfigStore(get_charts_dir())
+            chart_config = store.load(chart_name)
+            if chart_config:
+                # Load the SQL from chart config
+                session.sql = chart_config.query
+                # Update the buffer's document to show the loaded SQL
+                sql_buffer.document = Document(chart_config.query, len(chart_config.query))
+                session.browse_items = []
+
+                # Store chart config in wizard state for later editing/saving
+                session.wizard_chart_type = chart_config.chart_type
+                session.wizard_x_column = chart_config.x_column
+                session.wizard_y_column = chart_config.y_column
+
+                # Execute query and create chart
+                async def run_query_and_chart():
+                    await _execute_query(session)
+                    # After query executes, create the chart
+                    if session.has_results():
+                        # Convert ChartConfig to ChartWizardConfig
+                        from treeline.commands.chart_wizard import ChartWizardConfig
+                        wizard_config = ChartWizardConfig(
+                            chart_type=chart_config.chart_type,
+                            x_column=chart_config.x_column,
+                            y_column=chart_config.y_column,
+                            title=chart_config.title,
+                            xlabel=chart_config.xlabel,
+                            ylabel=chart_config.ylabel,
+                            color=chart_config.color,
+                            width=100,
+                            height=20,
+                        )
+                        result = create_chart_from_config(wizard_config, session.columns, session.results)
+                        if result.success:
+                            session.chart = result.data
+                            session.view_mode = "chart"
+                        else:
+                            session.error_message = f"Failed to create chart: {result.error}"
+                    # Focus data panel to show chart
+                    event.app.layout.focus(data_window)
+                    event.app.invalidate()
+
+                asyncio.ensure_future(run_query_and_chart())
+            event.app.invalidate()
+
+    @kb.add("escape", filter=browse_mode)
+    def cancel_browse(event):
+        """Cancel browser and return to previous view."""
+        session.browse_items = []
+        session.view_mode = "results"
+        event.app.invalidate()
+
     # Status bar with dynamic focus and view mode indicators
     def get_status_text():
         from prompt_toolkit.application import get_app
         app = get_app()
 
         # Base keybindings
-        base = "Analysis Mode  [Ctrl+Enter] execute  [s] save  [r] reset  [Ctrl+C] quit"
+        base = "Analysis Mode  [Ctrl+Enter] execute  [s] save  [l] load  [?] help  [Ctrl+C] quit"
 
         # Add context-aware hints
         hints = []

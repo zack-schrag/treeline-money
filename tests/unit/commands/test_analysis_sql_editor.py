@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import patch, Mock, MagicMock
 
 from treeline.domain import AnalysisSession, Ok, Fail
-from treeline.commands.analysis import _execute_query
+from treeline.commands.analysis import _execute_query, _format_help_overlay, _format_load_menu, _format_browser_ui
 
 
 # TODO: Rewrite SQL editor tests for prompt_toolkit architecture
@@ -77,6 +77,9 @@ class TestQueryExecution:
 
         # Verify - session should remain empty on failure
         assert not session.has_results()
+        # Verify error message is set
+        assert session.error_message != ""
+        assert "Table does not exist" in session.error_message
 
     @pytest.mark.asyncio
     async def test_execute_query_rejects_non_select(self):
@@ -89,6 +92,8 @@ class TestQueryExecution:
 
         # Verify - session should remain empty for non-SELECT
         assert not session.has_results()
+        # Verify error message is set
+        assert "Only SELECT and WITH queries are allowed" in session.error_message
 
     @pytest.mark.asyncio
     async def test_execute_query_empty_sql(self):
@@ -101,3 +106,108 @@ class TestQueryExecution:
 
         # Verify
         assert not session.has_results()
+
+
+class TestHelpOverlay:
+    """Tests for help overlay."""
+
+    def test_format_help_overlay(self):
+        """Test that help overlay contains key keybindings."""
+        # Execute
+        result = _format_help_overlay()
+
+        # Verify result is list of tuples
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+        # Convert to text to verify content
+        text = "".join(t[1] for t in result)
+
+        # Verify key sections are present
+        assert "Analysis Mode Shortcuts" in text
+        assert "Ctrl+Enter" in text
+        assert "Execute query" in text
+        assert "Tab" in text
+        assert "Switch focus" in text
+        assert "Create/edit chart" in text
+        assert "Save query" in text
+        assert "Reset" in text
+        assert "Exit analysis mode" in text
+        assert "?" in text
+        assert "Show this help" in text
+        assert "Load saved query" in text
+
+
+class TestLoadMenu:
+    """Tests for load menu."""
+
+    def test_format_load_menu(self):
+        """Test that load menu contains query and chart options."""
+        # Execute
+        result = _format_load_menu()
+
+        # Verify result is list of tuples
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+        # Convert to text to verify content
+        text = "".join(t[1] for t in result)
+
+        # Verify key sections are present
+        assert "Load Saved Item" in text
+        assert "[q] Query" in text
+        assert "[c] Chart" in text
+        assert "Esc to cancel" in text
+
+
+class TestBrowserUI:
+    """Tests for browser UI."""
+
+    def test_format_browser_ui_with_items(self):
+        """Test that browser UI shows list of items."""
+        # Setup
+        session = AnalysisSession(
+            browse_items=["query1", "query2", "query3"],
+            browse_selected_index=1
+        )
+
+        # Execute
+        result = _format_browser_ui(session, "query")
+
+        # Verify result is list of tuples
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+        # Convert to text to verify content
+        text = "".join(t[1] for t in result)
+
+        # Verify content
+        assert "Load Query" in text
+        assert "query1" in text
+        assert "query2" in text
+        assert "query3" in text
+        assert "↑↓ to navigate" in text
+        assert "Enter to load" in text
+
+    def test_format_browser_ui_empty(self):
+        """Test that browser UI shows empty message."""
+        # Setup
+        session = AnalysisSession(
+            browse_items=[],
+            browse_selected_index=0
+        )
+
+        # Execute
+        result = _format_browser_ui(session, "chart")
+
+        # Verify result is list of tuples
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+        # Convert to text to verify content
+        text = "".join(t[1] for t in result)
+
+        # Verify content
+        assert "Load Chart" in text
+        assert "No saved charts found" in text
+        assert "Esc to cancel" in text

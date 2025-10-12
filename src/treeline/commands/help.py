@@ -32,4 +32,26 @@ def handle_help_command() -> None:
     table.add_row("/exit", "Exit the Treeline REPL")
 
     console.print(table)
+
+    # Add analysis mode details
+    console.print(f"\n[bold {theme.info}]Analysis Mode Shortcuts[/bold {theme.info}]")
+    console.print(f"[{theme.muted}]When in /analysis mode, use these keyboard shortcuts:[/{theme.muted}]\n")
+
+    shortcuts_table = Table(show_header=False, box=None, padding=(0, 2))
+    shortcuts_table.add_column("Key", style=theme.info)
+    shortcuts_table.add_column("Action", style=theme.neutral)
+
+    shortcuts_table.add_row("Ctrl+Enter", "Execute SQL query")
+    shortcuts_table.add_row("Tab", "Switch focus (SQL ↔ Data panel)")
+    shortcuts_table.add_row("↑↓←→", "Context-aware (edit SQL or scroll results)")
+    shortcuts_table.add_row("Shift+←→", "Scroll columns horizontally")
+    shortcuts_table.add_row("v", "Toggle between results and chart view")
+    shortcuts_table.add_row("g", "Create/edit chart (wizard)")
+    shortcuts_table.add_row("s", "Save query or chart")
+    shortcuts_table.add_row("l", "Load saved query or chart")
+    shortcuts_table.add_row("r", "Reset (clear results/chart)")
+    shortcuts_table.add_row("?", "Show help overlay")
+    shortcuts_table.add_row("Ctrl+C", "Exit analysis mode")
+
+    console.print(shortcuts_table)
     console.print(f"\n[{theme.muted}]You can also ask questions about your financial data in natural language[/{theme.muted}]\n")

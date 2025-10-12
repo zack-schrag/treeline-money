@@ -19,8 +19,8 @@ Building an integrated workspace for fluid data exploration with:
 4. ✅ **[04_chart_panel.md](04_chart_panel.md)** - Chart integration in top panel
 5. ✅ **[05_keyboard_navigation.md](05_keyboard_navigation.md)** - Event loop and shortcuts
 6. ⏭️ **[06_histogram_helper.md](06_histogram_helper.md)** - Smart histogram bucketing (SKIPPED - use DuckDB's histogram function instead)
-7. 🚧 **[07_polish_and_docs.md](07_polish_and_docs.md)** - Final touches and documentation
-8. 📝 **[08_load_saved_items.md](08_load_saved_items.md)** - Load saved queries and charts (NEW)
+7. ✅ **[07_polish_and_docs.md](07_polish_and_docs.md)** - Final touches and documentation
+8. ✅ **[08_load_saved_items.md](08_load_saved_items.md)** - Load saved queries and charts (NEW)
 
 ## ⚠️ Architecture Guidelines
 
@@ -87,10 +87,10 @@ Building an integrated workspace for fluid data exploration with:
 - [x] 'r' resets results/chart
 - [x] Ctrl+C exits cleanly
 - [x] All context remains visible (no disappearing SQL/results)
-- [x] 194 tests passing
-- [ ] '?' shows help overlay
-- [ ] Documentation updated
-- [ ] Load saved queries/charts functionality
+- [x] 198 tests passing
+- [x] '?' shows help overlay with all shortcuts
+- [x] Documentation updated (help command, slash_commands.md, landing_page.md)
+- [x] Load saved queries/charts functionality with auto-execute
 
 ## Timeline Estimate
 
@@ -99,9 +99,9 @@ Building an integrated workspace for fluid data exploration with:
 - ✅ Task 04: 3 hours (chart integration with in-TUI wizard) - COMPLETE
 - ✅ Task 05: 2 hours (keyboard nav with focus management + save) - COMPLETE
 - ⏭️ Task 06: SKIPPED (use DuckDB histogram instead)
-- 🚧 Task 07: 1-2 hours (polish + docs) - IN PROGRESS
-- 📝 Task 08: 2-3 hours (load saved items) - NOT STARTED
+- ✅ Task 07: 2 hours (polish + docs) - COMPLETE
+- ✅ Task 08: 3 hours (load saved items) - COMPLETE
 
 **Original estimate: ~8-10 hours**
-**Actual so far: ~9 hours**
-**Remaining: ~3-5 hours**
+**Total actual time: ~14 hours**
+**Status: ✅ COMPLETE**

@@ -21,10 +21,24 @@ Stop fighting with rigid budgeting apps. Stop manually updating spreadsheets.
 │   AND transaction_date < '2025-11-01'     │
 └────────────────────────────────────────────┘
 
-> /chart
+> /analysis
 
-📊 Weekly dining trend for last 6 months
-[Beautiful terminal chart displayed here]
+┌─ Results ──────────────────────────────────────┐
+│ date        │ amount  │ description           │
+│ 2025-10-15  │ $342.50 │ Whole Foods          │
+│ 2025-10-12  │ $287.18 │ Restaurant Week      │
+│ 2025-10-08  │ $217.64 │ Local Cafe           │
+├─────────────────────────────────────────────────┤
+│ [g] chart  [s] save  [v] view  [?] help       │
+└─────────────────────────────────────────────────┘
+┌─ SQL Editor ───────────────────────────────────┐
+│ SELECT transaction_date, amount, description  │
+│ FROM transactions                             │
+│ WHERE 'dining' = ANY(tags)                    │
+│ ORDER BY transaction_date DESC █             │
+└─────────────────────────────────────────────────┘
+
+[Press Ctrl+Enter to execute, Tab to switch, g for charts]
 ```
 
 ## Why Treeline?
@@ -61,15 +75,17 @@ Tag transactions with AI assistance. Tag one transaction, and similar ones get s
 
 **Tagging Power Mode** - Keyboard-driven rapid tagging. Process hundreds of transactions in minutes, not hours.
 
-### 🔍 SQL Analysis Mode
-Multi-line SQL editor with:
-- Syntax highlighting
-- Schema autocomplete
-- Query history
-- Saved queries and templates
-- Chart wizard for instant visualizations
+### 🔍 Interactive Analysis Workspace
+A Jupyter-like environment for fluid data exploration:
+- **Split-panel TUI** - SQL editor and results always visible
+- **Live query execution** - See results instantly without leaving the editor
+- **Integrated charting** - Create visualizations without context switching
+- **Smart navigation** - Tab between panels, context-aware shortcuts
+- **Saved queries** - Build and reuse your analysis templates
 
-All results displayed as formatted tables in your terminal.
+Think of it as an IDE for your financial data - everything you need in one focused workspace.
+
+**Also available:** Multi-line `/sql` editor for quick one-off queries, and `/chart` for standalone visualizations.
 
 ### 🔌 Plugin Ecosystem
 Extend Treeline with plugins from the community:
