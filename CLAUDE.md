@@ -11,11 +11,19 @@
 - The CLI (`src/treeline/cli.py`) MUST be a thin presentation layer
 - The CLI MUST ONLY interact with services from `src/treeline/app/service.py`
 - The CLI MUST NEVER directly call repositories, providers, or any other abstractions
+- The CLI MUST NEVER perform direct file I/O operations (use storage abstractions via container)
 - All business logic MUST live in the service layer, NOT in the CLI
 - The CLI should only:
   1. Parse user input
   2. Call the appropriate service method
   3. Display the results to the user
+
+# Storage and Persistence Rules
+- ALL file operations MUST go through storage abstractions defined in `src/treeline/abstractions/storage.py`
+- Commands and CLI layers MUST access storage via container: `container.query_storage()`, `container.chart_storage()`
+- NEVER use `Path.read_text()`, `Path.write_text()`, `open()`, or other file operations directly in commands/CLI
+- Storage implementations (e.g., FileQueryStorage) belong in `src/treeline/infra/file_storage.py`
+- ALL domain models (Account, Transaction, ChartConfig, etc.) MUST be defined in `src/treeline/domain.py`
 
 # Testing Instructions
 ## Unit Tests
