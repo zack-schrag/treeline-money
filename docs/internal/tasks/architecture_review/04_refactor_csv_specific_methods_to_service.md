@@ -6,7 +6,8 @@
 ## Violation
 The import CSV command calls provider-specific methods (`detect_columns()`, `preview_transactions()`) that are NOT defined in the `DataAggregationProvider` abstraction.
 
-**Location:** `src/treeline/commands/import_csv.py:110, 113, 137, 207, 250`
+**Location:** `src/treeline/commands/import_csv.py:110, 113, 137`
+**Status:** Confirmed present in second review (2025-10-11)
 
 **Current Code:**
 ```python

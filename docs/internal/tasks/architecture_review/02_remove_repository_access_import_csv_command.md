@@ -7,6 +7,7 @@
 The import CSV command (`src/treeline/commands/import_csv.py`) directly accesses the Repository abstraction, bypassing the Service layer.
 
 **Location:** `src/treeline/commands/import_csv.py:52, 79`
+**Status:** Confirmed present in second review (2025-10-11)
 
 **Current Code:**
 ```python

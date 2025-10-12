@@ -6,7 +6,7 @@
 ## Violation
 The tag command (`src/treeline/commands/tag.py`) directly accesses the Repository abstraction, bypassing the Service layer.
 
-**Location:** `src/treeline/commands/tag.py:51, 71, 82`
+**Location:** `src/treeline/commands/tag.py:51, 71`
 
 **Current Code:**
 ```python
@@ -15,10 +15,9 @@ repository = container.repository()
 
 # Line 71
 accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
-
-# Line 82 (similar pattern)
-accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
 ```
+
+**Status:** Confirmed present in second review (2025-10-11)
 
 ## Why It's Wrong
 According to `CLAUDE.md`:

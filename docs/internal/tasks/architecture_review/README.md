@@ -1,26 +1,40 @@
 # Architecture Review Tasks
 
-This directory contains tasks identified during a comprehensive architecture review of the Treeline Money codebase on 2025-10-11.
+This directory contains tasks identified during comprehensive architecture reviews of the Treeline Money codebase.
+
+**Review History:**
+- Initial review: 2025-10-11
+- Second review: 2025-10-11 (after user changes)
+- Status: **All issues from initial review remain present**
 
 ## Overview
 
-The codebase has a **solid hexagonal architecture foundation** (80%+ compliant), but has **3 critical** and **2 major** violations that need attention. These violations are localized to 2-3 command files and can be fixed systematically.
+The codebase has a **solid hexagonal architecture foundation** (80%+ compliant), but has **4 critical** and **2 major** violations that need attention. These violations are localized to 2-3 command files and can be fixed systematically.
+
+**Key Findings from Second Review:**
+- No issues were resolved between reviews
+- All original violations still present in `tag.py` and `import_csv.py`
+- The core patterns are established; remaining fixes follow the same approach
 
 ## Task Priority
 
 ### Critical (Must Fix)
 These break hexagonal architecture core principles:
 
-1. **[01_remove_repository_access_tag_command.md](./01_remove_repository_access_tag_command.md)** - CLI bypassing service layer
-2. **[02_remove_repository_access_import_csv_command.md](./02_remove_repository_access_import_csv_command.md)** - CLI bypassing service layer
-3. **[03_remove_infra_imports_from_tag_command.md](./03_remove_infra_imports_from_tag_command.md)** - CLI importing infrastructure
-4. **[04_refactor_csv_specific_methods_to_service.md](./04_refactor_csv_specific_methods_to_service.md)** - Leaky abstraction
+1. **[01_remove_repository_access_tag_command.md](./01_remove_repository_access_tag_command.md)** - CLI bypassing service layer in `tag.py:51,71`
+2. **[02_remove_repository_access_import_csv_command.md](./02_remove_repository_access_import_csv_command.md)** - CLI bypassing service layer in `import_csv.py:52,79`
+3. **[03_remove_infra_imports_from_tag_command.md](./03_remove_infra_imports_from_tag_command.md)** - CLI importing infrastructure in `tag.py:38`
+4. **[04_refactor_csv_specific_methods_to_service.md](./04_refactor_csv_specific_methods_to_service.md)** - Leaky abstraction in `import_csv.py:110,113,137`
+
+**Status (as of 2025-10-11 second review): ALL STILL PRESENT**
 
 ### Major (Should Fix)
 These create leaky abstractions but don't break core architecture:
 
-5. **[05_fix_session_expired_leaky_abstraction.md](./05_fix_session_expired_leaky_abstraction.md)** - Service calling non-abstracted method
+5. **[05_fix_session_expired_leaky_abstraction.md](./05_fix_session_expired_leaky_abstraction.md)** - Service calling non-abstracted method in `service.py:651`
 6. **[06_reorganize_abstractions_into_directory.md](./06_reorganize_abstractions_into_directory.md)** - Organizational inconsistency
+
+**Status (as of 2025-10-11 second review): ALL STILL PRESENT**
 
 ## Recommended Order
 
@@ -62,6 +76,7 @@ After all tasks complete:
 - Run full unit test suite
 - Run smoke tests: `uv run pytest tests/smoke`
 - Verify all commands work end-to-end
+- NOTE: these smoke tests are actually disabled right now. Ask the user to verify all functionality instead of running smoke tests.
 
 ## Architectural Principles (Reminder)
 

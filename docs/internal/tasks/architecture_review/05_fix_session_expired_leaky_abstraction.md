@@ -7,6 +7,7 @@
 `AgentService.ensure_session_active()` calls `is_session_expired()` method that is NOT defined in the `AIProvider` abstraction.
 
 **Location:** `src/treeline/app/service.py:651`
+**Status:** Confirmed present in second review (2025-10-11)
 
 **Current Code:**
 ```python

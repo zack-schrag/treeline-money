@@ -7,6 +7,7 @@
 The tag command directly imports and instantiates infrastructure implementations (`FrequencyTagSuggester`, `CommonTagSuggester`, `CombinedTagSuggester`).
 
 **Location:** `src/treeline/commands/tag.py:38, 54-57`
+**Status:** Confirmed present in second review (2025-10-11)
 
 **Current Code:**
 ```python

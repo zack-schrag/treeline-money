@@ -6,6 +6,8 @@
 ## Violation
 The abstractions are in a single file (`src/treeline/abstractions.py`) instead of organized in a directory structure as specified in `architecture.md`.
 
+**Status:** Confirmed present in second review (2025-10-11)
+
 **Current Structure:**
 ```
 src/treeline/
