@@ -161,11 +161,21 @@ class AnthropicProvider(AIProvider):
             return Fail(f"Failed to end session: {str(e)}")
 
     def has_active_session(self) -> bool:
-        """Check if there is an active conversation session."""
-        return self.client is not None
+        """Check if there is an active conversation session that is not expired."""
+        if self.client is None:
+            return False
+
+        # Check if session is expired (idle for more than 30 minutes)
+        if self.session_started and (datetime.now() - self.session_started) > timedelta(minutes=30):
+            return False
+
+        return True
 
     def is_session_expired(self) -> bool:
-        """Check if session has been idle for more than 30 minutes."""
+        """Check if session has been idle for more than 30 minutes.
+
+        Note: This method is deprecated. Use has_active_session() instead.
+        """
         if not self.session_started:
             return False
         return (datetime.now() - self.session_started) > timedelta(minutes=30)

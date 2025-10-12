@@ -659,10 +659,6 @@ class AgentService:
         if not self.ai_provider.has_active_session():
             return await self.ai_provider.start_session(user_id, db_path)
 
-        if self.ai_provider.is_session_expired():
-            await self.ai_provider.end_session()
-            return await self.ai_provider.start_session(user_id, db_path)
-
         return Result(success=True)
 
     async def chat(self, user_id: UUID, db_path: str, message: str) -> Result:
