@@ -13,13 +13,14 @@ Building an integrated workspace for fluid data exploration with:
 
 ## Task Breakdown
 
-1. **[01_build_analysis_layout.md](01_build_analysis_layout.md)** - Core modal view structure
-2. **[02_sql_editor_panel.md](02_sql_editor_panel.md)** - Multiline SQL editor integration
-3. **[03_results_panel.md](03_results_panel.md)** - Results table display and scrolling
-4. **[04_chart_panel.md](04_chart_panel.md)** - Chart integration in top panel
-5. **[05_keyboard_navigation.md](05_keyboard_navigation.md)** - Event loop and shortcuts
-6. **[06_histogram_helper.md](06_histogram_helper.md)** - Smart histogram bucketing
-7. **[07_polish_and_docs.md](07_polish_and_docs.md)** - Final touches and documentation
+1. ✅ **[01_build_analysis_layout.md](01_build_analysis_layout.md)** - Core modal view structure
+2. ✅ **[02_sql_editor_panel.md](02_sql_editor_panel.md)** - Multiline SQL editor integration
+3. ✅ **[03_results_panel.md](03_results_panel.md)** - Results table display and scrolling
+4. ✅ **[04_chart_panel.md](04_chart_panel.md)** - Chart integration in top panel
+5. ✅ **[05_keyboard_navigation.md](05_keyboard_navigation.md)** - Event loop and shortcuts
+6. ⏭️ **[06_histogram_helper.md](06_histogram_helper.md)** - Smart histogram bucketing (SKIPPED - use DuckDB's histogram function instead)
+7. 🚧 **[07_polish_and_docs.md](07_polish_and_docs.md)** - Final touches and documentation
+8. 📝 **[08_load_saved_items.md](08_load_saved_items.md)** - Load saved queries and charts (NEW)
 
 ## ⚠️ Architecture Guidelines
 
@@ -76,22 +77,31 @@ Building an integrated workspace for fluid data exploration with:
 
 ## Success Criteria
 
-- [ ] User can enter `/analysis` and see full-screen modal view
-- [ ] SQL editor is always visible at bottom
-- [ ] F5 executes query and displays results
-- [ ] 'c' creates chart in top panel
-- [ ] 'q' exits cleanly
-- [ ] All context remains visible (no disappearing SQL/results)
-- [ ] 190+ tests still passing
-- [ ] Architecture review passes
+- [x] User can enter `/analysis` and see full-screen modal view
+- [x] SQL editor is always visible at bottom
+- [x] Ctrl+Enter executes query and displays results
+- [x] 'g' creates chart via in-TUI wizard
+- [x] Tab switches focus between panels
+- [x] 'v' toggles between results and chart view
+- [x] 's' saves queries/charts with in-TUI prompt
+- [x] 'r' resets results/chart
+- [x] Ctrl+C exits cleanly
+- [x] All context remains visible (no disappearing SQL/results)
+- [x] 194 tests passing
+- [ ] '?' shows help overlay
+- [ ] Documentation updated
+- [ ] Load saved queries/charts functionality
 
 ## Timeline Estimate
 
-- Task 01-02: 1-2 hours (layout + SQL editor)
-- Task 03: 1 hour (results panel)
-- Task 04: 1-2 hours (chart integration)
-- Task 05: 1 hour (keyboard nav)
-- Task 06: 2 hours (histogram helper)
-- Task 07: 1 hour (polish)
+- ✅ Task 01-02: 2 hours (layout + SQL editor) - COMPLETE
+- ✅ Task 03: 2 hours (results panel with column windowing) - COMPLETE
+- ✅ Task 04: 3 hours (chart integration with in-TUI wizard) - COMPLETE
+- ✅ Task 05: 2 hours (keyboard nav with focus management + save) - COMPLETE
+- ⏭️ Task 06: SKIPPED (use DuckDB histogram instead)
+- 🚧 Task 07: 1-2 hours (polish + docs) - IN PROGRESS
+- 📝 Task 08: 2-3 hours (load saved items) - NOT STARTED
 
-**Total: ~8-10 hours**
+**Original estimate: ~8-10 hours**
+**Actual so far: ~9 hours**
+**Remaining: ~3-5 hours**
