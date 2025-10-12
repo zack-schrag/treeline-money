@@ -48,10 +48,10 @@ def handle_tag_command() -> None:
         return
 
     container = get_container()
-    repository = container.repository()
+    account_service = container.account_service()
 
     # Create tagging service with combined suggester (frequency + common tags)
-    frequency_suggester = FrequencyTagSuggester(repository)
+    frequency_suggester = FrequencyTagSuggester(container.repository())
     common_suggester = CommonTagSuggester()
     tag_suggester = CombinedTagSuggester(frequency_suggester, common_suggester)
     tagging_service = container.tagging_service(tag_suggester)
@@ -68,7 +68,7 @@ def handle_tag_command() -> None:
     def load_accounts():
         """Load accounts and create mapping."""
         nonlocal account_map
-        accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
+        accounts_result = asyncio.run(account_service.get_accounts(UUID(user_id)))
         if accounts_result.success:
             account_map = {acc.id: acc.nickname or acc.name for acc in accounts_result.data}
             return True

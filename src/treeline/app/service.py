@@ -513,6 +513,17 @@ class ConfigService:
         self.credential_store.delete_credential("supabase_access_token")
 
 
+class AccountService:
+    """Service for account operations."""
+
+    def __init__(self, repository: Repository):
+        self.repository = repository
+
+    async def get_accounts(self, user_id: UUID) -> Result[List[Account]]:
+        """Get all accounts for a user."""
+        return await self.repository.get_accounts(user_id)
+
+
 class StatusService:
     """Service for retrieving financial data status and summaries."""
 

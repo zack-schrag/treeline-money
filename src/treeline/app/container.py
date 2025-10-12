@@ -14,7 +14,7 @@ from treeline.abstractions import (
     Repository,
     TagSuggester,
 )
-from treeline.app.service import AgentService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
+from treeline.app.service import AccountService, AgentService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
 from treeline.infra.anthropic import AnthropicProvider
 from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
@@ -94,6 +94,12 @@ class Container:
             raise ValueError(f"Provider {integration_name} does not support integration setup")
 
         return IntegrationService(provider, self.repository())
+
+    def account_service(self) -> AccountService:
+        """Get the account service instance."""
+        if "account_service" not in self._instances:
+            self._instances["account_service"] = AccountService(self.repository())
+        return self._instances["account_service"]
 
     def status_service(self) -> StatusService:
         """Get the status service instance."""
