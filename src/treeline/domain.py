@@ -342,3 +342,22 @@ class AnalysisSession(BaseModel):
         self.columns = None
         self.chart = None
         self.view_mode = "results"
+
+
+# Chart Configuration Model
+
+class ChartConfig(BaseModel):
+    """Represents a saved chart configuration."""
+
+    model_config = ConfigDict(frozen=True, str_strip_whitespace=True, extra="forbid")
+
+    name: str
+    query: str
+    chart_type: str  # bar, line, scatter, histogram, boxplot
+    x_column: str
+    y_column: str
+    title: str | None = None
+    xlabel: str | None = None
+    ylabel: str | None = None
+    color: str | None = None
+    description: str | None = None

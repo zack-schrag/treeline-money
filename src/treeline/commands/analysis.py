@@ -870,7 +870,7 @@ def create_analysis_app(session: AnalysisSession) -> Application:
                     session.view_mode = "chart"
             else:  # save_chart
                 # Save chart config
-                from treeline.commands.chart_config import ChartConfig, ChartConfigStore, get_charts_dir, serialize_chart_config
+                from treeline.domain import ChartConfig
 
                 # Build chart config from current state
                 if session.has_chart() and session.has_results() and session.wizard_chart_type:
@@ -882,8 +882,9 @@ def create_analysis_app(session: AnalysisSession) -> Application:
                         y_column=session.wizard_y_column or "",
                         title=f"{session.wizard_y_column} by {session.wizard_x_column}" if session.wizard_y_column else session.wizard_x_column,
                     )
-                    store = ChartConfigStore(get_charts_dir())
-                    if store.save(name, chart_config):
+                    container = get_container()
+                    chart_storage = container.chart_storage()
+                    if chart_storage.save(name, chart_config):
                         prev_chart = session.chart
                         session.chart = f"✓ Chart saved as '{name}'"
                         session.view_mode = "chart"
@@ -970,10 +971,10 @@ def create_analysis_app(session: AnalysisSession) -> Application:
     @kb.add("c", filter=load_menu_mode)
     def browse_charts(event):
         """Browse saved charts ('c' in load menu)."""
-        from treeline.commands.chart_config import ChartConfigStore, get_charts_dir
-        store = ChartConfigStore(get_charts_dir())
+        container = get_container()
+        chart_storage = container.chart_storage()
         session.view_mode = "browse_chart"
-        session.browse_items = store.list()
+        session.browse_items = chart_storage.list()
         session.browse_selected_index = 0
         event.app.invalidate()
 
@@ -1032,11 +1033,11 @@ def create_analysis_app(session: AnalysisSession) -> Application:
     def load_selected_chart(event):
         """Load selected chart, execute query, and display chart."""
         if session.browse_items:
-            from treeline.commands.chart_config import ChartConfigStore, get_charts_dir
             from treeline.commands.chart_wizard import create_chart_from_config
             chart_name = session.browse_items[session.browse_selected_index]
-            store = ChartConfigStore(get_charts_dir())
-            chart_config = store.load(chart_name)
+            container = get_container()
+            chart_storage = container.chart_storage()
+            chart_config = chart_storage.load(chart_name)
             if chart_config:
                 # Load the SQL from chart config
                 session.sql = chart_config.query

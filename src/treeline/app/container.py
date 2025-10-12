@@ -8,9 +8,11 @@ from supabase import create_client
 from treeline.abstractions import (
     AIProvider,
     AuthProvider,
+    ChartStorage,
     CredentialStore,
     DataAggregationProvider,
     IntegrationProvider,
+    QueryStorage,
     Repository,
     TagSuggester,
 )
@@ -18,6 +20,7 @@ from treeline.app.service import AccountService, AgentService, AuthService, Conf
 from treeline.infra.anthropic import AnthropicProvider
 from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
+from treeline.infra.file_storage import FileChartStorage, FileQueryStorage
 from treeline.infra.keyring_store import KeyringCredentialStore
 from treeline.infra.mcp import ToolRegistry
 from treeline.infra.simplefin import SimpleFINProvider
@@ -169,3 +172,19 @@ class Container:
                 self.repository(), self.provider_registry()
             )
         return self._instances["import_service"]
+
+    def chart_storage(self) -> ChartStorage:
+        """Get the chart storage instance."""
+        if "chart_storage" not in self._instances:
+            from pathlib import Path
+            charts_dir = Path.home() / ".treeline" / "charts"
+            self._instances["chart_storage"] = FileChartStorage(charts_dir)
+        return self._instances["chart_storage"]
+
+    def query_storage(self) -> QueryStorage:
+        """Get the query storage instance."""
+        if "query_storage" not in self._instances:
+            from pathlib import Path
+            queries_dir = Path.home() / ".treeline" / "queries"
+            self._instances["query_storage"] = FileQueryStorage(queries_dir)
+        return self._instances["query_storage"]

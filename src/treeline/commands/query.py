@@ -15,17 +15,16 @@ from rich.syntax import Syntax
 from rich.panel import Panel
 from treeline.theme import get_theme
 from treeline.commands.saved_queries import (
-    get_queries_dir,
     list_queries,
     load_query,
+    query_exists,
     save_query,
     validate_query_name,
 )
 from treeline.commands.chart_config import (
-    ChartConfig,
-    ChartConfigStore,
-    get_charts_dir,
+    validate_chart_name,
 )
+from treeline.domain import ChartConfig
 from treeline.commands.chart_wizard import (
     ChartWizardConfig,
     create_chart_from_config,
@@ -126,10 +125,7 @@ def _prompt_to_save_query_with_loopback(sql: str, loop_back_handler) -> None:
                     continue
 
                 # Check if file already exists
-                queries_dir = get_queries_dir()
-                query_file = queries_dir / f"{name}.sql"
-
-                if query_file.exists():
+                if query_exists(name):
                     overwrite = Confirm.ask(
                         f"[{theme.warning}]Query '{name}' already exists. Overwrite?[/{theme.warning}]",
                         default=False
@@ -139,7 +135,7 @@ def _prompt_to_save_query_with_loopback(sql: str, loop_back_handler) -> None:
 
                 # Save the query
                 if save_query(name, sql):
-                    console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{query_file}[/{theme.emphasis}]\n")
+                    console.print(f"[{theme.success}]✓[/{theme.success}] Saved query '{name}'[/{theme.emphasis}]\n")
                 else:
                     console.print(f"[{theme.error}]Failed to save query[/{theme.error}]\n")
                 break
@@ -181,10 +177,7 @@ def _prompt_to_save_query(sql: str) -> None:
                 continue
 
             # Check if file already exists
-            queries_dir = get_queries_dir()
-            query_file = queries_dir / f"{name}.sql"
-
-            if query_file.exists():
+            if query_exists(name):
                 overwrite = Confirm.ask(
                     f"[{theme.warning}]Query '{name}' already exists. Overwrite?[/{theme.warning}]",
                     default=False
@@ -194,7 +187,7 @@ def _prompt_to_save_query(sql: str) -> None:
 
             # Save the query
             if save_query(name, sql):
-                console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{query_file}[/{theme.emphasis}]\n")
+                console.print(f"[{theme.success}]✓[/{theme.success}] Saved query '{name}'[/{theme.emphasis}]\n")
             else:
                 console.print(f"[{theme.error}]Failed to save query[/{theme.error}]\n")
             break
@@ -285,7 +278,9 @@ def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None
             return
 
         # Get chart name
-        store = ChartConfigStore(get_charts_dir())
+        container = get_container()
+        chart_storage = container.chart_storage()
+
         while True:
             name = Prompt.ask(f"[{theme.info}]Chart name[/{theme.info}]")
 
@@ -294,12 +289,12 @@ def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None
                 return
 
             # Validate name
-            if not store.validate_name(name):
+            if not validate_chart_name(name):
                 console.print(f"[{theme.error}]Invalid name. Use only letters, numbers, and underscores.[/{theme.error}]")
                 continue
 
             # Check if already exists
-            if name in store.list():
+            if chart_storage.exists(name):
                 overwrite = Confirm.ask(
                     f"[{theme.warning}]Chart '{name}' already exists. Overwrite?[/{theme.warning}]",
                     default=False
@@ -318,9 +313,8 @@ def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None
                 color=color,
             )
 
-            if store.save(name, chart_config):
-                chart_file = get_charts_dir() / f"{name}.tl"
-                console.print(f"[{theme.success}]✓[/{theme.success}] Saved as [{theme.emphasis}]{chart_file}[/{theme.emphasis}]\n")
+            if chart_storage.save(name, chart_config):
+                console.print(f"[{theme.success}]✓[/{theme.success}] Saved chart '{name}'[/{theme.emphasis}]\n")
             else:
                 console.print(f"[{theme.error}]Failed to save chart[/{theme.error}]\n")
             break

@@ -1,12 +1,10 @@
 """Saved queries functionality."""
 
 import re
-from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.table import Table
 
 from treeline.theme import get_theme
 
@@ -14,13 +12,10 @@ console = Console()
 theme = get_theme()
 
 
-def get_queries_dir() -> Path:
-    """Get the directory where saved queries are stored.
-
-    Returns:
-        Path to ~/.treeline/queries/
-    """
-    return Path.home() / ".treeline" / "queries"
+def get_container():
+    """Import get_container to avoid circular import."""
+    from treeline.cli import get_container as _get_container
+    return _get_container()
 
 
 def validate_query_name(name: str) -> bool:
@@ -38,112 +33,44 @@ def validate_query_name(name: str) -> bool:
     return bool(re.match(r'^[a-zA-Z0-9_]+$', name))
 
 
-def save_query(name: str, sql: str, queries_dir: Path | None = None) -> bool:
-    """Save a query to a file.
-
-    Args:
-        name: The name for the query (without .sql extension)
-        sql: The SQL query content
-        queries_dir: Directory to save to (defaults to get_queries_dir())
-
-    Returns:
-        True if saved successfully, False otherwise
-    """
-    if queries_dir is None:
-        queries_dir = get_queries_dir()
-
-    try:
-        # Create directory if it doesn't exist
-        queries_dir.mkdir(parents=True, exist_ok=True)
-
-        # Write the query to file
-        query_file = queries_dir / f"{name}.sql"
-        query_file.write_text(sql)
-
-        return True
-    except Exception:
-        return False
+# Convenience wrappers for backward compatibility
+def save_query(name: str, sql: str) -> bool:
+    """Save a query using the storage abstraction."""
+    container = get_container()
+    return container.query_storage().save(name, sql)
 
 
-def load_query(name: str, queries_dir: Path | None = None) -> str | None:
-    """Load a query from a file.
-
-    Args:
-        name: The name of the query (without .sql extension)
-        queries_dir: Directory to load from (defaults to get_queries_dir())
-
-    Returns:
-        The SQL query content, or None if file doesn't exist
-    """
-    if queries_dir is None:
-        queries_dir = get_queries_dir()
-
-    query_file = queries_dir / f"{name}.sql"
-
-    if not query_file.exists():
-        return None
-
-    try:
-        return query_file.read_text()
-    except Exception:
-        return None
+def load_query(name: str) -> str | None:
+    """Load a query using the storage abstraction."""
+    container = get_container()
+    return container.query_storage().load(name)
 
 
-def list_queries(queries_dir: Path | None = None) -> list[str]:
-    """List all saved queries.
-
-    Args:
-        queries_dir: Directory to list from (defaults to get_queries_dir())
-
-    Returns:
-        List of query names (without .sql extension)
-    """
-    if queries_dir is None:
-        queries_dir = get_queries_dir()
-
-    if not queries_dir.exists():
-        return []
-
-    try:
-        # Get all .sql files and remove the extension
-        return sorted([f.stem for f in queries_dir.glob("*.sql")])
-    except Exception:
-        return []
+def list_queries() -> list[str]:
+    """List all saved queries using the storage abstraction."""
+    container = get_container()
+    return container.query_storage().list()
 
 
-def delete_query(name: str, queries_dir: Path | None = None) -> bool:
-    """Delete a saved query.
-
-    Args:
-        name: The name of the query (without .sql extension)
-        queries_dir: Directory containing the query (defaults to get_queries_dir())
-
-    Returns:
-        True if deleted successfully, False if file doesn't exist or error
-    """
-    if queries_dir is None:
-        queries_dir = get_queries_dir()
-
-    query_file = queries_dir / f"{name}.sql"
-
-    if not query_file.exists():
-        return False
-
-    try:
-        query_file.unlink()
-        return True
-    except Exception:
-        return False
+def delete_query(name: str) -> bool:
+    """Delete a saved query using the storage abstraction."""
+    container = get_container()
+    return container.query_storage().delete(name)
 
 
-def show_query(name: str, queries_dir: Path | None = None) -> None:
+def query_exists(name: str) -> bool:
+    """Check if a query exists using the storage abstraction."""
+    container = get_container()
+    return container.query_storage().exists(name)
+
+
+def show_query(name: str) -> None:
     """Display a saved query.
 
     Args:
         name: The name of the query (without .sql extension)
-        queries_dir: Directory containing the query (defaults to get_queries_dir())
     """
-    sql = load_query(name, queries_dir)
+    sql = load_query(name)
 
     if sql is None:
         console.print(f"\n[{theme.error}]Query '{name}' not found.[/{theme.error}]")

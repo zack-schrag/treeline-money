@@ -7,7 +7,6 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 
 from treeline.theme import get_theme
-from treeline.commands.chart_config import ChartConfigStore, get_charts_dir
 from treeline.commands.chart_wizard import ChartWizardConfig, create_chart_from_config
 
 console = Console()
@@ -38,12 +37,12 @@ def handle_chart_command(chart_name: str | None = None) -> None:
 
     user_id = UUID(user_id_str)
 
-    # Load chart config store
-    store = ChartConfigStore(get_charts_dir())
+    # Get chart storage from container
+    chart_storage = container.chart_storage()
 
     # If no chart name provided, list all charts
     if not chart_name:
-        charts = store.list()
+        charts = chart_storage.list()
 
         console.print()
         if not charts:
@@ -60,7 +59,7 @@ def handle_chart_command(chart_name: str | None = None) -> None:
         return
 
     # Load the chart configuration
-    chart_config = store.load(chart_name)
+    chart_config = chart_storage.load(chart_name)
 
     if chart_config is None:
         console.print(f"\n[{theme.error}]Chart '{chart_name}' not found.[/{theme.error}]")

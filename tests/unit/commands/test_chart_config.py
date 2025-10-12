@@ -3,12 +3,13 @@
 import pytest
 from pathlib import Path
 import tempfile
+from treeline.domain import ChartConfig
 from treeline.commands.chart_config import (
-    ChartConfig,
-    ChartConfigStore,
     parse_chart_config,
     serialize_chart_config,
+    validate_chart_name,
 )
+from treeline.infra.file_storage import FileChartStorage
 
 
 class TestChartConfigParsing:
@@ -154,14 +155,14 @@ y_column: y
         assert config is None  # Should return None for invalid config
 
 
-class TestChartConfigStore:
-    """Tests for ChartConfigStore abstraction."""
+class TestFileChartStorage:
+    """Tests for FileChartStorage abstraction."""
 
     def test_save_and_load_chart_config(self):
         """Test saving and loading a chart configuration."""
         with tempfile.TemporaryDirectory() as tmpdir:
             charts_dir = Path(tmpdir)
-            store = ChartConfigStore(charts_dir)
+            store = FileChartStorage(charts_dir)
 
             config = ChartConfig(
                 name="test_chart",
@@ -188,7 +189,7 @@ class TestChartConfigStore:
         """Test listing all chart configurations."""
         with tempfile.TemporaryDirectory() as tmpdir:
             charts_dir = Path(tmpdir)
-            store = ChartConfigStore(charts_dir)
+            store = FileChartStorage(charts_dir)
 
             # Save multiple configs
             for name in ["chart1", "chart2", "chart3"]:
@@ -213,7 +214,7 @@ class TestChartConfigStore:
         """Test deleting a chart configuration."""
         with tempfile.TemporaryDirectory() as tmpdir:
             charts_dir = Path(tmpdir)
-            store = ChartConfigStore(charts_dir)
+            store = FileChartStorage(charts_dir)
 
             config = ChartConfig(
                 name="to_delete",
@@ -236,7 +237,7 @@ class TestChartConfigStore:
         """Test overwriting an existing chart configuration."""
         with tempfile.TemporaryDirectory() as tmpdir:
             charts_dir = Path(tmpdir)
-            store = ChartConfigStore(charts_dir)
+            store = FileChartStorage(charts_dir)
 
             # Save original
             original = ChartConfig(
@@ -267,17 +268,13 @@ class TestChartConfigStore:
 
     def test_validate_chart_name(self):
         """Test chart name validation."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            charts_dir = Path(tmpdir)
-            store = ChartConfigStore(charts_dir)
+        # Valid names
+        assert validate_chart_name("chart_1") is True
+        assert validate_chart_name("my_chart") is True
+        assert validate_chart_name("Chart123") is True
 
-            # Valid names
-            assert store.validate_name("chart_1") is True
-            assert store.validate_name("my_chart") is True
-            assert store.validate_name("Chart123") is True
-
-            # Invalid names
-            assert store.validate_name("chart-1") is False  # hyphen
-            assert store.validate_name("my chart") is False  # space
-            assert store.validate_name("chart!") is False  # special char
-            assert store.validate_name("") is False  # empty
+        # Invalid names
+        assert validate_chart_name("chart-1") is False  # hyphen
+        assert validate_chart_name("my chart") is False  # space
+        assert validate_chart_name("chart!") is False  # special char
+        assert validate_chart_name("") is False  # empty

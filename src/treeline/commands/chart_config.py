@@ -1,29 +1,13 @@
-"""Chart configuration storage and parsing.
+"""Chart configuration parsing and serialization.
 
 This module handles the .tl file format for saving chart configurations.
 The format is designed to be human-readable and easy to parse.
 """
 
 import re
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
-
-@dataclass
-class ChartConfig:
-    """Represents a saved chart configuration."""
-
-    name: str
-    query: str
-    chart_type: str  # bar, line, scatter, histogram
-    x_column: str
-    y_column: str
-    title: Optional[str] = None
-    xlabel: Optional[str] = None
-    ylabel: Optional[str] = None
-    color: Optional[str] = None
-    description: Optional[str] = None
+from treeline.domain import ChartConfig
 
 
 def parse_chart_config(content: str) -> Optional[ChartConfig]:
@@ -164,118 +148,16 @@ def serialize_chart_config(config: ChartConfig) -> str:
     return "\n".join(parts)
 
 
-class ChartConfigStore:
-    """Abstraction for storing and loading chart configurations.
+def validate_chart_name(name: str) -> bool:
+    """Validate that a chart name is valid.
 
-    This follows hexagonal architecture by keeping file system details
-    isolated from the business logic.
-    """
-
-    def __init__(self, charts_dir: Path):
-        """Initialize the chart config store.
-
-        Args:
-            charts_dir: Directory where .tl chart files are stored
-        """
-        self.charts_dir = charts_dir
-
-    def validate_name(self, name: str) -> bool:
-        """Validate that a chart name is valid.
-
-        Args:
-            name: The chart name to validate
-
-        Returns:
-            True if valid, False otherwise
-        """
-        if not name:
-            return False
-        # Only allow alphanumeric and underscores
-        return bool(re.match(r"^[a-zA-Z0-9_]+$", name))
-
-    def save(self, name: str, config: ChartConfig) -> bool:
-        """Save a chart configuration.
-
-        Args:
-            name: The name to save the chart as (without .tl extension)
-            config: The chart configuration
-
-        Returns:
-            True if saved successfully, False otherwise
-        """
-        try:
-            # Create directory if it doesn't exist
-            self.charts_dir.mkdir(parents=True, exist_ok=True)
-
-            # Serialize and write
-            content = serialize_chart_config(config)
-            chart_file = self.charts_dir / f"{name}.tl"
-            chart_file.write_text(content)
-
-            return True
-        except Exception:
-            return False
-
-    def load(self, name: str) -> Optional[ChartConfig]:
-        """Load a chart configuration.
-
-        Args:
-            name: The name of the chart (without .tl extension)
-
-        Returns:
-            ChartConfig if found and valid, None otherwise
-        """
-        chart_file = self.charts_dir / f"{name}.tl"
-
-        if not chart_file.exists():
-            return None
-
-        try:
-            content = chart_file.read_text()
-            return parse_chart_config(content)
-        except Exception:
-            return None
-
-    def list(self) -> list[str]:
-        """List all saved chart configurations.
-
-        Returns:
-            List of chart names (without .tl extension)
-        """
-        if not self.charts_dir.exists():
-            return []
-
-        try:
-            # Get all .tl files and remove the extension
-            return sorted([f.stem for f in self.charts_dir.glob("*.tl")])
-        except Exception:
-            return []
-
-    def delete(self, name: str) -> bool:
-        """Delete a chart configuration.
-
-        Args:
-            name: The name of the chart (without .tl extension)
-
-        Returns:
-            True if deleted successfully, False otherwise
-        """
-        chart_file = self.charts_dir / f"{name}.tl"
-
-        if not chart_file.exists():
-            return False
-
-        try:
-            chart_file.unlink()
-            return True
-        except Exception:
-            return False
-
-
-def get_charts_dir() -> Path:
-    """Get the directory where chart configurations are stored.
+    Args:
+        name: The chart name to validate
 
     Returns:
-        Path to ~/.treeline/charts/
+        True if valid, False otherwise
     """
-    return Path.home() / ".treeline" / "charts"
+    if not name:
+        return False
+    # Only allow alphanumeric and underscores
+    return bool(re.match(r"^[a-zA-Z0-9_]+$", name))
