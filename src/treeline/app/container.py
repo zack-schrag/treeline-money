@@ -132,17 +132,33 @@ class Container:
             self._instances["agent_service"] = AgentService(self.ai_provider())
         return self._instances["agent_service"]
 
-    def tagging_service(self, tag_suggester: TagSuggester) -> TaggingService:
+    def _default_tag_suggester(self) -> TagSuggester:
         """
-        Get a tagging service instance with provided tag suggester.
+        Get the default tag suggester (combined frequency + common tags).
+
+        Returns:
+            TagSuggester instance
+        """
+        from treeline.infra.tag_suggesters import FrequencyTagSuggester, CommonTagSuggester, CombinedTagSuggester
+
+        frequency_suggester = FrequencyTagSuggester(self.repository())
+        common_suggester = CommonTagSuggester()
+        return CombinedTagSuggester(frequency_suggester, common_suggester)
+
+    def tagging_service(self, tag_suggester: TagSuggester | None = None) -> TaggingService:
+        """
+        Get a tagging service instance with provided or default tag suggester.
 
         Args:
-            tag_suggester: Tag suggestion algorithm to use
+            tag_suggester: Optional tag suggestion algorithm to use. If None, uses default.
 
         Returns:
             TaggingService instance
         """
         from treeline.app.service import TaggingService
+
+        if tag_suggester is None:
+            tag_suggester = self._default_tag_suggester()
 
         return TaggingService(self.repository(), tag_suggester)
 

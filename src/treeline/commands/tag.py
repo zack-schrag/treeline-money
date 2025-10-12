@@ -35,7 +35,6 @@ def handle_tag_command() -> None:
     import readchar
     from rich.table import Table
     from rich.panel import Panel
-    from treeline.infra.tag_suggesters import FrequencyTagSuggester, CommonTagSuggester, CombinedTagSuggester
 
     if not is_authenticated():
         console.print(f"[{theme.error}]Error: You must be logged in to use tagging mode.[/{theme.error}]")
@@ -49,12 +48,7 @@ def handle_tag_command() -> None:
 
     container = get_container()
     account_service = container.account_service()
-
-    # Create tagging service with combined suggester (frequency + common tags)
-    frequency_suggester = FrequencyTagSuggester(container.repository())
-    common_suggester = CommonTagSuggester()
-    tag_suggester = CombinedTagSuggester(frequency_suggester, common_suggester)
-    tagging_service = container.tagging_service(tag_suggester)
+    tagging_service = container.tagging_service()
 
     # Pagination and filtering state
     current_index = 0
