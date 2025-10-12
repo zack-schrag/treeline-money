@@ -49,7 +49,7 @@ def handle_import_command() -> None:
 
     container = get_container()
     import_service = container.import_service()
-    repository = container.repository()
+    account_service = container.account_service()
 
     # Step 1: Get CSV file path
     console.print(f"\n[{theme.ui_header}]CSV Import[/{theme.ui_header}]\n")
@@ -76,7 +76,7 @@ def handle_import_command() -> None:
 
     # Step 2: Get or select account to import into
     console.print(f"\n[{theme.muted}]Fetching accounts...[/{theme.muted}]")
-    accounts_result = asyncio.run(repository.get_accounts(UUID(user_id)))
+    accounts_result = asyncio.run(account_service.get_accounts(UUID(user_id)))
 
     if not accounts_result.success or not accounts_result.data:
         console.print(f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n")
