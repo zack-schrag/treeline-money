@@ -20,6 +20,7 @@ def handle_help_command() -> None:
     table.add_row("/query <SQL>", "Execute a single-line SQL query")
     table.add_row("/query:name", "Run a saved query")
     table.add_row("/sql", "Open multi-line SQL editor")
+    table.add_row("/analysis", "Integrated workspace for data exploration")
     table.add_row("/schema [table]", "Browse database schema and tables")
     table.add_row("/queries [list|show|delete]", "Manage saved queries")
     table.add_row("/chart [name]", "Run saved chart or list all charts")

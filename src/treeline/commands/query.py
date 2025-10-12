@@ -206,18 +206,15 @@ def _prompt_to_save_query(sql: str) -> None:
 def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None:
     """Prompt user to create a chart from query results.
 
+    NOTE: This function is called from the action menu, so it doesn't
+    ask "Create a chart?" - the user has already chosen that option.
+
     Args:
         sql: The SQL query that was executed
         columns: Column names from query results
         rows: Query result rows
     """
     try:
-        # Ask if user wants to create a chart
-        create = Confirm.ask(f"[{theme.info}]Create a chart?[/{theme.info}]", default=False)
-
-        if not create:
-            return
-
         console.print()
 
         # Get chart type
@@ -332,6 +329,57 @@ def _prompt_chart_wizard(sql: str, columns: list[str], rows: list[list]) -> None
         console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
 
 
+def _prompt_post_query_actions(
+    sql: str,
+    columns: list[str],
+    rows: list[list],
+    loop_back_handler=None
+) -> None:
+    """Prompt user for next action after query execution.
+
+    Single action menu that replaces the old sequential prompts
+    (chart? → save? → continue editing?). Users can now choose
+    one action at a time from a clear menu.
+
+    Args:
+        sql: The SQL query that was executed
+        columns: Column names from results
+        rows: Query result rows
+        loop_back_handler: Optional callback to return to SQL editor
+    """
+    try:
+        while True:
+            console.print()
+            console.print(f"[{theme.info}][c][/{theme.info}]hart  [{theme.info}][s][/{theme.info}]ave  [{theme.info}][e][/{theme.info}]dit  [white][enter] to continue[/white]")
+            action = Prompt.ask(
+                "Next",
+                default="",
+                show_default=False
+            )
+
+            if action == "":
+                # Enter pressed - exit cleanly
+                return
+            elif action.lower() == "c":
+                # Chart wizard
+                _prompt_chart_wizard(sql, columns, rows)
+                # After charting, loop back to menu (can save or edit afterward)
+            elif action.lower() == "s":
+                # Save query
+                _prompt_to_save_query(sql)
+                return
+            elif action.lower() == "e":
+                # Edit SQL - loop back
+                if loop_back_handler:
+                    loop_back_handler()
+                return
+            else:
+                console.print(f"[{theme.error}]Invalid option. Use c/s/e or press enter[/{theme.error}]")
+
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.muted}]Exiting[/{theme.muted}]\n")
+
+
 def handle_clear_command() -> None:
     """Handle /clear command - reset conversation session."""
     container = get_container()
@@ -420,16 +468,10 @@ def handle_query_command(sql: str, loop_back_handler=None) -> None:
         table.add_row(*str_row)
 
     console.print(table)
-    console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
+    console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]")
 
-    # Prompt to create chart
-    _prompt_chart_wizard(sql_stripped, columns, rows)
-
-    # Prompt to save query, and loop back if requested
-    if loop_back_handler:
-        _prompt_to_save_query_with_loopback(sql_stripped, loop_back_handler)
-    else:
-        _prompt_to_save_query(sql_stripped)
+    # Single action menu replaces old sequential prompts
+    _prompt_post_query_actions(sql_stripped, columns, rows, loop_back_handler)
 
 
 def handle_sql_command(prefill_sql: str = "") -> None:

@@ -14,6 +14,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from treeline.app.container import Container
+from treeline.commands.analysis import handle_analysis_command
 from treeline.commands.chart import handle_chart_command
 from treeline.commands.chat import handle_chat_message
 from treeline.commands.help import handle_help_command
@@ -53,6 +54,7 @@ SLASH_COMMANDS = [
     "/tag",
     "/query",
     "/sql",
+    "/analysis",
     "/schema",
     "/queries",
     "/chart",
@@ -402,6 +404,9 @@ def process_command(user_input: str) -> bool:
             # Handle /chart [name] - run saved chart or list charts
             chart_name = command_parts[1] if len(command_parts) > 1 else None
             handle_chart_command(chart_name)
+        elif command == "/analysis":
+            # Handle /analysis - integrated workspace for data exploration
+            handle_analysis_command()
         else:
             console.print(f"[{theme.error}]Unknown command: {command}[/{theme.error}]")
             console.print(f"[{theme.muted}]Type /help to see available commands[/{theme.muted}]")

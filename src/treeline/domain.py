@@ -289,10 +289,22 @@ class AnalysisSession(BaseModel):
     results: list[list[Any]] | None = None
     columns: list[str] | None = None
     chart: Any | None = None  # Will be ChartDisplay later
-    view_mode: str = "results"  # "results" or "chart"
+    view_mode: str = "results"  # "results" or "chart" or "wizard" or "save_query" or "save_chart"
     scroll_offset: int = 0  # Current scroll position in results (vertical)
     column_offset: int = 0  # Current column offset (horizontal scroll)
     selected_row: int = 0  # Currently selected/highlighted row (absolute index in results)
+
+    # Chart wizard state
+    wizard_step: str = ""  # "chart_type", "x_column", "y_column", or ""
+    wizard_chart_type: str = ""
+    wizard_x_column: str = ""
+    wizard_y_column: str = ""
+
+    # Chart scrolling
+    chart_scroll_offset: int = 0  # Vertical scroll offset for chart view
+
+    # Save state
+    save_input_buffer: str = ""  # Buffer for save name input
 
     def has_results(self) -> bool:
         """Check if session has query results."""
