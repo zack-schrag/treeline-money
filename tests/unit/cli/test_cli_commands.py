@@ -76,7 +76,9 @@ def test_query_command_with_sql(mock_get_container, mock_ensure_init):
 
     # Assertions
     assert result.exit_code == 0
-    assert "Executing Query" in result.stdout
+    # New query command displays results as table with "count" column header
+    assert "count" in result.stdout
+    assert "row" in result.stdout
 
 
 @patch("treeline.cli.ensure_treeline_initialized")
@@ -97,7 +99,7 @@ def test_query_command_rejects_non_select(mock_get_container, mock_ensure_init):
     result = runner.invoke(app, ["query", "DELETE FROM transactions"])
 
     # Assertions
-    assert result.exit_code == 0  # Typer doesn't exit with error, just prints error
+    assert result.exit_code == 1  # Now raises typer.Exit(1) for rejected queries
     assert "Only SELECT and WITH queries are allowed" in result.stdout
 
 

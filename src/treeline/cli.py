@@ -383,6 +383,32 @@ def display_sync_result(data: dict) -> None:
     console.print(f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n")
 
 
+def display_query_result(columns: list[str], rows: list[list]) -> None:
+    """Display query results as a Rich table.
+
+    Args:
+        columns: Column names
+        rows: Result rows
+    """
+    console.print()
+
+    # Create Rich table
+    table = Table(show_header=True, header_style=theme.ui_header, border_style=theme.separator)
+
+    # Add columns
+    for col in columns:
+        table.add_column(col)
+
+    # Add rows
+    for row in rows:
+        # Convert row values to strings
+        str_row = [str(val) if val is not None else f"[{theme.muted}]NULL[/{theme.muted}]" for val in row]
+        table.add_row(*str_row)
+
+    console.print(table)
+    console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
+
+
 def ensure_treeline_initialized() -> bool:
     """Ensure treeline directory and database exist. Returns True if initialization was needed."""
     treeline_dir = get_treeline_dir()
@@ -602,6 +628,189 @@ def run_interactive_mode() -> None:
         sys.exit(1)
 
 
+@app.command(name="login")
+def login_command(
+    email: str = typer.Option(None, "--email", help="Email address"),
+    password: str = typer.Option(None, "--password", help="Password (not recommended - use prompt)"),
+    create_account: bool = typer.Option(False, "--create-account", help="Create a new account instead of signing in"),
+) -> None:
+    """Authenticate with Treeline.
+
+    Examples:
+      # Interactive login (recommended)
+      treeline login
+
+      # Login with email (will prompt for password)
+      treeline login --email user@example.com
+
+      # Create new account
+      treeline login --create-account
+    """
+    ensure_treeline_initialized()
+
+    console.print(f"\n[{theme.ui_header}]Login to Treeline[/{theme.ui_header}]\n")
+
+    container = get_container()
+    config_service = container.config_service()
+
+    try:
+        auth_service = container.auth_service()
+    except ValueError as e:
+        display_error(str(e))
+        console.print(f"[{theme.muted}]Please set SUPABASE_URL and SUPABASE_KEY in your .env file[/{theme.muted}]")
+        raise typer.Exit(1)
+
+    # Interactive prompts for missing values
+    try:
+        if not create_account:
+            # Only ask if not specified via flag
+            create_account = Confirm.ask("Create a new account?", default=False)
+
+        if not email:
+            email = Prompt.ask("Email")
+
+        if not password:
+            password = Prompt.ask("Password", password=True)
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Login cancelled[/{theme.warning}]\n")
+        raise typer.Exit(0)
+
+    # Authenticate
+    console.print()
+    with console.status(f"[{theme.status_loading}]Authenticating..."):
+        if create_account:
+            result = asyncio.run(auth_service.sign_up_with_password(email, password))
+        else:
+            result = asyncio.run(auth_service.sign_in_with_password(email, password))
+
+    if not result.success:
+        display_error(f"Authentication failed: {result.error}")
+        raise typer.Exit(1)
+
+    user = result.data
+    console.print(f"[{theme.success}]✓[/{theme.success}] Successfully authenticated as [{theme.emphasis}]{user.email}[/{theme.emphasis}]\n")
+
+    # Save credentials
+    config_service.save_user_credentials(str(user.id), user.email)
+    console.print(f"[{theme.muted}]Credentials saved to system keyring[/{theme.muted}]\n")
+
+
+@app.command(name="setup")
+def setup_command(
+    integration: str = typer.Argument(None, help="Integration name (e.g., 'simplefin'). Omit for interactive wizard."),
+) -> None:
+    """Set up financial data integrations.
+
+    Examples:
+      # Interactive wizard
+      treeline setup
+
+      # Direct SimpleFIN setup
+      treeline setup simplefin
+    """
+    ensure_treeline_initialized()
+    require_auth()
+
+    if integration is None:
+        # Interactive wizard
+        console.print(f"\n[{theme.ui_header}]Integration Setup[/{theme.ui_header}]\n")
+        console.print(f"[{theme.info}]Available integrations:[/{theme.info}]")
+        console.print(f"  [{theme.emphasis}]1[/{theme.emphasis}] - SimpleFIN")
+        console.print(f"  [{theme.emphasis}]2[/{theme.emphasis}] - Cancel\n")
+
+        try:
+            choice = Prompt.ask("Select integration", choices=["1", "2"], default="1")
+        except (KeyboardInterrupt, EOFError):
+            console.print(f"\n[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+            raise typer.Exit(0)
+
+        if choice == "1":
+            integration = "simplefin"
+        else:
+            console.print(f"[{theme.muted}]Setup cancelled[/{theme.muted}]\n")
+            raise typer.Exit(0)
+
+    # Handle specific integrations
+    if integration.lower() == "simplefin":
+        setup_simplefin()
+    else:
+        display_error(f"Unknown integration: {integration}")
+        console.print(f"[{theme.muted}]Supported integrations: simplefin[/{theme.muted}]")
+        raise typer.Exit(1)
+
+
+def setup_simplefin() -> None:
+    """Set up SimpleFIN integration (helper function)."""
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    db_service = container.db_service()
+    integration_service = container.integration_service("simplefin")
+
+    console.print(f"\n[{theme.ui_header}]SimpleFIN Setup[/{theme.ui_header}]\n")
+    console.print(
+        f"[{theme.muted}]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/{theme.muted}]\n"
+    )
+
+    # Prompt for setup token
+    console.print(f"[{theme.info}]Enter your SimpleFIN setup token[/{theme.info}]")
+    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
+
+    try:
+        setup_token = Prompt.ask("Token")
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+        raise typer.Exit(0)
+
+    if not setup_token or not setup_token.strip():
+        console.print(f"[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+        raise typer.Exit(0)
+
+    setup_token = setup_token.strip()
+
+    # Setup integration
+    console.print()
+    with console.status(f"[{theme.status_loading}]Verifying token and setting up integration..."):
+        # Ensure user database is initialized
+        db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
+        if not db_init_result.success:
+            display_error(f"Error initializing database: {db_init_result.error}")
+            raise typer.Exit(1)
+
+        # Create integration
+        result = asyncio.run(
+            integration_service.create_integration(user_id, "simplefin", {"setupToken": setup_token})
+        )
+
+    if not result.success:
+        display_error(f"Setup failed: {result.error}")
+        raise typer.Exit(1)
+
+    console.print(f"[{theme.success}]✓[/{theme.success}] SimpleFIN integration setup successfully!\n")
+    console.print(f"[{theme.muted}]Use 'treeline sync' to import your transactions[/{theme.muted}]\n")
+
+
+@app.command(name="tag")
+def tag_command(
+    untagged_only: bool = typer.Option(False, "--untagged", help="Show only untagged transactions"),
+) -> None:
+    """Launch interactive transaction tagging interface.
+
+    Examples:
+      # Tag all transactions
+      treeline tag
+
+      # Show only untagged transactions
+      treeline tag --untagged
+    """
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    from treeline.commands.tag_textual import TaggingApp
+    app_instance = TaggingApp(user_id=user_id, untagged_only=untagged_only)
+    app_instance.run()
+
+
 @app.command(name="analysis")
 def analysis_command() -> None:
     """Launch interactive data analysis workspace."""
@@ -610,6 +819,371 @@ def analysis_command() -> None:
     from treeline.commands.analysis_textual import AnalysisApp
     app_instance = AnalysisApp()
     app_instance.run()
+
+
+@app.command(name="queries")
+def queries_command() -> None:
+    """Browse and manage saved queries.
+
+    Examples:
+      treeline queries
+    """
+    ensure_treeline_initialized()
+    require_auth()
+    from treeline.commands.queries_textual import QueriesBrowserApp
+    app_instance = QueriesBrowserApp()
+    app_instance.run()
+
+
+@app.command(name="charts")
+def charts_command() -> None:
+    """Browse and manage saved charts.
+
+    Examples:
+      treeline charts
+    """
+    ensure_treeline_initialized()
+    require_auth()
+    from treeline.commands.charts_textual import ChartsBrowserApp
+    app_instance = ChartsBrowserApp()
+    app_instance.run()
+
+
+@app.command(name="chat")
+def chat_command() -> None:
+    """Start an interactive AI conversation about your finances.
+
+    Examples:
+      treeline chat
+    """
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    agent_service = container.agent_service()
+
+    # Get database path for this user
+    treeline_dir = get_treeline_dir()
+    db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
+
+    console.print(f"\n[{theme.ui_header}]AI Chat Mode[/{theme.ui_header}]")
+    console.print(f"[{theme.muted}]Ask questions about your finances. Type 'exit' to quit.[/{theme.muted}]\n")
+
+    # Interactive loop
+    while True:
+        try:
+            user_input = Prompt.ask(f"[{theme.emphasis}]You[/{theme.emphasis}]")
+
+            if user_input.lower() in ("exit", "quit"):
+                break
+
+            # Show thinking indicator and process message
+            console.print()
+            with console.status(f"[{theme.status_loading}]Thinking..."):
+                result = asyncio.run(
+                    agent_service.chat(user_id, db_path, user_input)
+                )
+
+            if not result.success:
+                display_error(result.error)
+                console.print()
+                continue
+
+            # Stream the response (same logic as handle_chat_message)
+            response_data = result.data
+            stream = response_data["stream"]
+
+            try:
+                # Consume the async stream
+                async def consume_stream():
+                    from rich.panel import Panel
+                    from rich.syntax import Syntax
+
+                    current_content = []
+                    in_sql_block = False
+                    sql_content = []
+
+                    async for chunk in stream:
+                        # Check if this is a tool indicator
+                        if chunk.startswith("__TOOL_USE__:"):
+                            tool_name = chunk.replace("__TOOL_USE__:", "").strip()
+
+                            # Flush any pending content
+                            if current_content:
+                                console.print("".join(current_content), end="", markup=False)
+                                current_content = []
+
+                            # Display tool usage in a panel
+                            console.print(Panel(
+                                f"[{theme.muted}]Using tool:[/{theme.muted}] [{theme.emphasis}]{tool_name}[/{theme.emphasis}]",
+                                border_style=theme.muted,
+                                padding=(0, 1),
+                            ))
+
+                        elif chunk.startswith("Visualization:"):
+                            # Flush any pending content
+                            if current_content:
+                                console.print("".join(current_content), end="", markup=False)
+                                current_content = []
+
+                            # Charts contain ANSI escape codes - use raw print
+                            console.print()
+                            print(chunk, end="", flush=True)
+                            console.print()
+
+                        else:
+                            # Check for SQL code blocks
+                            if "```sql" in chunk:
+                                in_sql_block = True
+                                before_sql = chunk.split("```sql")[0]
+                                if before_sql:
+                                    current_content.append(before_sql)
+
+                                # Flush content before SQL
+                                if current_content:
+                                    console.print("".join(current_content), end="", markup=False)
+                                    current_content = []
+
+                                # Start collecting SQL
+                                sql_content = []
+                                after_marker = chunk.split("```sql", 1)[1]
+                                if after_marker:
+                                    sql_content.append(after_marker)
+
+                            elif "```" in chunk and in_sql_block:
+                                # End of SQL block
+                                before_end = chunk.split("```")[0]
+                                if before_end:
+                                    sql_content.append(before_end)
+
+                                # Display SQL in a panel with syntax highlighting
+                                sql_text = "".join(sql_content).strip()
+                                if sql_text:
+                                    syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
+                                    console.print(Panel(
+                                        syntax,
+                                        title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                                        border_style=theme.primary,
+                                        padding=(0, 1),
+                                    ))
+
+                                sql_content = []
+                                in_sql_block = False
+
+                                # Continue with content after closing ```
+                                after_end = chunk.split("```", 1)[1]
+                                if after_end:
+                                    current_content.append(after_end)
+
+                            elif in_sql_block:
+                                # Accumulate SQL content
+                                sql_content.append(chunk)
+                            else:
+                                # Regular content - accumulate for printing
+                                current_content.append(chunk)
+
+                                # Print in larger chunks for better performance
+                                if len(current_content) > 10:
+                                    console.print("".join(current_content), end="", markup=False)
+                                    current_content = []
+
+                    # Flush any remaining content
+                    if current_content:
+                        console.print("".join(current_content), end="", markup=False)
+                    if sql_content:
+                        # Handle case where SQL block wasn't closed
+                        sql_text = "".join(sql_content).strip()
+                        if sql_text:
+                            syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
+                            console.print(Panel(
+                                syntax,
+                                title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                                border_style=theme.primary,
+                                padding=(0, 1),
+                            ))
+
+                asyncio.run(consume_stream())
+
+            except Exception as e:
+                console.print(f"[{theme.error}]Error streaming response: {str(e)}[/{theme.error}]")
+
+            console.print("\n")  # Blank line after response
+
+        except (KeyboardInterrupt, EOFError):
+            break
+        except Exception as e:
+            console.print(f"[{theme.error}]Error: {str(e)}[/{theme.error}]\n")
+
+    console.print(f"[{theme.muted}]Chat ended[/{theme.muted}]\n")
+
+
+@app.command(name="ask")
+def ask_command(
+    question: str = typer.Argument(..., help="Question to ask AI"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
+) -> None:
+    """Ask AI a one-shot question about your finances.
+
+    Examples:
+      # Ask a question
+      treeline ask "What's my spending on groceries this month?"
+
+      # Get response as JSON
+      treeline ask "Show my account balances" --json
+    """
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    agent_service = container.agent_service()
+
+    # Get database path for this user
+    treeline_dir = get_treeline_dir()
+    db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
+
+    # Process question with status indicator (unless JSON mode)
+    if not json_output:
+        console.print()
+        with console.status(f"[{theme.status_loading}]Thinking..."):
+            result = asyncio.run(agent_service.chat(user_id, db_path, question))
+    else:
+        result = asyncio.run(agent_service.chat(user_id, db_path, question))
+
+    if not result.success:
+        if json_output:
+            output_json({"error": result.error})
+        else:
+            display_error(result.error)
+        raise typer.Exit(1)
+
+    # Get response stream
+    response_data = result.data
+    stream = response_data["stream"]
+
+    if json_output:
+        # Collect full response for JSON output
+        async def collect_response():
+            response_text = []
+            async for chunk in stream:
+                # Skip special markers in JSON mode
+                if not chunk.startswith("__TOOL_USE__:") and not chunk.startswith("Visualization:"):
+                    response_text.append(chunk)
+            return "".join(response_text)
+
+        full_response = asyncio.run(collect_response())
+        output_json({"response": full_response})
+    else:
+        # Stream response to console (same as chat command)
+        try:
+            async def consume_stream():
+                from rich.panel import Panel
+                from rich.syntax import Syntax
+
+                current_content = []
+                in_sql_block = False
+                sql_content = []
+
+                async for chunk in stream:
+                    if chunk.startswith("__TOOL_USE__:"):
+                        tool_name = chunk.replace("__TOOL_USE__:", "").strip()
+                        if current_content:
+                            console.print("".join(current_content), end="", markup=False)
+                            current_content = []
+                        console.print(Panel(
+                            f"[{theme.muted}]Using tool:[/{theme.muted}] [{theme.emphasis}]{tool_name}[/{theme.emphasis}]",
+                            border_style=theme.muted,
+                            padding=(0, 1),
+                        ))
+                    elif chunk.startswith("Visualization:"):
+                        if current_content:
+                            console.print("".join(current_content), end="", markup=False)
+                            current_content = []
+                        console.print()
+                        print(chunk, end="", flush=True)
+                        console.print()
+                    else:
+                        if "```sql" in chunk:
+                            in_sql_block = True
+                            before_sql = chunk.split("```sql")[0]
+                            if before_sql:
+                                current_content.append(before_sql)
+                            if current_content:
+                                console.print("".join(current_content), end="", markup=False)
+                                current_content = []
+                            sql_content = []
+                            after_marker = chunk.split("```sql", 1)[1]
+                            if after_marker:
+                                sql_content.append(after_marker)
+                        elif "```" in chunk and in_sql_block:
+                            before_end = chunk.split("```")[0]
+                            if before_end:
+                                sql_content.append(before_end)
+                            sql_text = "".join(sql_content).strip()
+                            if sql_text:
+                                syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
+                                console.print(Panel(
+                                    syntax,
+                                    title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                                    border_style=theme.primary,
+                                    padding=(0, 1),
+                                ))
+                            sql_content = []
+                            in_sql_block = False
+                            after_end = chunk.split("```", 1)[1]
+                            if after_end:
+                                current_content.append(after_end)
+                        elif in_sql_block:
+                            sql_content.append(chunk)
+                        else:
+                            current_content.append(chunk)
+                            if len(current_content) > 10:
+                                console.print("".join(current_content), end="", markup=False)
+                                current_content = []
+
+                # Flush remaining
+                if current_content:
+                    console.print("".join(current_content), end="", markup=False)
+                if sql_content:
+                    sql_text = "".join(sql_content).strip()
+                    if sql_text:
+                        from rich.syntax import Syntax
+                        from rich.panel import Panel
+                        syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
+                        console.print(Panel(
+                            syntax,
+                            title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
+                            border_style=theme.primary,
+                            padding=(0, 1),
+                        ))
+
+            asyncio.run(consume_stream())
+            console.print("\n")
+
+        except Exception as e:
+            console.print(f"[{theme.error}]Error streaming response: {str(e)}[/{theme.error}]")
+            raise typer.Exit(1)
+
+
+@app.command(name="clear")
+def clear_command() -> None:
+    """Clear AI conversation history.
+
+    Examples:
+      treeline clear
+    """
+    ensure_treeline_initialized()
+    require_auth()
+
+    container = get_container()
+    agent_service = container.agent_service()
+
+    result = asyncio.run(agent_service.clear_session())
+
+    if result.success:
+        console.print(f"[{theme.success}]✓[/{theme.success}] Conversation history cleared\n")
+    else:
+        display_error(result.error)
+        raise typer.Exit(1)
 
 
 @app.command(name="status")
@@ -657,10 +1231,226 @@ def status_command(
 
 
 @app.command(name="query")
-def query_command(sql: str = typer.Argument(..., help="SQL query to execute (SELECT/WITH only)")) -> None:
-    """Execute a SQL query directly."""
+def query_command(
+    sql: str = typer.Argument(..., help="SQL query to execute (SELECT/WITH only)"),
+    format: str = typer.Option("table", "--format", "-f", help="Output format (table, json, csv)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (alias for --format json)"),
+) -> None:
+    """Execute a SQL query and display results.
+
+    Examples:
+      # Display as table (default)
+      treeline query "SELECT * FROM transactions LIMIT 10"
+
+      # Output as JSON
+      treeline query "SELECT * FROM transactions LIMIT 10" --json
+
+      # Output as CSV
+      treeline query "SELECT * FROM transactions LIMIT 10" --format csv
+
+      # Pipe to other commands
+      treeline query "SELECT * FROM transactions" --format csv > transactions.csv
+    """
     ensure_treeline_initialized()
-    handle_query_command(sql)
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    db_service = container.db_service()
+
+    # Validate SQL - only allow SELECT and WITH queries
+    sql_stripped = sql.strip()
+    sql_upper = sql_stripped.upper()
+
+    if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
+        display_error("Only SELECT and WITH queries are allowed")
+        console.print(f"[{theme.muted}]For data modifications, use the analysis TUI[/{theme.muted}]")
+        raise typer.Exit(1)
+
+    # Determine output format
+    output_format = "json" if json_output else format.lower()
+    if output_format not in ["table", "json", "csv"]:
+        display_error(f"Invalid format: {format}. Choose: table, json, csv")
+        raise typer.Exit(1)
+
+    # Execute query
+    if output_format == "table":
+        # Show status indicator for table output
+        with console.status(f"[{theme.status_loading}]Running query..."):
+            result = asyncio.run(db_service.execute_query(user_id, sql_stripped))
+    else:
+        # No spinner for scriptable formats
+        result = asyncio.run(db_service.execute_query(user_id, sql_stripped))
+
+    if not result.success:
+        display_error(result.error)
+        raise typer.Exit(1)
+
+    # Format and display results
+    query_result = result.data
+    rows = query_result.get("rows", [])
+    columns = query_result.get("columns", [])
+
+    if len(rows) == 0:
+        if output_format == "table":
+            console.print(f"[{theme.muted}]No results returned.[/{theme.muted}]\n")
+        elif output_format == "json":
+            output_json({"columns": columns, "rows": [], "row_count": 0})
+        elif output_format == "csv":
+            # Just print header for CSV
+            import csv
+            import sys
+            writer = csv.writer(sys.stdout)
+            writer.writerow(columns)
+        return
+
+    if output_format == "json":
+        output_json({
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows)
+        })
+    elif output_format == "csv":
+        import csv
+        import sys
+        writer = csv.writer(sys.stdout)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+    else:  # table
+        display_query_result(columns, rows)
+
+
+@app.command(name="schema")
+def schema_command(
+    table_name: str = typer.Argument(None, help="Table name to inspect (omit to list all tables)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Browse database schema and table structures.
+
+    Examples:
+      # List all tables
+      treeline schema
+
+      # Show columns for a specific table
+      treeline schema transactions
+
+      # Output as JSON
+      treeline schema transactions --json
+    """
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    db_service = container.db_service()
+
+    if table_name is None:
+        # List all tables
+        sql = """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'main'
+        ORDER BY table_name;
+        """
+
+        result = asyncio.run(db_service.execute_query(user_id, sql))
+
+        if not result.success:
+            display_error(result.error)
+            raise typer.Exit(1)
+
+        rows = result.data.get("rows", [])
+        tables = [row[0] for row in rows]
+
+        if not tables:
+            if json_output:
+                output_json({"tables": [], "count": 0})
+            else:
+                console.print(f"[{theme.muted}]No tables found. Have you synced your data yet?[/{theme.muted}]\n")
+            return
+
+        # Group into system tables and views
+        system_tables = [t for t in tables if t.startswith("sys_")]
+        user_views = [t for t in tables if not t.startswith("sys_")]
+
+        if json_output:
+            output_json({
+                "tables": tables,
+                "user_views": user_views,
+                "system_tables": system_tables,
+                "count": len(tables)
+            })
+        else:
+            console.print(f"\n[{theme.ui_header}]Available Tables and Views[/{theme.ui_header}]\n")
+
+            if user_views:
+                console.print(f"[{theme.info}]User Views (recommended):[/{theme.info}]")
+                for table in user_views:
+                    console.print(f"  • [{theme.emphasis}]{table}[/{theme.emphasis}]")
+                console.print()
+
+            if system_tables:
+                console.print(f"[{theme.muted}]System Tables:[/{theme.muted}]")
+                for table in system_tables:
+                    console.print(f"  • [{theme.muted}]{table}[/{theme.muted}]")
+                console.print()
+
+            console.print(f"[{theme.muted}]Use 'treeline schema <table_name>' to see column details[/{theme.muted}]\n")
+
+    else:
+        # Show table schema
+        sql = f"""
+        SELECT
+            column_name,
+            data_type,
+            is_nullable
+        FROM information_schema.columns
+        WHERE table_name = '{table_name}'
+        ORDER BY ordinal_position;
+        """
+
+        result = asyncio.run(db_service.execute_query(user_id, sql))
+
+        if not result.success:
+            display_error(result.error)
+            raise typer.Exit(1)
+
+        rows = result.data.get("rows", [])
+
+        if not rows:
+            display_error(f"Table '{table_name}' not found")
+            console.print(f"[{theme.muted}]Use 'treeline schema' to see available tables[/{theme.muted}]")
+            raise typer.Exit(1)
+
+        if json_output:
+            columns_data = [
+                {
+                    "name": row[0],
+                    "type": row[1],
+                    "nullable": row[2] == "YES"
+                }
+                for row in rows
+            ]
+            output_json({
+                "table": table_name,
+                "columns": columns_data,
+                "column_count": len(columns_data)
+            })
+        else:
+            console.print(f"\n[{theme.ui_header}]Table: {table_name}[/{theme.ui_header}]\n")
+
+            # Create Rich table
+            table = Table(show_header=True, header_style=theme.ui_header, border_style=theme.separator)
+            table.add_column("Column", style=theme.emphasis)
+            table.add_column("Type", style=theme.info)
+            table.add_column("Nullable", style=theme.neutral)
+
+            for row in rows:
+                column_name, data_type, is_nullable = row
+                nullable_display = "YES" if is_nullable == "YES" else "NO"
+                table.add_row(column_name, data_type, nullable_display)
+
+            console.print(table)
+            console.print()
 
 
 @app.command(name="sync")
