@@ -14,7 +14,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from treeline.app.container import Container
-from treeline.commands.analysis import handle_analysis_command
+from treeline.commands.analysis_textual import handle_analysis_command
 from treeline.commands.chart import handle_chart_command
 from treeline.commands.chat import handle_chat_message
 from treeline.commands.help import handle_help_command
@@ -32,10 +32,17 @@ from treeline.theme import get_theme
 # Load environment variables from .env file
 load_dotenv()
 
+def version_callback(value: bool):
+    """Show version information."""
+    if value:
+        console.print("treeline version 0.1.0")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     help="Treeline - AI-native personal finance in your terminal",
     add_completion=False,
-    no_args_is_help=False,
+    no_args_is_help=True,  # Show help by default
 )
 console = Console()
 theme = get_theme()
@@ -238,6 +245,142 @@ def get_container() -> Container:
         db_path = treeline_dir / "treeline.db"
         _container = Container(str(db_path))
     return _container
+
+
+# ========================================
+# Helper Functions for New CLI Commands
+# ========================================
+
+def require_auth() -> None:
+    """Check if user is authenticated. Exit with error if not."""
+    container = get_container()
+    config_service = container.config_service()
+    if not config_service.is_authenticated():
+        console.print(f"[{theme.error}]Error: Not authenticated[/{theme.error}]")
+        console.print(f"[{theme.muted}]Run 'treeline login' to sign in[/{theme.muted}]")
+        raise typer.Exit(1)
+
+
+def get_authenticated_user_id() -> UUID:
+    """Get authenticated user ID. Exit with error if not authenticated.
+
+    Returns:
+        UUID of authenticated user
+    """
+    require_auth()
+    container = get_container()
+    config_service = container.config_service()
+    user_id_str = config_service.get_current_user_id()
+    if not user_id_str:
+        console.print(f"[{theme.error}]Error: User ID not found[/{theme.error}]")
+        raise typer.Exit(1)
+    return UUID(user_id_str)
+
+
+def display_error(error: str) -> None:
+    """Display error message in consistent format.
+
+    Args:
+        error: Error message to display
+    """
+    console.print(f"[{theme.error}]Error: {error}[/{theme.error}]")
+
+
+def output_json(data: dict) -> None:
+    """Output data as JSON.
+
+    Args:
+        data: Data to output as JSON
+    """
+    import json
+    from pydantic import BaseModel
+
+    def json_serializer(obj):
+        """Custom JSON serializer for Pydantic models and other objects."""
+        if isinstance(obj, BaseModel):
+            return obj.model_dump(mode='json')
+        return str(obj)
+
+    print(json.dumps(data, indent=2, default=json_serializer))
+
+
+def display_status(status: dict) -> None:
+    """Display status using Rich formatting.
+
+    Args:
+        status: Status data from StatusService
+    """
+    console.print(f"\n[{theme.ui_header}]📊 Financial Data Status[/{theme.ui_header}]\n")
+
+    # Display summary
+    summary_table = Table(show_header=False, box=None, padding=(0, 2))
+    summary_table.add_column("Metric", style=theme.info)
+    summary_table.add_column("Value", style=theme.ui_value)
+
+    summary_table.add_row("Accounts", str(len(status["accounts"])))
+    summary_table.add_row("Transactions", str(status["total_transactions"]))
+    summary_table.add_row("Balance Snapshots", str(status["total_snapshots"]))
+    summary_table.add_row("Integrations", str(len(status["integrations"])))
+
+    console.print(summary_table)
+
+    # Date range
+    if status["earliest_date"] and status["latest_date"]:
+        console.print(f"\n[{theme.muted}]Date range: {status['earliest_date']} to {status['latest_date']}[/{theme.muted}]")
+
+    # Show integrations
+    if status["integrations"]:
+        console.print(f"\n[{theme.emphasis}]Connected Integrations:[/{theme.emphasis}]")
+        for integration in status["integrations"]:
+            console.print(f"  • {integration['integrationName']}")
+
+    console.print()
+
+
+def display_sync_result(data: dict) -> None:
+    """Display sync results using Rich formatting.
+
+    Args:
+        data: Sync result data from SyncService
+    """
+    console.print(f"\n[{theme.ui_header}]Synchronizing Financial Data[/{theme.ui_header}]\n")
+
+    for sync_result in data["results"]:
+        integration_name = sync_result["integration"]
+        console.print(f"[{theme.emphasis}]Syncing {integration_name}...[/{theme.emphasis}]")
+
+        if "error" in sync_result:
+            console.print(f"[{theme.error}]  ✗ {sync_result['error']}[/{theme.error}]")
+            continue
+
+        console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['accounts_synced']} account(s)")
+
+        if sync_result["sync_type"] == "incremental":
+            console.print(
+                f"[{theme.muted}]  Syncing transactions since {sync_result['start_date'].date()} (with 7-day overlap)[/{theme.muted}]"
+            )
+        else:
+            console.print(f"[{theme.muted}]  Initial sync: fetching last 90 days of transactions[/{theme.muted}]")
+
+        # Display transaction breakdown if stats are available
+        tx_stats = sync_result.get("transaction_stats", {})
+        if tx_stats:
+            discovered = tx_stats.get("discovered", 0)
+            new = tx_stats.get("new", 0)
+            skipped = tx_stats.get("skipped", 0)
+
+            console.print(f"[{theme.success}]  ✓[/{theme.success}] Transaction breakdown:")
+            console.print(f"[{theme.muted}]    Discovered: {discovered}[/{theme.muted}]")
+            console.print(f"[{theme.muted}]    New: {new}[/{theme.muted}]")
+            console.print(f"[{theme.muted}]    Skipped: {skipped} (already exists)[/{theme.muted}]")
+        else:
+            # Fallback to old display if stats not available
+            console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['transactions_synced']} transaction(s)")
+
+        console.print(f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]")
+
+    console.print(f"\n[{theme.success}]✓[/{theme.success}] Sync completed!\n")
+    console.print(f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n")
 
 
 def ensure_treeline_initialized() -> bool:
@@ -459,11 +602,58 @@ def run_interactive_mode() -> None:
         sys.exit(1)
 
 
-@app.command(name="status")
-def status_command() -> None:
-    """Shows summary of current state of your financial data."""
+@app.command(name="analysis")
+def analysis_command() -> None:
+    """Launch interactive data analysis workspace."""
     ensure_treeline_initialized()
-    handle_status_command()
+    require_auth()
+    from treeline.commands.analysis_textual import AnalysisApp
+    app_instance = AnalysisApp()
+    app_instance.run()
+
+
+@app.command(name="status")
+def status_command(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
+) -> None:
+    """Show account summary and statistics."""
+    ensure_treeline_initialized()
+
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    status_service = container.status_service()
+
+    result = asyncio.run(status_service.get_status(user_id))
+
+    if not result.success:
+        display_error(result.error)
+        raise typer.Exit(1)
+
+    if json_output:
+        # Output concise summary for JSON (exclude full objects, but include account IDs for scripting)
+        json_data = {
+            "total_accounts": result.data["total_accounts"],
+            "total_transactions": result.data["total_transactions"],
+            "total_snapshots": result.data["total_snapshots"],
+            "total_integrations": result.data["total_integrations"],
+            "integration_names": result.data["integration_names"],
+            "accounts": [
+                {
+                    "id": str(acc.id),
+                    "name": acc.name,
+                    "institution_name": acc.institution_name
+                }
+                for acc in result.data["accounts"]
+            ],
+            "date_range": {
+                "earliest": result.data["earliest_date"],
+                "latest": result.data["latest_date"],
+            }
+        }
+        output_json(json_data)
+    else:
+        display_status(result.data)
 
 
 @app.command(name="query")
@@ -474,21 +664,258 @@ def query_command(sql: str = typer.Argument(..., help="SQL query to execute (SEL
 
 
 @app.command(name="sync")
-def sync_command() -> None:
-    """Run an on-demand data synchronization."""
+def sync_command(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
+) -> None:
+    """Synchronize data from connected integrations."""
     ensure_treeline_initialized()
-    handle_sync_command()
+    user_id = get_authenticated_user_id()
+
+    container = get_container()
+    db_service = container.db_service()
+    sync_service = container.sync_service()
+
+    # Show visual feedback for non-JSON mode
+    if not json_output:
+        with console.status(f"[{theme.status_loading}]Initializing..."):
+            db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
+    else:
+        db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
+
+    if not db_init_result.success:
+        display_error(f"Error initializing database: {db_init_result.error}")
+        raise typer.Exit(1)
+
+    # Sync all integrations with visual feedback
+    if not json_output:
+        with console.status(f"[{theme.status_loading}]Syncing integrations..."):
+            result = asyncio.run(sync_service.sync_all_integrations(user_id))
+    else:
+        result = asyncio.run(sync_service.sync_all_integrations(user_id))
+
+    if not result.success:
+        display_error(result.error)
+        if result.error == "No integrations configured":
+            console.print(f"[{theme.muted}]Use 'treeline simplefin' to setup an integration first[/{theme.muted}]")
+        raise typer.Exit(1)
+
+    if json_output:
+        output_json(result.data)
+    else:
+        display_sync_result(result.data)
 
 
-@app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
-    """Treeline - AI-native personal finance in your terminal.
+@app.command(name="import")
+def import_command(
+    file_path: str = typer.Argument(None, help="Path to CSV file (omit for interactive mode)"),
+    account_id: str = typer.Option(None, "--account-id", help="Account ID to import into"),
+    date_column: str = typer.Option(None, "--date-column", help="CSV column name for date"),
+    amount_column: str = typer.Option(None, "--amount-column", help="CSV column name for amount"),
+    description_column: str = typer.Option(None, "--description-column", help="CSV column name for description"),
+    debit_column: str = typer.Option(None, "--debit-column", help="CSV column name for debits"),
+    credit_column: str = typer.Option(None, "--credit-column", help="CSV column name for credits"),
+    flip_signs: bool = typer.Option(False, "--flip-signs", help="Flip transaction signs (for credit cards)"),
+    preview: bool = typer.Option(False, "--preview", help="Preview only, don't import"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Import transactions from CSV file.
 
-    Run without arguments to enter interactive mode, or use a specific command.
+    INTERACTIVE MODE (prompts for all options):
+      treeline import
+
+    SCRIPTABLE MODE (all options via flags):
+      treeline import file.csv --account-id XXX --date-column "Date" --amount-column "Amount"
+
+    Examples:
+      # Interactive mode with prompts
+      treeline import
+
+      # Preview import (no changes)
+      treeline import transactions.csv --account-id ABC123 --preview
+
+      # Full automated import
+      treeline import transactions.csv \\
+        --account-id ABC123 \\
+        --date-column "Date" \\
+        --amount-column "Amount" \\
+        --description-column "Description" \\
+        --flip-signs
     """
-    if ctx.invoked_subcommand is None:
-        # No command specified - enter interactive mode
-        run_interactive_mode()
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    # INTERACTIVE MODE: No file path provided
+    if file_path is None:
+        from treeline.commands.import_csv import handle_import_command
+        handle_import_command()
+        return
+
+    # SCRIPTABLE MODE: File path provided
+    from pathlib import Path as PathLib
+    csv_path = PathLib(file_path).expanduser()
+
+    if not csv_path.exists():
+        display_error(f"File not found: {file_path}")
+        raise typer.Exit(1)
+
+    container = get_container()
+    import_service = container.import_service()
+    account_service = container.account_service()
+
+    # Build column mapping from flags or auto-detect
+    if date_column or amount_column or debit_column or credit_column:
+        # User provided explicit mapping
+        column_mapping = {}
+        if date_column:
+            column_mapping["date"] = date_column
+        if description_column:
+            column_mapping["description"] = description_column
+        if amount_column:
+            column_mapping["amount"] = amount_column
+        if debit_column:
+            column_mapping["debit"] = debit_column
+        if credit_column:
+            column_mapping["credit"] = credit_column
+    else:
+        # Auto-detect columns
+        if not json_output:
+            with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
+                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+        else:
+            detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+
+        if not detect_result.success:
+            display_error(f"Column detection failed: {detect_result.error}")
+            raise typer.Exit(1)
+
+        column_mapping = detect_result.data
+
+    # Get account
+    if account_id:
+        # Find account by ID
+        accounts_result = asyncio.run(account_service.get_accounts(user_id))
+        if not accounts_result.success:
+            display_error("Failed to fetch accounts")
+            raise typer.Exit(1)
+
+        target_account = None
+        for acc in accounts_result.data or []:
+            if str(acc.id) == account_id:
+                target_account = acc
+                break
+
+        if not target_account:
+            display_error(f"Account not found: {account_id}")
+            raise typer.Exit(1)
+    else:
+        display_error("--account-id is required for scriptable import")
+        console.print(f"[{theme.muted}]Run 'treeline status --json' to see account IDs[/{theme.muted}]")
+        raise typer.Exit(1)
+
+    # Preview or import
+    if preview:
+        # Just show preview
+        preview_result = asyncio.run(import_service.preview_csv_import(
+            file_path=str(csv_path),
+            column_mapping=column_mapping,
+            date_format="auto",
+            limit=10,
+            flip_signs=flip_signs
+        ))
+
+        if not preview_result.success:
+            display_error(f"Preview failed: {preview_result.error}")
+            raise typer.Exit(1)
+
+        if json_output:
+            # Output preview as JSON
+            preview_data = {
+                "file": str(csv_path),
+                "column_mapping": column_mapping,
+                "flip_signs": flip_signs,
+                "preview": [
+                    {
+                        "date": str(tx.transaction_date),
+                        "description": tx.description,
+                        "amount": float(tx.amount)
+                    }
+                    for tx in preview_result.data
+                ]
+            }
+            output_json(preview_data)
+        else:
+            console.print(f"\n[{theme.ui_header}]Import Preview[/{theme.ui_header}]\n")
+            console.print(f"File: {csv_path}")
+            console.print(f"Account: {target_account.name}")
+            console.print(f"Flip signs: {flip_signs}\n")
+
+            for tx in preview_result.data[:10]:
+                amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
+                amount_str = f"-${abs(tx.amount):,.2f}" if tx.amount < 0 else f"${tx.amount:,.2f}"
+                console.print(f"  {tx.transaction_date}  [{amount_style}]{amount_str:>12}[/{amount_style}]  {tx.description}")
+
+            console.print(f"\n[{theme.muted}]Remove --preview flag to import[/{theme.muted}]\n")
+    else:
+        # Execute import
+        if not json_output:
+            with console.status(f"[{theme.status_loading}]Importing transactions..."):
+                result = asyncio.run(import_service.import_transactions(
+                    user_id=user_id,
+                    source_type="csv",
+                    account_id=target_account.id,
+                    source_options={
+                        "file_path": str(csv_path),
+                        "column_mapping": column_mapping,
+                        "date_format": "auto",
+                        "flip_signs": flip_signs,
+                    }
+                ))
+        else:
+            result = asyncio.run(import_service.import_transactions(
+                user_id=user_id,
+                source_type="csv",
+                account_id=target_account.id,
+                source_options={
+                    "file_path": str(csv_path),
+                    "column_mapping": column_mapping,
+                    "date_format": "auto",
+                    "flip_signs": flip_signs,
+                }
+            ))
+
+        if not result.success:
+            display_error(result.error)
+            raise typer.Exit(1)
+
+        if json_output:
+            output_json(result.data)
+        else:
+            stats = result.data
+            console.print(f"\n[{theme.success}]✓ Import complete![/{theme.success}]")
+            console.print(f"  Discovered: {stats['discovered']} transactions")
+            console.print(f"  Imported: {stats['imported']} new transactions")
+            console.print(f"  Skipped: {stats['skipped']} duplicates\n")
+
+
+@app.command(name="legacy")
+def legacy_command() -> None:
+    """Enter legacy REPL mode (temporary during migration)."""
+    run_interactive_mode()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        is_eager=True,
+        help="Show version information",
+    )
+):
+    """Treeline - AI-native personal finance in your terminal."""
+    pass
 
 
 if __name__ == "__main__":

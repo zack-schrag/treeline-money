@@ -591,15 +591,24 @@ class StatusService:
                 balance_rows[0][0] if balance_rows and len(balance_rows) > 0 else 0
             )
 
+        # Return both full data (for display) and summary (for JSON)
+        integration_names = [i["integrationName"] for i in integrations]
+
         return Result(
             success=True,
             data={
+                # Full data for display functions
                 "accounts": accounts,
+                "integrations": integrations,
+                # Summary counts
+                "total_accounts": len(accounts),
                 "total_transactions": total_transactions,
                 "total_snapshots": total_snapshots,
-                "integrations": integrations,
-                "earliest_date": earliest_date,
-                "latest_date": latest_date,
+                "total_integrations": len(integrations),
+                "integration_names": integration_names,
+                # Date range
+                "earliest_date": str(earliest_date) if earliest_date else None,
+                "latest_date": str(latest_date) if latest_date else None,
             },
         )
 
