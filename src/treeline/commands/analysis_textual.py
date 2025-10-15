@@ -712,7 +712,7 @@ def handle_analysis_command() -> None:
         console.print(
             f"[{theme.error}]Error: You must be logged in to use analysis mode.[/{theme.error}]"
         )
-        console.print(f"[{theme.muted}]Run /login to authenticate[/{theme.muted}]\n")
+        console.print(f"[{theme.muted}]Run 'treeline login' to authenticate[/{theme.muted}]\n")
         return
 
     app = AnalysisApp()

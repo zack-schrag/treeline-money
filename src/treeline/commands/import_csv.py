@@ -39,7 +39,7 @@ def handle_import_command() -> None:
 
     if not is_authenticated():
         console.print(f"[{theme.error}]Error: You must be logged in to import data.[/{theme.error}]")
-        console.print(f"[{theme.muted}]Run /login to authenticate[/{theme.muted}]\n")
+        console.print(f"[{theme.muted}]Run 'treeline login' to authenticate[/{theme.muted}]\n")
         return
 
     user_id = get_current_user_id()

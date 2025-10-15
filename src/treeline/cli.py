@@ -4,29 +4,14 @@ import asyncio
 import sys
 from pathlib import Path
 from uuid import UUID
-import traceback
 import typer
 from dotenv import load_dotenv
-from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion, PathCompleter
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from treeline.app.container import Container
-from treeline.commands.analysis_textual import handle_analysis_command
-from treeline.commands.chart import handle_chart_command
-from treeline.commands.chat import handle_chat_message
-from treeline.commands.help import handle_help_command
 from treeline.commands.import_csv import handle_import_command
-from treeline.commands.login import handle_login_command
-from treeline.commands.query import handle_clear_command, handle_query_command, handle_sql_command
-from treeline.commands.saved_queries import handle_queries_command, load_query
-from treeline.commands.schema import handle_schema_command
-from treeline.commands.simplefin import handle_simplefin_command
-from treeline.commands.status import handle_status_command
-from treeline.commands.sync import handle_sync_command
-from treeline.commands.tag import handle_tag_command
 from treeline.theme import get_theme
 
 # Load environment variables from .env file
@@ -49,45 +34,6 @@ theme = get_theme()
 
 # Global container instance
 _container: Container | None = None
-
-# Available slash commands
-SLASH_COMMANDS = [
-    "/help",
-    "/login",
-    "/status",
-    "/simplefin",
-    "/sync",
-    "/import",
-    "/tag",
-    "/query",
-    "/sql",
-    "/analysis",
-    "/schema",
-    "/queries",
-    "/chart",
-    "/clear",
-    "/exit",
-]
-
-
-def get_slash_command_completions(text: str) -> list[str]:
-    """Get slash command completions for the given text.
-
-    Args:
-        text: The current input text
-
-    Returns:
-        List of matching slash commands
-    """
-    if not text.startswith("/"):
-        return []
-
-    # Return all commands if just "/" is typed
-    if text == "/":
-        return SLASH_COMMANDS
-
-    # Return commands that start with the typed text
-    return [cmd for cmd in SLASH_COMMANDS if cmd.startswith(text.lower())]
 
 
 def get_file_path_completions(text: str) -> list[str]:
@@ -144,29 +90,6 @@ def get_file_path_completions(text: str) -> list[str]:
 
     except (OSError, PermissionError):
         return []
-
-
-class SlashCommandCompleter(Completer):
-    """Completer for slash commands in the REPL."""
-
-    def get_completions(self, document, _complete_event):
-        """Generate completions for the current document."""
-        text = document.text_before_cursor
-
-        # Only provide completions for slash commands
-        if not text.startswith("/"):
-            return
-
-        # Get matching commands
-        matches = get_slash_command_completions(text)
-
-        # Yield each match as a completion
-        for match in matches:
-            yield Completion(
-                match,
-                start_position=-len(text),
-                display=match,
-            )
 
 
 def prompt_for_file_path(prompt_text: str = "") -> str:
@@ -427,205 +350,6 @@ def ensure_treeline_initialized() -> bool:
         sys.exit(1)
 
     return needs_init
-
-
-def show_welcome_message(first_time: bool = False) -> None:
-    """Display welcome message with ASCII art and useful information."""
-    from rich.panel import Panel
-    from rich.table import Table
-    from pathlib import Path
-
-    # Get container and services
-    container = get_container()
-    config_service = container.config_service()
-
-    # Build info content
-    info_parts = []
-
-    # Title
-    info_parts.append(f"[{theme.ui_header}]🌲 Treeline[/{theme.ui_header}]")
-    info_parts.append("")
-
-    # Authentication status
-    if config_service.is_authenticated():
-        email = config_service.get_current_user_email()
-        info_parts.append(f"[{theme.success}]✓[/{theme.success}] Logged in as [{theme.emphasis}]{email}[/{theme.emphasis}]")
-
-        # Try to get quick stats
-        try:
-            user_id_str = config_service.get_current_user_id()
-            if user_id_str:
-                from uuid import UUID
-                user_id = UUID(user_id_str)
-                status_service = container.status_service()
-                result = asyncio.run(status_service.get_status(user_id))
-
-                if result.success:
-                    status = result.data
-                    info_parts.append("")
-                    info_parts.append(f"[{theme.info}]📊 Quick Stats[/{theme.info}]")
-                    info_parts.append(f"  Accounts: [{theme.emphasis}]{len(status['accounts'])}[/{theme.emphasis}]")
-                    info_parts.append(f"  Transactions: [{theme.emphasis}]{status['total_transactions']}[/{theme.emphasis}]")
-
-                    if status['latest_date']:
-                        info_parts.append(f"  Latest data: [{theme.emphasis}]{status['latest_date']}[/{theme.emphasis}]")
-        except Exception:
-            # If we can't get stats, just skip them
-            pass
-    else:
-        info_parts.append(f"[{theme.warning}]⚠ Not authenticated[/{theme.warning}]")
-        info_parts.append(f"Use [{theme.emphasis}]/login[/{theme.emphasis}] to sign in")
-
-    if first_time:
-        info_parts.append("")
-        info_parts.append(f"[{theme.success}]✓[/{theme.success}] Initialized treeline directory")
-
-    info_parts.append("")
-    info_parts.append(f"[{theme.muted}]Type [{theme.emphasis}]/help[/{theme.emphasis}] for commands[/{theme.muted}]")
-    info_parts.append(f"[{theme.muted}]Type [{theme.emphasis}]exit[/{theme.emphasis}] or [{theme.emphasis}]Ctrl+C[/{theme.emphasis}] to quit[/{theme.muted}]")
-
-    # Get current directory name for display
-    cwd = Path.cwd().name
-
-    # Simple panel with just the info, fit to content
-    panel = Panel(
-        "\n".join(info_parts),
-        border_style=theme.primary,
-        padding=(1, 2),
-        subtitle=f"[{theme.muted}]{cwd}[/{theme.muted}]",
-        expand=False
-    )
-
-    console.print()
-    console.print(panel)
-    console.print()
-
-
-
-def process_command(user_input: str) -> bool:
-    """Process a user command. Returns True to continue REPL, False to exit."""
-    user_input = user_input.strip()
-
-    if not user_input:
-        return True
-
-    if user_input.lower() in ("exit", "quit"):
-        console.print(f"[{theme.muted}]Goodbye![/{theme.muted}]")
-        return False
-
-    # Handle slash commands
-    if user_input.startswith("/"):
-        command_parts = user_input.split(maxsplit=1)
-        command = command_parts[0].lower()
-
-        if command == "/help":
-            handle_help_command()
-        elif command == "/login":
-            handle_login_command()
-        elif command == "/status":
-            handle_status_command()
-        elif command == "/simplefin":
-            handle_simplefin_command()
-        elif command == "/sync":
-            handle_sync_command()
-        elif command == "/import":
-            handle_import_command()
-        elif command == "/tag":
-            handle_tag_command()
-        elif command == "/clear":
-            handle_clear_command()
-        elif command == "/exit":
-            console.print(f"[{theme.muted}]Goodbye![/{theme.muted}]")
-            return False
-        elif command == "/query":
-            # Extract SQL from command
-            if len(command_parts) < 2:
-                console.print(f"[{theme.error}]Error: /query requires a SQL statement[/{theme.error}]")
-                console.print(f"[{theme.muted}]Usage: /query SELECT * FROM transactions LIMIT 5[/{theme.muted}]\n")
-            else:
-                sql = command_parts[1]
-                handle_query_command(sql)
-        elif command.startswith("/query:"):
-            # Handle /query:name syntax for saved queries
-            query_name = command[7:]  # Remove "/query:" prefix
-            if not query_name:
-                console.print(f"[{theme.error}]Error: /query: requires a query name[/{theme.error}]")
-                console.print(f"[{theme.muted}]Usage: /query:dining_this_month[/{theme.muted}]\n")
-            else:
-                sql = load_query(query_name)
-                if sql is None:
-                    console.print(f"[{theme.error}]Query '{query_name}' not found.[/{theme.error}]")
-                    console.print(f"[{theme.muted}]Use /queries list to see available queries.[/{theme.muted}]\n")
-                else:
-                    handle_query_command(sql)
-        elif command == "/sql":
-            handle_sql_command()
-        elif command == "/schema":
-            # Extract optional table name
-            table_name = command_parts[1] if len(command_parts) > 1 else None
-            handle_schema_command(table_name)
-        elif command == "/queries":
-            # Handle /queries subcommands
-            subcommand = command_parts[1] if len(command_parts) > 1 else None
-            query_name = command_parts[2] if len(command_parts) > 2 else None
-            handle_queries_command(subcommand, query_name)
-        elif command == "/chart":
-            # Handle /chart [name] - run saved chart or list charts
-            chart_name = command_parts[1] if len(command_parts) > 1 else None
-            handle_chart_command(chart_name)
-        elif command == "/analysis":
-            # Handle /analysis - integrated workspace for data exploration
-            handle_analysis_command()
-        else:
-            console.print(f"[{theme.error}]Unknown command: {command}[/{theme.error}]")
-            console.print(f"[{theme.muted}]Type /help to see available commands[/{theme.muted}]")
-    else:
-        # Natural language query - send to AI agent
-        handle_chat_message(user_input)
-
-    return True
-
-
-def run_interactive_mode() -> None:
-    """Run the interactive REPL mode."""
-    # Initialize treeline directory and database
-    first_time = ensure_treeline_initialized()
-
-    # Show welcome message
-    show_welcome_message(first_time)
-
-    # Create prompt session with autocomplete
-    session = PromptSession(completer=SlashCommandCompleter())
-
-    # Main REPL loop
-    try:
-        while True:
-            try:
-                # Print separator line before prompt
-                console.print(f"[{theme.separator}]" + "─" * console.width + f"[/{theme.separator}]")
-
-                # Use prompt_toolkit for input with autocomplete
-                user_input = session.prompt(">: ")
-
-                # Print separator line after prompt with spacing
-                console.print(f"[{theme.separator}]" + "─" * console.width + f"[/{theme.separator}]")
-                console.print()  # Add blank line for cushion
-
-                should_continue = process_command(user_input)
-                if not should_continue:
-                    break
-            except KeyboardInterrupt:
-                console.print(f"\n[{theme.muted}]Goodbye! =K[/{theme.muted}]")
-                break
-            except EOFError:
-                console.print(f"\n[{theme.muted}]Goodbye! =K[/{theme.muted}]")
-                break
-    except Exception as e:
-        console.print(f"[{theme.error}]Unexpected error:[/{theme.error}]")
-        # Don't use markup since error messages may contain square brackets
-        console.print(str(e), markup=False)
-        console.print(traceback.format_exc(), markup=False)
-        sys.exit(1)
 
 
 @app.command(name="login")
@@ -1685,12 +1409,6 @@ def import_command(
             console.print(f"  Discovered: {stats['discovered']} transactions")
             console.print(f"  Imported: {stats['imported']} new transactions")
             console.print(f"  Skipped: {stats['skipped']} duplicates\n")
-
-
-@app.command(name="legacy")
-def legacy_command() -> None:
-    """Enter legacy REPL mode (temporary during migration)."""
-    run_interactive_mode()
 
 
 @app.callback()
