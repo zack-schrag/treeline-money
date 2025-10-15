@@ -9,11 +9,11 @@ This guide outlines the different ways you can work with your Treeline data.
 The Treeline CLI is the primary interface, designed for interactive data exploration and management.
 
 ### What you can do:
-- Ask natural language questions about your finances
-- Tag transactions with keyboard-driven power mode
+- Ask natural language questions about your finances (AI chat)
+- Tag transactions with keyboard-driven power mode (TUI)
 - Run SQL queries directly
 - Sync data from SimpleFIN or other providers
-- Visualize data with charts
+- Visualize data with interactive charts (TUI)
 
 ### When to use it:
 - Quick, interactive exploration of your financial data
@@ -23,10 +23,20 @@ The Treeline CLI is the primary interface, designed for interactive data explora
 
 ### Example:
 ```bash
-treeline
-> What were my top spending categories last month?
-> /tag
-> /sync
+# Chat with AI about your finances
+treeline chat
+
+# Tag transactions interactively
+treeline tag --untagged
+
+# Sync latest data
+treeline sync
+
+# Run one-off SQL query
+treeline query "SELECT * FROM transactions LIMIT 10"
+
+# Launch analysis workspace for deeper exploration
+treeline analysis
 ```
 
 See the [Quickstart Guide](../getting_started/quickstart.md) for more details.
@@ -288,17 +298,19 @@ conn.close()
 Your Treeline data is stored locally in:
 ```
 ~/treeline/
-├── [user-id].duckdb     # Your financial database
+├── treeline.db/
+│   └── [user-id].duckdb # Your financial database
+├── queries/             # Saved SQL queries
+├── charts/              # Saved chart configurations
 ├── config.json          # Configuration
 └── backups/             # Automatic backups (if enabled)
 ```
 
-The database file path is: `~/treeline/[user-id].duckdb`
+The database file path is: `~/treeline/treeline.db/[user-id].duckdb`
 
 You can find your user ID by running:
 ```bash
-treeline
-> /status
+treeline status
 ```
 
 ---

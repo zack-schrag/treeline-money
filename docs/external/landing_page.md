@@ -5,23 +5,22 @@ Stop fighting with rigid budgeting apps. Stop manually updating spreadsheets.
 **Treeline is the terminal-native financial analysis tool built for developers and power users.**
 
 ```
-> treeline
+$ treeline chat
 
-🌲 Treeline
+🌲 Treeline AI Chat
 
-> What was my spending on dining last month?
+You: What was my spending on dining last month?
 
-┌─ Query Results ────────────────────────────┐
-│ Dining spending for October 2025: $847.32 │
-│                                            │
-│ SQL used:                                  │
-│ SELECT SUM(amount) FROM transactions      │
-│ WHERE 'dining' = ANY(tags)                │
-│   AND transaction_date >= '2025-10-01'    │
-│   AND transaction_date < '2025-11-01'     │
-└────────────────────────────────────────────┘
+AI: Based on your transactions, dining spending for
+    October 2025 was $847.32.
 
-> /analysis
+    SQL used:
+    SELECT SUM(amount) FROM transactions
+    WHERE 'dining' = ANY(tags)
+      AND transaction_date >= '2025-10-01'
+      AND transaction_date < '2025-11-01'
+
+$ treeline analysis
 
 ┌─ Results ──────────────────────────────────────┐
 │ date        │ amount  │ description           │
@@ -38,7 +37,7 @@ Stop fighting with rigid budgeting apps. Stop manually updating spreadsheets.
 │ ORDER BY transaction_date DESC █             │
 └─────────────────────────────────────────────────┘
 
-[Press Ctrl+Enter to execute, Tab to switch, g for charts]
+[Press Alt+Enter to execute, Tab to switch, g for charts]
 ```
 
 ## Why Treeline?
@@ -85,7 +84,7 @@ A Jupyter-like environment for fluid data exploration:
 
 Think of it as an IDE for your financial data - everything you need in one focused workspace.
 
-**Also available:** Multi-line `/sql` editor for quick one-off queries, and `/chart` for standalone visualizations.
+**Also available:** `treeline query` for quick one-off SQL queries, and `treeline charts` for browsing saved visualizations.
 
 ### 🔌 Plugin Ecosystem
 Extend Treeline with plugins from the community:
@@ -99,7 +98,7 @@ Extend Treeline with plugins from the community:
 Or build your own with:
 - Custom schema extensions
 - Lifecycle hooks
-- New slash commands
+- Custom CLI commands
 - Pre-built queries and dashboards
 
 ### 🔐 Privacy First
@@ -262,8 +261,10 @@ We're building the most powerful personal finance tool for technical users. A to
 Ready to take control of your financial data?
 
 ```bash
-brew install treeline
-treeline init
+pip install treeline-money
+treeline login
+treeline setup simplefin
+treeline analysis
 ```
 
 ---
@@ -275,10 +276,10 @@ treeline init
 *Future idea: Interactive terminal-style landing page where visitors can type commands:*
 
 ```
-$ /about     # Learn more about Treeline
-$ /pricing   # View pricing tiers
-$ /demo      # See interactive demo
-$ /waitlist  # Join the beta
+$ about      # Learn more about Treeline
+$ pricing    # View pricing tiers
+$ demo       # See interactive demo
+$ waitlist   # Join the beta
 $ help       # Show available commands
 ```
 
