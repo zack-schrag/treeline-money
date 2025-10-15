@@ -25,6 +25,89 @@
 - Storage implementations (e.g., FileQueryStorage) belong in `src/treeline/infra/file_storage.py`
 - ALL domain models (Account, Transaction, ChartConfig, etc.) MUST be defined in `src/treeline/domain.py`
 
+# TUI Development Guidelines
+
+## Textual TUI Architecture
+- TUI applications are implemented using Textual framework in `src/treeline/commands/`
+- TUIs MUST be thin presentation layers, like the CLI
+- All business logic MUST be delegated to services via container
+- TUIs should NOT perform direct database operations or file I/O
+
+## TUI Structure Pattern
+
+```python
+from textual.app import App
+from treeline.app.container import get_container
+
+class MyTuiApp(App):
+    """TUI application for [specific task]."""
+
+    def on_mount(self) -> None:
+        """Initialize TUI - get services from container."""
+        self.container = get_container()
+        self.some_service = self.container.some_service()
+
+    @work
+    async def some_action(self) -> None:
+        """Handle user action - delegate to service."""
+        result = await self.some_service.do_something()
+        if result.success:
+            self.display_result(result.data)
+        else:
+            self.show_error(result.error)
+```
+
+## TUI Best Practices
+1. **Keyboard-Driven** - All actions should have keyboard shortcuts
+2. **Discoverable** - Use `?` for help, show shortcuts in status bars
+3. **Consistent** - Follow patterns from existing TUIs (analysis, tag, queries, charts)
+4. **Vim-Inspired** - Use j/k for navigation where appropriate
+5. **Mnemonic Shortcuts** - `g` for chart/graph, `s` for save, `r` for reset
+6. **No Modal Prompts** - Avoid blocking modal dialogs, use inline forms
+7. **Async Operations** - Use `@work` decorator for long-running operations
+8. **Error Handling** - Display errors inline, don't crash the TUI
+
+## Launching TUIs from CLI
+
+```python
+@app.command(name="mytui")
+def mytui_command() -> None:
+    """Launch my TUI application."""
+    container = get_container()
+    config_service = container.config_service()
+
+    # Check auth first
+    if not config_service.is_authenticated():
+        console.print("[red]Error: Not authenticated[/red]")
+        console.print("Run 'treeline login' first")
+        raise typer.Exit(1)
+
+    # Launch TUI
+    from treeline.commands.mytui_textual import MyTuiApp
+    app = MyTuiApp()
+    app.run()
+```
+
+## TUI vs Scriptable Commands
+
+**Use TUI when:**
+- Complex interactive workflow (analysis, tagging)
+- Real-time feedback needed
+- Multiple steps with navigation
+- Visual data browsing required
+
+**Use Scriptable Command when:**
+- Simple one-shot operations
+- Needs JSON/CSV output
+- Should work in scripts
+- No interaction required
+
+Examples:
+- ✅ TUI: `treeline tag` (interactive tagging workflow)
+- ✅ Scriptable: `treeline sync` (one-shot with JSON output)
+- ✅ TUI: `treeline analysis` (complex SQL workspace)
+- ✅ Scriptable: `treeline query "SELECT..."` (one-shot query)
+
 # Testing Instructions
 ## Unit Tests
 These have mocked dependencies and verify core logic. For example, a unit test to verify transaction deduplication works during synchronization, with data provider mocked.
