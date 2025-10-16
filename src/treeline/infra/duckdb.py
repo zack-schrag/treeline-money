@@ -709,6 +709,10 @@ class DuckDBRepository(Repository):
             elif filters.get("has_tags") is True:
                 where_clauses.append("(tags IS NOT NULL AND len(tags) > 0)")
 
+            if filters.get("search"):
+                where_clauses.append("(LOWER(description) LIKE ?)")
+                params.append(f"%{filters['search'].lower()}%")
+
             where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
             result = conn.execute(f"""

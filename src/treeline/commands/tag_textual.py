@@ -125,6 +125,7 @@ class TaggingScreen(Screen):
         Binding("]", "next_page", "Next Page", show=False),
         Binding("[", "prev_page", "Prev Page", show=False),
         Binding("r", "refresh", "Refresh", show=False),
+        Binding("/", "focus_search", "Search", show=False),
         Binding("q", "quit", "Quit", show=False),
     ]
 
@@ -139,6 +140,17 @@ class TaggingScreen(Screen):
         background: $panel;
         color: $text;
         padding: 1;
+    }
+
+    #search_bar {
+        dock: top;
+        height: 3;
+        background: $panel;
+        padding: 0 1;
+    }
+
+    #search_input {
+        width: 100%;
     }
 
     #main_container {
@@ -178,10 +190,14 @@ class TaggingScreen(Screen):
         self.current_offset = 0
         self.batch_size = 100
         self.current_suggestions: List[str] = []
+        self.search_query: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("Loading...", id="status_bar")
+
+        with Container(id="search_bar"):
+            yield Input(placeholder="Search transactions...", id="search_input")
 
         with Horizontal(id="main_container"):
             yield DataTable(id="transaction_table", zebra_stripes=True, cursor_type="row")
@@ -189,7 +205,7 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear Tags | U: Toggle Untagged | [/]: Page | Q: Quit",
+            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear Tags | U: Toggle Untagged | [/]: Page | /: Search | Q: Quit",
             id="help_bar",
         )
         yield Footer()
@@ -226,6 +242,8 @@ class TaggingScreen(Screen):
 
         # Load transactions
         filters = {"has_tags": False} if self.untagged_only else {}
+        if self.search_query:
+            filters["search"] = self.search_query
         result = asyncio.run(
             tagging_service.get_transactions_for_tagging(
                 self.user_id,
@@ -272,6 +290,8 @@ class TaggingScreen(Screen):
         """Update the status bar."""
         status = self.query_one("#status_bar", Static)
         filter_text = "Untagged Only" if self.untagged_only else "All Transactions"
+        if self.search_query:
+            filter_text += f" | Search: '{self.search_query}'"
         tagged_count = sum(1 for tx in self.transactions if tx.tags)
         page_num = (self.current_offset // self.batch_size) + 1
         status.update(
@@ -286,6 +306,13 @@ class TaggingScreen(Screen):
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlight changes (keyboard navigation)."""
         self.update_details()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        if event.input.id == "search_input":
+            self.search_query = event.value
+            self.current_offset = 0  # Reset to first page
+            self.load_data()
 
     @work(exclusive=True, thread=True)
     async def update_details(self) -> None:
@@ -367,6 +394,11 @@ class TaggingScreen(Screen):
     def action_quit(self) -> None:
         """Quit the tagging interface."""
         self.app.exit()
+
+    def action_focus_search(self) -> None:
+        """Focus the search input."""
+        search_input = self.query_one("#search_input", Input)
+        search_input.focus()
 
     def action_quick_tag(self, index: int) -> None:
         """Quickly apply a suggested tag by index (0-4)."""
