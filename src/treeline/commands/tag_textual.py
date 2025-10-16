@@ -122,8 +122,8 @@ class TaggingScreen(Screen):
         Binding("4", "quick_tag(3)", "Tag 4", show=False),
         Binding("5", "quick_tag(4)", "Tag 5", show=False),
         Binding("u", "toggle_filter", "Toggle Filter", show=False),
-        Binding("]", "next_page", "Next Page", show=False),
-        Binding("[", "prev_page", "Prev Page", show=False),
+        Binding("ctrl+right", "next_page", "Next Page", show=False),
+        Binding("ctrl+left", "prev_page", "Prev Page", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("/", "focus_search", "Search", show=False),
         Binding("q", "quit", "Quit", show=False),
@@ -205,7 +205,7 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            "↑/↓: Nav | 1-5: Tag | T: Type | C: Clear | U: Toggle | \\[/\\]: Page | /: Search | Q: Quit",
+            "↑/↓: Nav | 1-5: Tag | T: Type | C: Clear | U: Toggle | Ctrl+←/→: Page | /: Search | Q: Quit",
             id="help_bar",
         )
         yield Footer()
