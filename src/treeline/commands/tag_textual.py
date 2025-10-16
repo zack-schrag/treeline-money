@@ -189,7 +189,7 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear Tags | U: Filter | N/P: Page | Q: Quit",
+            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear Tags | U: Toggle Untagged | N/P: Page | Q: Quit",
             id="help_bar",
         )
         yield Footer()
