@@ -271,7 +271,7 @@ class TaggingScreen(Screen):
         tagged_count = sum(1 for tx in self.transactions if tx.tags)
         page_num = (self.current_offset // self.batch_size) + 1
         status.update(
-            f"{filter_text} | Page {page_num} | Total: {len(self.transactions)} | "
+            f"{filter_text} | Page {page_num} | Showing: {len(self.transactions)} | "
             f"Tagged: {tagged_count} | Untagged: {len(self.transactions) - tagged_count}"
         )
 
