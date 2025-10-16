@@ -193,6 +193,10 @@ class TaggingScreen(Screen):
         self.search_query: str = ""
 
     def compose(self) -> ComposeResult:
+        import platform
+        # On macOS, Textual maps ctrl to Option key
+        page_key = "Opt" if platform.system() == "Darwin" else "Ctrl"
+
         yield Header()
         yield Static("Loading...", id="status_bar")
 
@@ -205,7 +209,7 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            "↑/↓: Nav | 1-5: Tag | T: Type | C: Clear | U: Toggle | Opt+←/→: Page | /: Search | Q: Quit",
+            f"↑/↓: Nav | 1-5: Tag | T: Type | C: Clear | U: Toggle | {page_key}+←/→: Page | /: Search | Q: Quit",
             id="help_bar",
         )
         yield Footer()
