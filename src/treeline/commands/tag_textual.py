@@ -279,6 +279,10 @@ class TaggingScreen(Screen):
         """Handle row selection in the table."""
         self.update_details()
 
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Handle row highlight changes (keyboard navigation)."""
+        self.update_details()
+
     @work(exclusive=True, thread=True)
     async def update_details(self) -> None:
         """Update the details panel for the selected transaction."""
