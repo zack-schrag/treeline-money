@@ -251,11 +251,11 @@ class TaggingScreen(Screen):
             account_name = self.account_map.get(tx.account_id, "Unknown")[:16]
             desc = (tx.description or "")[:28]
 
-            # Format amount
+            # Format amount with color
             if tx.amount < 0:
-                amount_str = f"-${abs(tx.amount):,.2f}"
+                amount_str = f"[red]-${abs(tx.amount):,.2f}[/red]"
             else:
-                amount_str = f"${tx.amount:,.2f}"
+                amount_str = f"[green]${tx.amount:,.2f}[/green]"
 
             # Format tags
             tags_str = ", ".join(tx.tags[:2]) if tx.tags else "(none)"
