@@ -114,7 +114,6 @@ class TaggingScreen(Screen):
     """Main tagging interface screen."""
 
     BINDINGS = [
-        Binding("enter", "edit_tags", "Edit Tags", show=False),
         Binding("t", "type_tags", "Type Tags", show=False),
         Binding("c", "clear_tags", "Clear Tags", show=False),
         Binding("1", "quick_tag(0)", "Tag 1", show=False),
@@ -190,7 +189,7 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear | Enter: Edit | U: Filter | N/P: Page | Q: Quit",
+            "↑/↓: Navigate | 1-5: Quick Tag | T: Type Tags | C: Clear | U: Filter | N/P: Page | Q: Quit",
             id="help_bar",
         )
         yield Footer()
