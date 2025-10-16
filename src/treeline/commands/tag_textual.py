@@ -257,10 +257,14 @@ class TaggingScreen(Screen):
             else:
                 amount_str = f"[green]${tx.amount:,.2f}[/green]"
 
-            # Format tags
-            tags_str = ", ".join(tx.tags[:2]) if tx.tags else "(none)"
-            if len(tx.tags) > 2:
-                tags_str += f" +{len(tx.tags) - 2}"
+            # Format tags with badge-like styling
+            if tx.tags:
+                badge_tags = [f"[cyan][[/cyan]{tag}[cyan]][/cyan]" for tag in tx.tags[:2]]
+                tags_str = " ".join(badge_tags)
+                if len(tx.tags) > 2:
+                    tags_str += f" [dim]+{len(tx.tags) - 2}[/dim]"
+            else:
+                tags_str = "[dim](none)[/dim]"
 
             table.add_row(date_str, account_name, desc, amount_str, tags_str)
 
