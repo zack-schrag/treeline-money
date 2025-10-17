@@ -795,6 +795,19 @@ class TaggingService:
         """
         return await self.tag_suggester.suggest_tags(user_id, transaction, limit=limit)
 
+    async def get_tag_statistics(self, user_id: UUID) -> Result[Dict[str, int]]:
+        """
+        Get tag usage statistics (frequency count for each tag).
+
+        Args:
+            user_id: User context
+
+        Returns:
+            Result containing dict mapping tag names to usage counts
+            Example: {"groceries": 50, "dining": 30, "transport": 20}
+        """
+        return await self.repository.get_tag_statistics(user_id)
+
 
 class ImportService:
     """Service for one-time bulk imports from files or external sources."""
