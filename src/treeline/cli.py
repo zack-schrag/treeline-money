@@ -514,25 +514,119 @@ def setup_simplefin() -> None:
     console.print(f"[{theme.muted}]Use 'treeline sync' to import your transactions[/{theme.muted}]\n")
 
 
-@app.command(name="tag")
-def tag_command(
+# Tag command group
+tag_app = typer.Typer(help="Transaction tagging commands")
+app.add_typer(tag_app, name="tag")
+
+
+@tag_app.callback(invoke_without_command=True)
+def tag_callback(
+    ctx: typer.Context,
     untagged_only: bool = typer.Option(False, "--untagged", help="Show only untagged transactions"),
 ) -> None:
     """Launch interactive transaction tagging interface.
 
     Examples:
-      # Tag all transactions
+      # Tag all transactions interactively
       treeline tag
 
       # Show only untagged transactions
       treeline tag --untagged
+
+      # Apply tags scriptably
+      treeline tag apply --ids id1,id2 groceries,food
     """
+    # If a subcommand is being invoked, don't run the TUI
+    if ctx.invoked_subcommand is not None:
+        return
+
     ensure_treeline_initialized()
     user_id = get_authenticated_user_id()
 
     from treeline.commands.tag_textual import TaggingApp
     app_instance = TaggingApp(user_id=user_id, untagged_only=untagged_only)
     app_instance.run()
+
+
+@tag_app.command(name="apply")
+def tag_apply_command(
+    ids: str = typer.Option(..., "--ids", help="Comma-separated transaction IDs"),
+    tags: str = typer.Argument(..., help="Comma-separated tags to apply"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Apply tags to specific transactions (scriptable).
+
+    Examples:
+      # Apply tags to transactions
+      treeline tag apply --ids abc123,def456 groceries,food
+
+      # Output result as JSON
+      treeline tag apply --ids abc123 dining --json
+
+      # Use with query results
+      treeline query "SELECT transaction_id FROM transactions LIMIT 5" --json | \\
+        jq -r '.rows[][0]' | paste -sd',' - | \\
+        xargs -I {} treeline tag apply --ids {} auto-tagged
+    """
+    ensure_treeline_initialized()
+    user_id = get_authenticated_user_id()
+
+    # Parse IDs
+    transaction_ids = [tid.strip() for tid in ids.split(",") if tid.strip()]
+    if not transaction_ids:
+        display_error("No transaction IDs provided")
+        raise typer.Exit(1)
+
+    # Parse tags
+    tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    if not tag_list:
+        display_error("No tags provided")
+        raise typer.Exit(1)
+
+    container = get_container()
+    tagging_service = container.tagging_service()
+
+    # Apply tags to each transaction
+    results = []
+    errors = []
+
+    for transaction_id in transaction_ids:
+        result = asyncio.run(
+            tagging_service.update_transaction_tags(user_id, transaction_id, tag_list)
+        )
+
+        if result.success:
+            results.append({
+                "transaction_id": transaction_id,
+                "tags": tag_list,
+                "success": True
+            })
+        else:
+            errors.append({
+                "transaction_id": transaction_id,
+                "error": result.error,
+                "success": False
+            })
+
+    if json_output:
+        output_json({
+            "succeeded": len(results),
+            "failed": len(errors),
+            "results": results + errors
+        })
+    else:
+        if results:
+            console.print(f"\n[{theme.success}]✓ Successfully tagged {len(results)} transaction(s)[/{theme.success}]")
+            console.print(f"[{theme.muted}]Tags applied: {', '.join(tag_list)}[/{theme.muted}]\n")
+
+        if errors:
+            console.print(f"[{theme.error}]✗ Failed to tag {len(errors)} transaction(s)[/{theme.error}]")
+            for error in errors:
+                console.print(f"[{theme.muted}]  {error['transaction_id']}: {error['error']}[/{theme.muted}]")
+            console.print()
+
+        if errors:
+            raise typer.Exit(1)
 
 
 @app.command(name="analysis")
