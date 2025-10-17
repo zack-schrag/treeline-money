@@ -115,6 +115,7 @@ class TaggingScreen(Screen):
 
     BINDINGS = [
         Binding("t", "type_tags", "Type Tags", show=False),
+        Binding("0", "manual_tag_entry", "Manual Tags", show=False),
         Binding("c", "clear_tags", "Clear Tags", show=False),
         Binding("1", "quick_tag(0)", "Tag 1", show=False),
         Binding("2", "quick_tag(1)", "Tag 2", show=False),
@@ -126,6 +127,7 @@ class TaggingScreen(Screen):
         Binding("ctrl+left", "prev_page", "Prev Page", show=False),
         Binding("r", "refresh", "Refresh", show=False),
         Binding("/", "focus_search", "Search", show=False),
+        Binding("escape", "cancel_inline_mode", "Cancel", show=False),
         Binding("q", "quit", "Quit", show=False),
     ]
 
@@ -175,6 +177,28 @@ class TaggingScreen(Screen):
         color: $text-muted;
         padding: 0 1;
     }
+
+    #tag_input_bar {
+        dock: bottom;
+        height: 5;
+        background: $panel;
+        border-top: solid $primary;
+        padding: 1;
+        display: none;
+    }
+
+    #tag_input_bar.visible {
+        display: block;
+    }
+
+    #tag_inline_input {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    #tag_suggestions_display {
+        color: $text-muted;
+    }
     """
 
     def __init__(
@@ -191,6 +215,8 @@ class TaggingScreen(Screen):
         self.batch_size = 100
         self.current_suggestions: List[str] = []
         self.search_query: str = ""
+        self.inline_tag_mode: bool = False
+        self.all_existing_tags: List[str] = []
 
     def compose(self) -> ComposeResult:
         import platform
@@ -209,9 +235,14 @@ class TaggingScreen(Screen):
                 yield Static("Select a transaction to see details", id="details_content")
 
         yield Static(
-            f"↑/↓: Nav | 1-5: Tag | T: Type | C: Clear | U: Toggle | {page_key}+←/→: Page | /: Search | Q: Quit",
+            f"↑/↓: Nav | 1-5: Tag | 0: Manual | C: Clear | U: Toggle | {page_key}+←/→: Page | /: Search | Q: Quit",
             id="help_bar",
         )
+
+        with Container(id="tag_input_bar"):
+            yield Input(placeholder="Enter tags (comma-separated)...", id="tag_inline_input")
+            yield Static("", id="tag_suggestions_display")
+
         yield Footer()
 
     def on_mount(self) -> None:
@@ -312,11 +343,49 @@ class TaggingScreen(Screen):
         self.update_details()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle search input changes."""
+        """Handle input changes."""
         if event.input.id == "search_input":
             self.search_query = event.value
             self.current_offset = 0  # Reset to first page
             self.load_data()
+        elif event.input.id == "tag_inline_input" and self.inline_tag_mode:
+            # Update autocomplete suggestions
+            self.update_tag_suggestions(event.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle input submission (Enter key)."""
+        if event.input.id == "tag_inline_input" and self.inline_tag_mode:
+            self.save_inline_tags()
+
+    def update_tag_suggestions(self, current_input: str) -> None:
+        """Update the tag suggestions based on current input."""
+        if not current_input:
+            suggestions_display = self.query_one("#tag_suggestions_display", Static)
+            suggestions_display.update("")
+            return
+
+        # Get the last partial tag being typed
+        parts = current_input.split(",")
+        last_part = parts[-1].strip().lower()
+
+        if not last_part:
+            suggestions_display = self.query_one("#tag_suggestions_display", Static)
+            suggestions_display.update("")
+            return
+
+        # Filter existing tags
+        matching_tags = [
+            tag for tag in self.all_existing_tags
+            if last_part in tag.lower() and tag not in [p.strip() for p in parts[:-1]]
+        ]
+
+        if matching_tags:
+            suggestions_text = "[dim]Suggestions:[/dim] " + ", ".join(matching_tags[:5])
+            suggestions_display = self.query_one("#tag_suggestions_display", Static)
+            suggestions_display.update(suggestions_text)
+        else:
+            suggestions_display = self.query_one("#tag_suggestions_display", Static)
+            suggestions_display.update("")
 
     @work(exclusive=True, thread=True)
     async def update_details(self) -> None:
@@ -401,8 +470,86 @@ class TaggingScreen(Screen):
 
     def action_focus_search(self) -> None:
         """Focus the search input."""
-        search_input = self.query_one("#search_input", Input)
-        search_input.focus()
+        if not self.inline_tag_mode:
+            search_input = self.query_one("#search_input", Input)
+            search_input.focus()
+
+    def action_manual_tag_entry(self) -> None:
+        """Enter manual tag entry mode."""
+        table = self.query_one(DataTable)
+
+        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+            return
+
+        transaction = self.transactions[table.cursor_row]
+        current_tags = ", ".join(transaction.tags) if transaction.tags else ""
+
+        # Show the inline tag input bar
+        self.inline_tag_mode = True
+        tag_input_bar = self.query_one("#tag_input_bar", Container)
+        tag_input_bar.add_class("visible")
+
+        # Set current tags and focus
+        tag_input = self.query_one("#tag_inline_input", Input)
+        tag_input.value = current_tags
+        tag_input.focus()
+
+        # Load all existing tags for autocomplete
+        self.load_all_tags()
+
+    def action_cancel_inline_mode(self) -> None:
+        """Cancel inline tag entry mode."""
+        if self.inline_tag_mode:
+            self.inline_tag_mode = False
+            tag_input_bar = self.query_one("#tag_input_bar", Container)
+            tag_input_bar.remove_class("visible")
+            tag_input = self.query_one("#tag_inline_input", Input)
+            tag_input.value = ""
+            suggestions_display = self.query_one("#tag_suggestions_display", Static)
+            suggestions_display.update("")
+
+            # Return focus to table
+            table = self.query_one(DataTable)
+            table.focus()
+
+    @work(exclusive=True, thread=True)
+    def load_all_tags(self) -> None:
+        """Load all existing tags for autocomplete."""
+        from treeline.cli import get_container
+
+        container = get_container()
+        tagging_service = container.tagging_service()
+
+        result = asyncio.run(tagging_service.get_tag_statistics(self.user_id))
+        if result.success:
+            # Sort tags by frequency (most used first)
+            self.all_existing_tags = sorted(
+                result.data.keys(),
+                key=lambda t: result.data[t],
+                reverse=True
+            )
+
+    def save_inline_tags(self) -> None:
+        """Save tags from the inline input."""
+        table = self.query_one(DataTable)
+
+        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+            return
+
+        transaction = self.transactions[table.cursor_row]
+        tag_input = self.query_one("#tag_inline_input", Input)
+        tags_text = tag_input.value.strip()
+
+        if not tags_text:
+            tags = []
+        else:
+            tags = [tag.strip() for tag in tags_text.split(",") if tag.strip()]
+
+        # Save the tags
+        self.save_tags(transaction, tags)
+
+        # Exit inline mode
+        self.action_cancel_inline_mode()
 
     def action_quick_tag(self, index: int) -> None:
         """Quickly apply a suggested tag by index (0-4)."""
