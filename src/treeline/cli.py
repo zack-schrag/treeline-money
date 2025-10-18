@@ -550,7 +550,7 @@ def tag_callback(
 
 @tag_app.command(name="apply")
 def tag_apply_command(
-    ids: str = typer.Option(..., "--ids", help="Comma-separated transaction IDs"),
+    ids: str = typer.Option(None, "--ids", help="Comma-separated transaction IDs (or read from stdin)"),
     tags: str = typer.Argument(..., help="Comma-separated tags to apply"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -563,16 +563,32 @@ def tag_apply_command(
       # Output result as JSON
       treeline tag apply --ids abc123 dining --json
 
-      # Use with query results
-      treeline query "SELECT transaction_id FROM transactions LIMIT 5" --json | \\
-        jq -r '.rows[][0]' | paste -sd',' - | \\
-        xargs -I {} treeline tag apply --ids {} auto-tagged
+      # Pipe IDs from query (one ID per line)
+      treeline query "SELECT id FROM transactions WHERE description ILIKE '%QFC%'" --json | \\
+        jq -r '.[].id' | treeline tag apply groceries
+
+      # Pipe comma-separated IDs
+      echo "abc123,def456" | treeline tag apply groceries
     """
     ensure_treeline_initialized()
     user_id = get_authenticated_user_id()
 
-    # Parse IDs
-    transaction_ids = [tid.strip() for tid in ids.split(",") if tid.strip()]
+    # Parse IDs from --ids option or stdin
+    if ids:
+        transaction_ids = [tid.strip() for tid in ids.split(",") if tid.strip()]
+    else:
+        # Read from stdin
+        stdin_input = sys.stdin.read().strip()
+        if not stdin_input:
+            display_error("No transaction IDs provided via --ids or stdin")
+            raise typer.Exit(1)
+
+        # Support both newline-separated and comma-separated IDs
+        if "\n" in stdin_input:
+            transaction_ids = [tid.strip() for tid in stdin_input.split("\n") if tid.strip()]
+        else:
+            transaction_ids = [tid.strip() for tid in stdin_input.split(",") if tid.strip()]
+
     if not transaction_ids:
         display_error("No transaction IDs provided")
         raise typer.Exit(1)
