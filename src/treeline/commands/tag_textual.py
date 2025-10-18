@@ -10,7 +10,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
-from textual.suggester import SuggestFromList
+from textual_autocomplete import AutoComplete, DropdownItem
 
 from treeline.domain import Transaction
 from treeline.tui_theme import ThemedApp
@@ -213,6 +213,7 @@ class TaggingScreen(Screen):
         self.search_query: str = ""
         self.inline_tag_mode: bool = False
         self.all_existing_tags: List[str] = []
+        self.tag_autocomplete: AutoComplete | None = None
 
     def compose(self) -> ComposeResult:
         import platform
@@ -236,10 +237,14 @@ class TaggingScreen(Screen):
         )
 
         with Container(id="tag_input_bar"):
-            yield Input(
-                placeholder="Enter tags (comma-separated), Tab to autocomplete...",
+            tag_input = Input(
+                placeholder="Enter tags (comma-separated), ↓ to see suggestions...",
                 id="tag_inline_input"
             )
+            yield tag_input
+            # AutoComplete widget will be added dynamically when tags are loaded
+            self.tag_autocomplete = AutoComplete(tag_input, candidates=[])
+            yield self.tag_autocomplete
 
         yield Footer()
 
@@ -493,16 +498,14 @@ class TaggingScreen(Screen):
                 reverse=True
             )
 
-            # Update the input widget's suggester if we're in inline tag mode
-            if self.inline_tag_mode:
-                def set_suggester():
-                    tag_input = self.query_one("#tag_inline_input", Input)
-                    tag_input.suggester = SuggestFromList(
-                        self.all_existing_tags,
-                        case_sensitive=False
-                    )
+            # Update the AutoComplete widget's candidates if we're in inline tag mode
+            if self.inline_tag_mode and self.tag_autocomplete:
+                def update_autocomplete():
+                    # Convert tags to DropdownItem objects
+                    items = [DropdownItem(tag) for tag in self.all_existing_tags]
+                    self.tag_autocomplete.candidates = items
 
-                self.app.call_from_thread(set_suggester)
+                self.app.call_from_thread(update_autocomplete)
 
     def save_inline_tags(self) -> None:
         """Save tags from the inline input."""
