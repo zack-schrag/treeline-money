@@ -1,174 +1,95 @@
 """TUI theme integration for Textual applications.
 
-This module bridges Treeline's theme system with Textual's CSS styling,
-providing a consistent look and feel across all TUI modes.
+This module provides Treeline's custom theme using Textual's native Theme system,
+and supports auto-discovery of user themes from ~/.treeline/themes/.
 """
 
+import importlib.util
+from pathlib import Path
+from typing import Iterator
+
 from textual.app import App
+from textual.theme import Theme
 
-from treeline.theme import Theme, get_theme
 
-
-def generate_textual_css(theme: Theme) -> str:
-    """Generate Textual CSS from Treeline theme.
-
-    Args:
-        theme: Treeline theme instance
+def get_treeline_theme() -> Theme:
+    """Get Treeline's custom dark theme with sage green colors.
 
     Returns:
-        CSS string for Textual apps
+        Textual Theme instance with Treeline branding
     """
-    # Parse colors to extract hex values (remove 'bold', 'dim', etc.)
-    def parse_color(color_str: str) -> str:
-        """Extract hex color or color name from theme string."""
-        if "#" in color_str:
-            # Extract hex code
-            parts = color_str.split()
-            for part in parts:
-                if part.startswith("#"):
-                    return part
-        # Return as-is if no hex (might be named color or modifier)
-        return color_str.split()[0] if " " in color_str else color_str
+    return Theme(
+        name="treeline",
+        primary="#44755a",  # Sage green
+        secondary="#7C9885",  # Lighter sage
+        accent="#75B58F",  # Accent green
+        warning="#FBBF24",  # Warm yellow
+        error="#F87171",  # Soft red
+        success="#4A7C59",  # Forest green
+        background="#1a1a1a",  # Dark background
+        surface="#2a2a2a",  # Slightly lighter surface
+        panel="#1f1f1f",  # Panel background
+        foreground="#F9FAFB",  # Light text
+        dark=True,
+    )
 
-    primary = parse_color(theme.primary)
-    success = parse_color(theme.success)
-    error = parse_color(theme.error)
-    warning = parse_color(theme.warning)
-    info = parse_color(theme.info)
-    neutral = parse_color(theme.neutral)
-    muted = parse_color(theme.muted)
 
-    return f"""
-    /* Treeline TUI Theme - CSS Variables */
+def load_user_themes() -> Iterator[Theme]:
+    """Load user-defined themes from ~/.treeline/themes/ directory.
 
-    /* Color palette from theme */
-    $primary: {primary};
-    $success: {success};
-    $error: {error};
-    $warning: {warning};
-    $accent: {info};
+    User themes should be Python files that define a `theme` variable
+    containing a Textual Theme instance.
 
-    /* Backgrounds */
-    $background: #1a1a1a;
-    $surface: #2a2a2a;
-    $panel: #1f1f1f;
+    Example user theme file (~/.treeline/themes/my_theme.py):
+        from textual.theme import Theme
 
-    /* Text colors */
-    $text: {neutral};
-    $text-muted: {muted};
-    $text-disabled: #6b6b6b;
+        theme = Theme(
+            name="my-custom-theme",
+            primary="#ff6b6b",
+            dark=True,
+        )
 
-    /* Border colors */
-    $border: {primary};
-    $border-accent: {info};
-
-    /* Default text styling */
-    Screen {{
-        background: $background;
-        color: $text;
-    }}
-
-    /* Headers */
-    Header {{
-        background: $primary;
-        color: $background;
-    }}
-
-    Footer {{
-        background: $panel;
-    }}
-
-    /* Containers with borders */
-    Container {{
-        background: $panel;
-    }}
-
-    /* Data table styling */
-    DataTable {{
-        background: $surface;
-        color: $text;
-    }}
-
-    DataTable > .datatable--cursor {{
-        background: $primary 20%;
-    }}
-
-    DataTable > .datatable--header {{
-        background: $panel;
-        color: $accent;
-        text-style: bold;
-    }}
-
-    /* Text editor styling */
-    TextArea {{
-        background: $surface;
-        color: $text;
-    }}
-
-    TextArea:focus {{
-        border: solid $primary;
-    }}
-
-    /* Button styling */
-    Button {{
-        background: $panel;
-        color: $text;
-        border: solid $border;
-    }}
-
-    Button:hover {{
-        background: $primary;
-        color: $background;
-    }}
-
-    Button.-primary {{
-        background: $primary;
-        color: $background;
-    }}
-
-    Button.-primary:hover {{
-        background: $success;
-    }}
-
-    /* Input styling */
-    Input {{
-        background: $surface;
-        color: $text;
-        border: solid $border;
-    }}
-
-    Input:focus {{
-        border: solid $accent;
-    }}
-
-    /* Static content styling */
-    Static {{
-        color: $text;
-    }}
-
-    .error {{
-        color: $error;
-    }}
-
-    .success {{
-        color: $success;
-    }}
-
-    .warning {{
-        color: $warning;
-    }}
-
-    .muted {{
-        color: $text-muted;
-    }}
+    Yields:
+        Theme instances from user theme files
     """
+    themes_dir = Path.home() / ".treeline" / "themes"
+
+    if not themes_dir.exists():
+        return
+
+    for theme_file in themes_dir.glob("*.py"):
+        if theme_file.name.startswith("_"):
+            continue
+
+        try:
+            # Load the Python module
+            spec = importlib.util.spec_from_file_location(
+                f"user_theme_{theme_file.stem}", theme_file
+            )
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                # Look for a 'theme' variable
+                if hasattr(module, "theme") and isinstance(module.theme, Theme):
+                    yield module.theme
+
+        except Exception:
+            # Silently skip invalid theme files
+            # TODO: Consider logging these failures
+            continue
 
 
 class ThemedApp(App):
     """Base class for Treeline TUI applications with consistent theming.
 
-    All Treeline TUI modes should inherit from this class to ensure
-    consistent look and feel across the application.
+    All Treeline TUI modes should inherit from this class to ensure:
+    - Treeline custom theme is available
+    - User custom themes from ~/.treeline/themes/ are auto-discovered
+    - Access to Textual's built-in theme picker (Ctrl+\\ or Ctrl+P)
+
+    The default theme is set to "treeline" but users can switch via
+    the command palette.
 
     Example:
         class AnalysisApp(ThemedApp):
@@ -180,13 +101,13 @@ class ThemedApp(App):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Apply theme CSS
-        theme = get_theme()
-        self.theme_css = generate_textual_css(theme)
 
-    @property
-    def CSS(self) -> str:
-        """Return combined theme + app-specific CSS."""
-        # Combine theme CSS with any app-specific CSS
-        app_css = getattr(super(), 'CSS', '')
-        return self.theme_css + "\n" + app_css
+        # Register Treeline custom theme
+        self.register_theme(get_treeline_theme())
+
+        # Auto-discover and register user themes
+        for user_theme in load_user_themes():
+            self.register_theme(user_theme)
+
+        # Set default theme to Treeline
+        self.theme = "treeline"
