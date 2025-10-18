@@ -180,7 +180,7 @@ class TaggingScreen(Screen):
 
     #tag_input_bar {
         dock: bottom;
-        height: 5;
+        height: auto;
         background: $panel;
         border-top: solid $primary;
         padding: 1;
@@ -191,13 +191,13 @@ class TaggingScreen(Screen):
         display: block;
     }
 
-    #tag_inline_input {
-        width: 100%;
+    #tag_suggestions_display {
+        color: $text-muted;
         margin-bottom: 1;
     }
 
-    #tag_suggestions_display {
-        color: $text-muted;
+    #tag_inline_input {
+        width: 100%;
     }
     """
 
@@ -240,8 +240,8 @@ class TaggingScreen(Screen):
         )
 
         with Container(id="tag_input_bar"):
-            yield Input(placeholder="Enter tags (comma-separated)...", id="tag_inline_input")
             yield Static("", id="tag_suggestions_display")
+            yield Input(placeholder="Enter tags (comma-separated)...", id="tag_inline_input")
 
         yield Footer()
 
