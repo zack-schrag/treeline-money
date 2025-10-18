@@ -256,6 +256,9 @@ class TaggingScreen(Screen):
         table.add_column("Amount", width=12)
         table.add_column("Tags", width=20)
 
+        # Load all tags eagerly for autocomplete
+        self.load_all_tags()
+
         # Load data
         self.load_data()
 
@@ -359,8 +362,9 @@ class TaggingScreen(Screen):
 
     def update_tag_suggestions(self, current_input: str) -> None:
         """Update the tag suggestions based on current input."""
+        suggestions_display = self.query_one("#tag_suggestions_display", Static)
+
         if not current_input:
-            suggestions_display = self.query_one("#tag_suggestions_display", Static)
             suggestions_display.update("")
             return
 
@@ -369,8 +373,12 @@ class TaggingScreen(Screen):
         last_part = parts[-1].strip().lower()
 
         if not last_part:
-            suggestions_display = self.query_one("#tag_suggestions_display", Static)
             suggestions_display.update("")
+            return
+
+        # Check if tags are loaded yet
+        if not self.all_existing_tags:
+            suggestions_display.update("[dim]Loading tags...[/dim]")
             return
 
         # Filter existing tags
@@ -381,11 +389,13 @@ class TaggingScreen(Screen):
 
         if matching_tags:
             suggestions_text = "[dim]Suggestions:[/dim] " + ", ".join(matching_tags[:5])
-            suggestions_display = self.query_one("#tag_suggestions_display", Static)
             suggestions_display.update(suggestions_text)
         else:
-            suggestions_display = self.query_one("#tag_suggestions_display", Static)
-            suggestions_display.update("")
+            # Show feedback when no matches found
+            if len(self.all_existing_tags) > 0:
+                suggestions_display.update("[dim]No matching tags[/dim]")
+            else:
+                suggestions_display.update("[dim]No existing tags yet[/dim]")
 
     @work(exclusive=True, thread=True)
     async def update_details(self) -> None:
@@ -494,8 +504,9 @@ class TaggingScreen(Screen):
         tag_input.value = current_tags
         tag_input.focus()
 
-        # Load all existing tags for autocomplete
-        self.load_all_tags()
+        # Tags are already loaded in on_mount, but refresh if needed
+        if not self.all_existing_tags:
+            self.load_all_tags()
 
     def action_cancel_inline_mode(self) -> None:
         """Cancel inline tag entry mode."""
