@@ -677,12 +677,12 @@ class DuckDBRepository(Repository):
             conn = self._get_connection(user_id, read_only=True)
 
             # Query to unnest tags and count occurrences
+            # DuckDB requires UNNEST in FROM clause, not SELECT
             result = conn.execute("""
                 SELECT
-                    UNNEST(tags) as tag,
+                    tag,
                     COUNT(*) as count
-                FROM sys_transactions
-                WHERE tags IS NOT NULL AND len(tags) > 0
+                FROM sys_transactions, UNNEST(tags) as t(tag)
                 GROUP BY tag
                 ORDER BY count DESC
             """).fetchall()

@@ -528,6 +528,7 @@ class TaggingScreen(Screen):
         tagging_service = container.tagging_service()
 
         result = asyncio.run(tagging_service.get_tag_statistics(self.user_id))
+
         if result.success:
             # Sort tags by frequency (most used first)
             self.all_existing_tags = sorted(
