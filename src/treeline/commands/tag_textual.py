@@ -10,6 +10,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen, ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static
+from textual.suggester import SuggestFromList
 
 from treeline.domain import Transaction
 from treeline.tui_theme import ThemedApp
@@ -191,11 +192,6 @@ class TaggingScreen(Screen):
         display: block;
     }
 
-    #tag_suggestions_display {
-        color: $text-muted;
-        margin-bottom: 1;
-    }
-
     #tag_inline_input {
         width: 100%;
     }
@@ -240,8 +236,10 @@ class TaggingScreen(Screen):
         )
 
         with Container(id="tag_input_bar"):
-            yield Static("", id="tag_suggestions_display")
-            yield Input(placeholder="Enter tags (comma-separated)...", id="tag_inline_input")
+            yield Input(
+                placeholder="Enter tags (comma-separated), Tab to autocomplete...",
+                id="tag_inline_input"
+            )
 
         yield Footer()
 
@@ -348,51 +346,11 @@ class TaggingScreen(Screen):
             self.search_query = event.value
             self.current_offset = 0  # Reset to first page
             self.load_data()
-        elif event.input.id == "tag_inline_input" and self.inline_tag_mode:
-            # Update autocomplete suggestions
-            self.update_tag_suggestions(event.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission (Enter key)."""
         if event.input.id == "tag_inline_input" and self.inline_tag_mode:
             self.save_inline_tags()
-
-    def update_tag_suggestions(self, current_input: str) -> None:
-        """Update the tag suggestions based on current input."""
-        suggestions_display = self.query_one("#tag_suggestions_display", Static)
-
-        if not current_input:
-            suggestions_display.update("")
-            return
-
-        # Get the last partial tag being typed
-        parts = current_input.split(",")
-        last_part = parts[-1].strip().lower()
-
-        if not last_part:
-            suggestions_display.update("")
-            return
-
-        # Check if tags are loaded yet
-        if not self.all_existing_tags:
-            suggestions_display.update("[dim]Loading tags...[/dim]")
-            return
-
-        # Filter existing tags
-        matching_tags = [
-            tag for tag in self.all_existing_tags
-            if last_part in tag.lower() and tag not in [p.strip() for p in parts[:-1]]
-        ]
-
-        if matching_tags:
-            suggestions_text = "[dim]Suggestions:[/dim] " + ", ".join(matching_tags[:5])
-            suggestions_display.update(suggestions_text)
-        else:
-            # Show feedback when no matches found
-            if len(self.all_existing_tags) > 0:
-                suggestions_display.update("[dim]No matching tags[/dim]")
-            else:
-                suggestions_display.update("[dim]No existing tags yet[/dim]")
 
     @work(exclusive=True, thread=True)
     async def update_details(self) -> None:
@@ -512,8 +470,6 @@ class TaggingScreen(Screen):
             tag_input_bar.remove_class("visible")
             tag_input = self.query_one("#tag_inline_input", Input)
             tag_input.value = ""
-            suggestions_display = self.query_one("#tag_suggestions_display", Static)
-            suggestions_display.update("")
 
             # Return focus to table
             table = self.query_one(DataTable)
@@ -537,13 +493,16 @@ class TaggingScreen(Screen):
                 reverse=True
             )
 
-            # Trigger UI update if we're in inline tag mode
+            # Update the input widget's suggester if we're in inline tag mode
             if self.inline_tag_mode:
-                def refresh_suggestions():
+                def set_suggester():
                     tag_input = self.query_one("#tag_inline_input", Input)
-                    self.update_tag_suggestions(tag_input.value)
+                    tag_input.suggester = SuggestFromList(
+                        self.all_existing_tags,
+                        case_sensitive=False
+                    )
 
-                self.app.call_from_thread(refresh_suggestions)
+                self.app.call_from_thread(set_suggester)
 
     def save_inline_tags(self) -> None:
         """Save tags from the inline input."""
