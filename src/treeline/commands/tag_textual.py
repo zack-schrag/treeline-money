@@ -16,55 +16,6 @@ from treeline.domain import Transaction
 from treeline.tui_theme import ThemedApp
 
 
-class TagAutoComplete(AutoComplete):
-    """Custom autocomplete that prioritizes prefix matches over substring matches."""
-
-    def get_candidates(self, input_state) -> list[DropdownItem]:
-        """
-        Get filtered candidates, prioritizing tags that start with the search string.
-
-        For example, if user types "s":
-        - "subscriptions" (starts with "s") comes before
-        - "groceries" (contains "s" but doesn't start with it)
-        """
-        search_text = input_state.value.lower()
-
-        if not search_text:
-            # Return all candidates if no search text
-            return self._get_all_candidates()
-
-        all_candidates = self._get_all_candidates()
-
-        # Split into prefix matches and substring matches
-        prefix_matches = []
-        substring_matches = []
-
-        for item in all_candidates:
-            item_text = item.main.value.lower()
-            if item_text.startswith(search_text):
-                prefix_matches.append(item)
-            elif search_text in item_text:
-                substring_matches.append(item)
-
-        # Return prefix matches first, then substring matches
-        return prefix_matches + substring_matches
-
-    def _get_all_candidates(self) -> list[DropdownItem]:
-        """Get all available candidates (to be set externally)."""
-        # This will be populated when tags are loaded
-        return getattr(self, '_candidates', [])
-
-    @property
-    def candidates(self) -> list[DropdownItem]:
-        """Get the candidates list."""
-        return self._get_all_candidates()
-
-    @candidates.setter
-    def candidates(self, items: list[DropdownItem]) -> None:
-        """Set the candidates list."""
-        self._candidates = items
-
-
 class TagEditModal(ModalScreen[bool]):
     """Modal screen for editing transaction tags."""
 
@@ -262,7 +213,7 @@ class TaggingScreen(Screen):
         self.search_query: str = ""
         self.inline_tag_mode: bool = False
         self.all_existing_tags: List[str] = []
-        self.tag_autocomplete: TagAutoComplete | None = None
+        self.tag_autocomplete: AutoComplete | None = None
 
     def compose(self) -> ComposeResult:
         import platform
@@ -291,8 +242,8 @@ class TaggingScreen(Screen):
                 id="tag_inline_input"
             )
             yield tag_input
-            # Custom autocomplete that prioritizes prefix matches
-            self.tag_autocomplete = TagAutoComplete(tag_input, candidates=[])
+            # Autocomplete widget for tag suggestions
+            self.tag_autocomplete = AutoComplete(tag_input, candidates=[])
             yield self.tag_autocomplete
 
         yield Footer()
