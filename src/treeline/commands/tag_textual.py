@@ -256,9 +256,6 @@ class TaggingScreen(Screen):
         table.add_column("Amount", width=12)
         table.add_column("Tags", width=20)
 
-        # Load all tags eagerly for autocomplete
-        self.load_all_tags()
-
         # Load data
         self.load_data()
 
@@ -504,9 +501,8 @@ class TaggingScreen(Screen):
         tag_input.value = current_tags
         tag_input.focus()
 
-        # Tags are already loaded in on_mount, but refresh if needed
-        if not self.all_existing_tags:
-            self.load_all_tags()
+        # Load tags for autocomplete (will refresh UI when done)
+        self.load_all_tags()
 
     def action_cancel_inline_mode(self) -> None:
         """Cancel inline tag entry mode."""
@@ -539,6 +535,14 @@ class TaggingScreen(Screen):
                 key=lambda t: result.data[t],
                 reverse=True
             )
+
+            # Trigger UI update if we're in inline tag mode
+            if self.inline_tag_mode:
+                def refresh_suggestions():
+                    tag_input = self.query_one("#tag_inline_input", Input)
+                    self.update_tag_suggestions(tag_input.value)
+
+                self.app.call_from_thread(refresh_suggestions)
 
     def save_inline_tags(self) -> None:
         """Save tags from the inline input."""
