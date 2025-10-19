@@ -24,11 +24,9 @@ from textual.widgets import (
     Static,
     TextArea,
 )
-from textual.widgets.text_area import TextAreaTheme
 from textual.reactive import reactive
 
 from rich.console import Console
-from rich.style import Style
 
 from treeline.domain import ChartConfig
 from treeline.commands.chart_wizard import ChartWizardConfig, create_chart_from_config
@@ -37,51 +35,6 @@ from treeline.tui_theme import ThemedApp
 
 console = Console()
 theme = get_theme()
-
-
-def get_treeline_sql_theme() -> TextAreaTheme:
-    """Create a custom SQL editor theme matching Treeline colors.
-
-    Returns:
-        TextAreaTheme configured with Treeline sage green color palette
-    """
-    return TextAreaTheme(
-        name="treeline_sql",
-        base_style=Style(color="#F9FAFB", bgcolor="#1a1a1a"),  # Light text on dark background
-        cursor_style=Style.parse("reverse"),
-        cursor_line_style=Style(bgcolor="#2a2a2a"),  # Slightly lighter background for cursor line
-        cursor_line_gutter_style=Style(color="#7C9885", bgcolor="#2a2a2a"),  # Sage green gutter on cursor line
-        selection_style=Style(bgcolor="#44755a"),  # Sage green selection
-        bracket_matching_style=Style.parse("bold #75B58F"),  # Accent green for matching brackets
-        gutter_style=Style(color="#7C9885", bgcolor="#1f1f1f"),  # Sage green gutter
-        syntax_styles={
-            # SQL Keywords
-            "keyword": Style.parse("bold #75B58F"),  # Accent green for SELECT, FROM, WHERE, etc.
-            "keyword.declaration": Style.parse("bold #75B58F"),
-            "keyword.namespace": Style.parse("bold #75B58F"),
-
-            # Strings and literals
-            "string": Style(color="#FBBF24"),  # Warm yellow for strings
-            "string.special": Style(color="#FBBF24"),
-            "number": Style(color="#F9FAFB"),  # Light text for numbers
-
-            # Comments
-            "comment": Style.parse("italic #7C9885"),  # Lighter sage for comments
-
-            # Functions and operators
-            "function": Style(color="#4A7C59"),  # Forest green for functions
-            "operator": Style(color="#F9FAFB"),  # Light text for operators
-
-            # Types and constants
-            "type": Style(color="#44755a"),  # Sage green for types
-            "constant": Style(color="#F9FAFB"),  # Light text for constants
-            "constant.builtin": Style(color="#75B58F"),  # Accent green for NULL, TRUE, FALSE
-
-            # Variables and identifiers
-            "variable": Style(color="#F9FAFB"),  # Light text for variables
-            "property": Style(color="#F9FAFB"),  # Light text for properties
-        }
-    )
 
 
 def get_container():
@@ -302,17 +255,15 @@ class AnalysisScreen(Screen):
             yield TextArea(
                 text="",
                 language="sql",
+                theme="vscode_dark",
                 show_line_numbers=True,
                 id="sql_editor"
             )
         yield Footer()
 
     def on_mount(self) -> None:
-        """Set initial focus and register custom SQL theme."""
+        """Set initial focus."""
         sql_editor = self.query_one("#sql_editor", TextArea)
-        # Register and apply custom Treeline SQL theme
-        sql_editor.register_theme(get_treeline_sql_theme())
-        sql_editor.theme = "treeline_sql"
         sql_editor.focus()
 
     def action_execute_query(self) -> None:
@@ -756,6 +707,25 @@ class AnalysisApp(ThemedApp):
     def on_mount(self) -> None:
         """Push the main screen when app starts."""
         self.push_screen(AnalysisScreen())
+
+    def watch_theme(self, theme_name: str) -> None:
+        """Called when app theme changes - update TextArea theme accordingly."""
+        try:
+            # Find the AnalysisScreen and update its TextArea theme
+            screen = self.screen
+            if isinstance(screen, AnalysisScreen):
+                sql_editor = screen.query_one("#sql_editor", TextArea)
+
+                # Map app theme to appropriate TextArea theme
+                light_themes = {"textual-light", "solarized-light", "catppuccin-latte"}
+
+                if theme_name in light_themes:
+                    sql_editor.theme = "github_light"
+                else:
+                    sql_editor.theme = "vscode_dark"
+        except Exception:
+            # Ignore if screen/widget not ready yet
+            pass
 
 
 def handle_analysis_command() -> None:
