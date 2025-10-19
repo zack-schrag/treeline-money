@@ -62,6 +62,6 @@ The session ends when:
 - A complex architectural decision is needed and the user determines to defer the task to later.
 
 ## Advanced Variations
-- The user may prompt you to implement a larger feature, in this case, they will direct you to a specific subfolder within the tasks folder, which will contain all related tasks.
+- The user may prompt you to implement a larger feature, in this case, they will direct you to a specific subfolder within the tasks folder, which will contain all related tasks. When the entire feature for the subfolder is done, you MUST move the whole folder into docs/internal/tasks/done.
 - In this case, the user will be responsible for specifying order. If none is given, use your best judgement.
 - Look for a CLAUDE.md, AGENTS.md, or README.md for a full overview first.

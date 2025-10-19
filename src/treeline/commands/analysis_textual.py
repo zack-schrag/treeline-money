@@ -24,6 +24,7 @@ from textual.widgets import (
     Static,
     TextArea,
 )
+from textual.widgets.text_area import TextAreaTheme
 from textual.reactive import reactive
 
 from rich.console import Console
@@ -35,6 +36,51 @@ from treeline.tui_theme import ThemedApp
 
 console = Console()
 theme = get_theme()
+
+
+def get_treeline_sql_theme() -> TextAreaTheme:
+    """Create a custom SQL editor theme matching Treeline colors.
+
+    Returns:
+        TextAreaTheme configured with Treeline sage green color palette
+    """
+    return TextAreaTheme(
+        name="treeline_sql",
+        base_style="#F9FAFB on #1a1a1a",  # Light text on dark background
+        cursor_style="reverse",
+        cursor_line_style="on #2a2a2a",  # Slightly lighter background for cursor line
+        cursor_line_gutter_style="#7C9885 on #2a2a2a",  # Sage green gutter on cursor line
+        selection_style="on #44755a",  # Sage green selection
+        bracket_matching_style="bold #75B58F",  # Accent green for matching brackets
+        gutter_style="#7C9885 on #1f1f1f",  # Sage green gutter
+        syntax_styles={
+            # SQL Keywords
+            "keyword": "bold #75B58F",  # Accent green for SELECT, FROM, WHERE, etc.
+            "keyword.declaration": "bold #75B58F",
+            "keyword.namespace": "bold #75B58F",
+
+            # Strings and literals
+            "string": "#FBBF24",  # Warm yellow for strings
+            "string.special": "#FBBF24",
+            "number": "#F9FAFB",  # Light text for numbers
+
+            # Comments
+            "comment": "italic #7C9885",  # Lighter sage for comments
+
+            # Functions and operators
+            "function": "#4A7C59",  # Forest green for functions
+            "operator": "#F9FAFB",  # Light text for operators
+
+            # Types and constants
+            "type": "#44755a",  # Sage green for types
+            "constant": "#F9FAFB",  # Light text for constants
+            "constant.builtin": "#75B58F",  # Accent green for NULL, TRUE, FALSE
+
+            # Variables and identifiers
+            "variable": "#F9FAFB",  # Light text for variables
+            "property": "#F9FAFB",  # Light text for properties
+        }
+    )
 
 
 def get_container():
@@ -255,15 +301,17 @@ class AnalysisScreen(Screen):
             yield TextArea(
                 text="",
                 language="sql",
-                theme="monokai",
                 show_line_numbers=True,
                 id="sql_editor"
             )
         yield Footer()
 
     def on_mount(self) -> None:
-        """Set initial focus."""
+        """Set initial focus and register custom SQL theme."""
         sql_editor = self.query_one("#sql_editor", TextArea)
+        # Register and apply custom Treeline SQL theme
+        sql_editor.register_theme(get_treeline_sql_theme())
+        sql_editor.theme = "treeline_sql"
         sql_editor.focus()
 
     def action_execute_query(self) -> None:
@@ -314,6 +362,9 @@ class AnalysisScreen(Screen):
             self.current_rows = rows
             self.current_columns = columns
             results_panel.update_results(columns, rows)
+            # Auto-focus results table after successful query
+            table = self.query_one("#results_table", DataTable)
+            table.focus()
         else:
             results_panel.update_error(f"Query failed: {result.error}")
 
