@@ -28,6 +28,7 @@ from textual.widgets.text_area import TextAreaTheme
 from textual.reactive import reactive
 
 from rich.console import Console
+from rich.style import Style
 
 from treeline.domain import ChartConfig
 from treeline.commands.chart_wizard import ChartWizardConfig, create_chart_from_config
@@ -46,39 +47,39 @@ def get_treeline_sql_theme() -> TextAreaTheme:
     """
     return TextAreaTheme(
         name="treeline_sql",
-        base_style="#F9FAFB on #1a1a1a",  # Light text on dark background
-        cursor_style="reverse",
-        cursor_line_style="on #2a2a2a",  # Slightly lighter background for cursor line
-        cursor_line_gutter_style="#7C9885 on #2a2a2a",  # Sage green gutter on cursor line
-        selection_style="on #44755a",  # Sage green selection
-        bracket_matching_style="bold #75B58F",  # Accent green for matching brackets
-        gutter_style="#7C9885 on #1f1f1f",  # Sage green gutter
+        base_style=Style(color="#F9FAFB", bgcolor="#1a1a1a"),  # Light text on dark background
+        cursor_style=Style.parse("reverse"),
+        cursor_line_style=Style(bgcolor="#2a2a2a"),  # Slightly lighter background for cursor line
+        cursor_line_gutter_style=Style(color="#7C9885", bgcolor="#2a2a2a"),  # Sage green gutter on cursor line
+        selection_style=Style(bgcolor="#44755a"),  # Sage green selection
+        bracket_matching_style=Style.parse("bold #75B58F"),  # Accent green for matching brackets
+        gutter_style=Style(color="#7C9885", bgcolor="#1f1f1f"),  # Sage green gutter
         syntax_styles={
             # SQL Keywords
-            "keyword": "bold #75B58F",  # Accent green for SELECT, FROM, WHERE, etc.
-            "keyword.declaration": "bold #75B58F",
-            "keyword.namespace": "bold #75B58F",
+            "keyword": Style.parse("bold #75B58F"),  # Accent green for SELECT, FROM, WHERE, etc.
+            "keyword.declaration": Style.parse("bold #75B58F"),
+            "keyword.namespace": Style.parse("bold #75B58F"),
 
             # Strings and literals
-            "string": "#FBBF24",  # Warm yellow for strings
-            "string.special": "#FBBF24",
-            "number": "#F9FAFB",  # Light text for numbers
+            "string": Style(color="#FBBF24"),  # Warm yellow for strings
+            "string.special": Style(color="#FBBF24"),
+            "number": Style(color="#F9FAFB"),  # Light text for numbers
 
             # Comments
-            "comment": "italic #7C9885",  # Lighter sage for comments
+            "comment": Style.parse("italic #7C9885"),  # Lighter sage for comments
 
             # Functions and operators
-            "function": "#4A7C59",  # Forest green for functions
-            "operator": "#F9FAFB",  # Light text for operators
+            "function": Style(color="#4A7C59"),  # Forest green for functions
+            "operator": Style(color="#F9FAFB"),  # Light text for operators
 
             # Types and constants
-            "type": "#44755a",  # Sage green for types
-            "constant": "#F9FAFB",  # Light text for constants
-            "constant.builtin": "#75B58F",  # Accent green for NULL, TRUE, FALSE
+            "type": Style(color="#44755a"),  # Sage green for types
+            "constant": Style(color="#F9FAFB"),  # Light text for constants
+            "constant.builtin": Style(color="#75B58F"),  # Accent green for NULL, TRUE, FALSE
 
             # Variables and identifiers
-            "variable": "#F9FAFB",  # Light text for variables
-            "property": "#F9FAFB",  # Light text for properties
+            "variable": Style(color="#F9FAFB"),  # Light text for variables
+            "property": Style(color="#F9FAFB"),  # Light text for properties
         }
     )
 
