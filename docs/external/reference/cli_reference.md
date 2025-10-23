@@ -239,7 +239,7 @@ Launch interactive data analysis workspace.
 **Description:** A Jupyter-like split-panel environment for SQL editing, results viewing, and chart creation.
 
 **Keyboard Shortcuts:**
-- `Alt+Enter` / `F5` - Execute query
+- `Opt+Enter` / `F5` - Execute query
 - `Tab` - Switch focus between SQL editor and results
 - `g` - Create chart (wizard)
 - `v` - Toggle results ↔ chart view

@@ -51,7 +51,7 @@ A Jupyter-like split-panel workspace for fluid data exploration. Think of it as 
 
 | Shortcut | Action |
 |----------|--------|
-| **Alt+Enter** | Execute the current SQL query |
+| **Opt+Enter** | Execute the current SQL query |
 | **F5** | Execute query (alternative binding) |
 | **Tab** | Switch focus between SQL editor and results panel |
 | **↑↓** | Navigate results rows (when results focused) |
@@ -89,7 +89,7 @@ The chart displays immediately in the results panel. Press `v` to toggle between
    ```
 
 2. Write a SQL query in the bottom panel
-3. Press `Alt+Enter` to execute
+3. Press `Opt+Enter` to execute
 4. Review results in the top panel
 5. Press `g` to create a chart
 6. Press `s` to save the query or chart

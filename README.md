@@ -107,7 +107,7 @@ treeline status --json > daily_snapshot.json
 ### Analysis Mode
 Launch with `treeline analysis`:
 - Split-panel SQL editor and results viewer
-- Press `Alt+Enter` to execute queries
+- Press `Opt+Enter` (or `F5`) to execute queries
 - Press `g` to create charts
 - Press `s` to save queries and charts
 - Press `v` to toggle between results and chart view

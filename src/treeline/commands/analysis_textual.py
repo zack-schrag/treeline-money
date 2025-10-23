@@ -117,7 +117,7 @@ class ResultsPanel(Container):
         """Update display with error message."""
         self.error_message = error
         error_display = self.query_one("#error_display", Static)
-        error_display.update(f"[red bold]Error[/red bold]\n\n{error}\n\nFix the SQL below and press Ctrl+Enter to execute again.")
+        error_display.update(f"[red bold]Error[/red bold]\n\n{error}\n\nFix the SQL below and press Opt+Enter to execute again.")
         self._update_visibility()
 
     def show_help(self) -> None:
@@ -126,7 +126,7 @@ class ResultsPanel(Container):
         help_text = """[bold green]Analysis Mode Shortcuts[/bold green]
 
 [bold]SQL Execution[/bold]
-  Alt+Enter   - Execute query
+  Opt+Enter   - Execute query
   F5          - Execute query (alternative)
 
 [bold]Navigation[/bold]
@@ -182,7 +182,7 @@ class AnalysisScreen(Screen):
     """Main analysis mode screen with SQL editor and results."""
 
     BINDINGS = [
-        Binding("escape,enter", "execute_query", "Execute", key_display="Alt+Enter"),
+        Binding("ctrl+j", "execute_query", "Execute", key_display="Opt+Enter"),
         Binding("f5", "execute_query", "Execute", key_display="F5", show=False),
         Binding("tab", "focus_next", "Switch Focus"),
         Binding("g", "create_chart", "Create Chart", show=False),

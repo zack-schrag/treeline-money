@@ -37,7 +37,7 @@ $ treeline analysis
 │ ORDER BY transaction_date DESC █             │
 └─────────────────────────────────────────────────┘
 
-[Press Alt+Enter to execute, Tab to switch, g for charts]
+[Press Opt+Enter to execute, Tab to switch, g for charts]
 ```
 
 ## Why Treeline?
