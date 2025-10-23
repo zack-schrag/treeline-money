@@ -7,6 +7,7 @@ This module implements a split-panel TUI using Textual:
 """
 
 import asyncio
+import platform
 from uuid import UUID
 
 from textual import on, work
@@ -116,17 +117,19 @@ class ResultsPanel(Container):
     def update_error(self, error: str) -> None:
         """Update display with error message."""
         self.error_message = error
+        execute_key = "Opt+Enter" if platform.system() == "Darwin" else "Alt+Enter"
         error_display = self.query_one("#error_display", Static)
-        error_display.update(f"[red bold]Error[/red bold]\n\n{error}\n\nFix the SQL below and press Opt+Enter to execute again.")
+        error_display.update(f"[red bold]Error[/red bold]\n\n{error}\n\nFix the SQL below and press {execute_key} to execute again.")
         self._update_visibility()
 
     def show_help(self) -> None:
         """Show help overlay."""
         self.view_mode = "help"
-        help_text = """[bold green]Analysis Mode Shortcuts[/bold green]
+        execute_key = "Opt+Enter" if platform.system() == "Darwin" else "Alt+Enter"
+        help_text = f"""[bold green]Analysis Mode Shortcuts[/bold green]
 
 [bold]SQL Execution[/bold]
-  Opt+Enter   - Execute query
+  {execute_key}   - Execute query
   F5          - Execute query (alternative)
 
 [bold]Navigation[/bold]
@@ -181,8 +184,11 @@ Press any key to close"""
 class AnalysisScreen(Screen):
     """Main analysis mode screen with SQL editor and results."""
 
+    # Platform-specific key display: Opt on Mac, Alt elsewhere
+    _execute_key_display = "Opt+Enter" if platform.system() == "Darwin" else "Alt+Enter"
+
     BINDINGS = [
-        Binding("ctrl+j", "execute_query", "Execute", key_display="Opt+Enter"),
+        Binding("ctrl+j", "execute_query", "Execute", key_display=_execute_key_display),
         Binding("f5", "execute_query", "Execute", key_display="F5", show=False),
         Binding("tab", "focus_next", "Switch Focus"),
         Binding("g", "create_chart", "Create Chart", show=False),
