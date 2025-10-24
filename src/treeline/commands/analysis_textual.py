@@ -188,7 +188,8 @@ class AnalysisScreen(Screen):
     _execute_key_display = "Opt+Enter" if platform.system() == "Darwin" else "Alt+Enter"
 
     BINDINGS = [
-        Binding("ctrl+j", "execute_query", "Execute", key_display=_execute_key_display),
+        # Option/Alt+Enter sends escape,enter sequence in terminals
+        Binding("escape,enter", "execute_query", "Execute", key_display=_execute_key_display),
         Binding("f5", "execute_query", "Execute", key_display="F5", show=False),
         Binding("tab", "focus_next", "Switch Focus"),
         Binding("g", "create_chart", "Create Chart", show=False),
