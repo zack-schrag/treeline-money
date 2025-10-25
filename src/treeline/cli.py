@@ -1374,74 +1374,60 @@ def import_command(
         handle_import_command()
         return
 
-    # SCRIPTABLE MODE: File path provided
+    # SCRIPTABLE MODE: Collect parameters and call service
+
+    # Validate file exists
     from pathlib import Path as PathLib
     csv_path = PathLib(file_path).expanduser()
-
     if not csv_path.exists():
         display_error(f"File not found: {file_path}")
         raise typer.Exit(1)
 
-    container = get_container()
-    import_service = container.import_service()
-    account_service = container.account_service()
-
-    # Build column mapping from flags or auto-detect
-    if date_column or amount_column or debit_column or credit_column:
-        # User provided explicit mapping
-        column_mapping = {}
-        if date_column:
-            column_mapping["date"] = date_column
-        if description_column:
-            column_mapping["description"] = description_column
-        if amount_column:
-            column_mapping["amount"] = amount_column
-        if debit_column:
-            column_mapping["debit"] = debit_column
-        if credit_column:
-            column_mapping["credit"] = credit_column
-    else:
-        # Auto-detect columns
-        if not json_output:
-            with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
-                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
-        else:
-            detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
-
-        if not detect_result.success:
-            display_error(f"Column detection failed: {detect_result.error}")
-            raise typer.Exit(1)
-
-        column_mapping = detect_result.data
-
-    # Get account
-    if account_id:
-        # Find account by ID
-        accounts_result = asyncio.run(account_service.get_accounts(user_id))
-        if not accounts_result.success:
-            display_error("Failed to fetch accounts")
-            raise typer.Exit(1)
-
-        target_account = None
-        for acc in accounts_result.data or []:
-            if str(acc.id) == account_id:
-                target_account = acc
-                break
-
-        if not target_account:
-            display_error(f"Account not found: {account_id}")
-            raise typer.Exit(1)
-    else:
+    # Validate account_id is provided
+    if not account_id:
         display_error("--account-id is required for scriptable import")
         console.print(f"[{theme.muted}]Run 'treeline status --json' to see account IDs[/{theme.muted}]")
         raise typer.Exit(1)
 
-    # Preview or import
+    # Build column mapping (if provided)
+    column_mapping = None
+    if date_column or amount_column or debit_column or credit_column:
+        column_mapping = {}
+        if date_column:
+            column_mapping["date"] = date_column
+        if amount_column:
+            column_mapping["amount"] = amount_column
+        if description_column:
+            column_mapping["description"] = description_column
+        if debit_column:
+            column_mapping["debit"] = debit_column
+        if credit_column:
+            column_mapping["credit"] = credit_column
+
+    # Get service
+    container = get_container()
+    import_service = container.import_service()
+
+    # SINGLE service call - preview mode
     if preview:
-        # Just show preview
+        # Auto-detect columns if not provided
+        preview_column_mapping = column_mapping
+        if not preview_column_mapping:
+            if not json_output:
+                with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
+                    detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+            else:
+                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+
+            if not detect_result.success:
+                display_error(f"Column detection failed: {detect_result.error}")
+                raise typer.Exit(1)
+
+            preview_column_mapping = detect_result.data
+
         preview_result = asyncio.run(import_service.preview_csv_import(
             file_path=str(csv_path),
-            column_mapping=column_mapping,
+            column_mapping=preview_column_mapping,
             date_format="auto",
             limit=10,
             flip_signs=flip_signs
@@ -1451,11 +1437,10 @@ def import_command(
             display_error(f"Preview failed: {preview_result.error}")
             raise typer.Exit(1)
 
+        # Display preview
         if json_output:
-            # Output preview as JSON
             preview_data = {
                 "file": str(csv_path),
-                "column_mapping": column_mapping,
                 "flip_signs": flip_signs,
                 "preview": [
                     {
@@ -1470,7 +1455,6 @@ def import_command(
         else:
             console.print(f"\n[{theme.ui_header}]Import Preview[/{theme.ui_header}]\n")
             console.print(f"File: {csv_path}")
-            console.print(f"Account: {target_account.name}")
             console.print(f"Flip signs: {flip_signs}\n")
 
             for tx in preview_result.data[:10]:
@@ -1479,46 +1463,60 @@ def import_command(
                 console.print(f"  {tx.transaction_date}  [{amount_style}]{amount_str:>12}[/{amount_style}]  {tx.description}")
 
             console.print(f"\n[{theme.muted}]Remove --preview flag to import[/{theme.muted}]\n")
-    else:
-        # Execute import
+        return
+
+    # SINGLE service call - import mode
+    # Auto-detect columns if not provided (CLI responsibility to collect all params)
+    import_column_mapping = column_mapping
+    if not import_column_mapping:
         if not json_output:
-            with console.status(f"[{theme.status_loading}]Importing transactions..."):
-                result = asyncio.run(import_service.import_transactions(
-                    user_id=user_id,
-                    source_type="csv",
-                    account_id=target_account.id,
-                    source_options={
-                        "file_path": str(csv_path),
-                        "column_mapping": column_mapping,
-                        "date_format": "auto",
-                        "flip_signs": flip_signs,
-                    }
-                ))
+            with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
+                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
         else:
+            detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+
+        if not detect_result.success:
+            display_error(f"Column detection failed: {detect_result.error}")
+            raise typer.Exit(1)
+
+        import_column_mapping = detect_result.data
+
+    source_options = {
+        "file_path": str(csv_path),
+        "column_mapping": import_column_mapping,
+        "date_format": "auto",
+        "flip_signs": flip_signs,
+    }
+
+    if not json_output:
+        with console.status(f"[{theme.status_loading}]Importing transactions..."):
             result = asyncio.run(import_service.import_transactions(
                 user_id=user_id,
                 source_type="csv",
-                account_id=target_account.id,
-                source_options={
-                    "file_path": str(csv_path),
-                    "column_mapping": column_mapping,
-                    "date_format": "auto",
-                    "flip_signs": flip_signs,
-                }
+                account_id=UUID(account_id),
+                source_options=source_options,
             ))
+    else:
+        result = asyncio.run(import_service.import_transactions(
+            user_id=user_id,
+            source_type="csv",
+            account_id=UUID(account_id),
+            source_options=source_options,
+        ))
 
-        if not result.success:
-            display_error(result.error)
-            raise typer.Exit(1)
+    if not result.success:
+        display_error(result.error)
+        raise typer.Exit(1)
 
-        if json_output:
-            output_json(result.data)
-        else:
-            stats = result.data
-            console.print(f"\n[{theme.success}]✓ Import complete![/{theme.success}]")
-            console.print(f"  Discovered: {stats['discovered']} transactions")
-            console.print(f"  Imported: {stats['imported']} new transactions")
-            console.print(f"  Skipped: {stats['skipped']} duplicates\n")
+    # Display result
+    if json_output:
+        output_json(result.data)
+    else:
+        stats = result.data
+        console.print(f"\n[{theme.success}]✓ Import complete![/{theme.success}]")
+        console.print(f"  Discovered: {stats['discovered']} transactions")
+        console.print(f"  Imported: {stats['imported']} new transactions")
+        console.print(f"  Skipped: {stats['skipped']} duplicates\n")
 
 
 @app.callback()
