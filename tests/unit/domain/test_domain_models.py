@@ -253,12 +253,12 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
     tx_date = date(2025, 10, 1)
     amount = Decimal("-50.00")
 
-    # Test Case 1: City of Arvada - masked vs full account number
+    # Test Case 1: City of FooBar - masked vs full account number
     simplefin_1 = Transaction(
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="CITY OF ARVADA UTIL XXXXXX7070 CO",
+        description="CITY OF FOOBAR UTIL XXXXXX1234 CO",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),
@@ -268,7 +268,7 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="CITY OF ARVADA UTIL 7208987070 CO",
+        description="CITY OF FOOBAR UTIL 4538981234 CO",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),
@@ -281,7 +281,7 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="PUGET SOUND ENERGY INC XXXXXX5773 WA",
+        description="PUGET SOUND ENERGY INC XXXXXX1234 WA",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),
@@ -291,7 +291,7 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="PUGET SOUND ENERGY INC 8882255773 WA",
+        description="PUGET SOUND ENERGY INC 5552251234 WA",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),
@@ -304,7 +304,7 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="TARGET XXXX9969 ISSAQUAH WA",
+        description="TARGET XXXX12345 SEATTLE WA",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),
@@ -314,7 +314,7 @@ def test_transaction_dedup_key_normalizes_account_numbers() -> None:
         id=uuid4(),
         account_id=account_id,
         amount=amount,
-        description="TARGET 00009969 ISSAQUAH WA",
+        description="TARGET 000012345 SEATTLE WA",
         transaction_date=tx_date,
         posted_date=tx_date,
         created_at=_tz_now(),

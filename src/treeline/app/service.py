@@ -77,9 +77,11 @@ class SyncService:
             return ingested_result
 
         # Create balance snapshots for accounts with valid data, but only if no balance exists for today
+        # FIXME: move these imports to top
         from datetime import date
         from uuid import uuid4
         from treeline.domain import BalanceSnapshot
+        
 
         today = date.today().isoformat()  # YYYY-MM-DD format
         balance_snapshots = []
@@ -106,6 +108,7 @@ class SyncService:
                 )
 
                 if not has_same_balance:
+                    # FIXME: move imports to top
                     from datetime import datetime, timezone
                     balance_snapshots.append(BalanceSnapshot(
                         id=uuid4(),
@@ -159,8 +162,8 @@ class SyncService:
         # Get discovered transactions
         discovered_result = await data_provider.get_transactions(
             user_id,
-            start_date or datetime.now(),
-            end_date or datetime.now(),
+            start_date,
+            end_date,
             provider_account_ids=provider_account_ids,
             provider_settings=provider_options or {},
         )
@@ -286,12 +289,13 @@ class SyncService:
         await self.repository.ensure_user_db_initialized(user_id)
         return await self.repository.list_integrations(user_id)
 
-    async def calculate_sync_date_range(self, user_id: UUID) -> Result[Dict[str, datetime]]:
+    async def _calculate_sync_date_range(self, user_id: UUID) -> Result[Dict[str, datetime]]:
         """Calculate the date range for syncing transactions.
 
         Returns:
             Result with dict containing 'start_date', 'end_date', and 'sync_type' ('initial' or 'incremental')
         """
+        
         end_date = datetime.now(timezone.utc)
 
         # Query for the latest transaction date
@@ -318,6 +322,7 @@ class SyncService:
             max_date = rows[0][0]
 
             # Convert date to datetime if needed, and ensure timezone-aware
+            # FIXME: move imports to top
             from datetime import date
             if isinstance(max_date, date) and not isinstance(max_date, datetime):
                 # DATE column - convert to datetime at midnight UTC
@@ -386,7 +391,7 @@ class SyncService:
             num_accounts = len(accounts_result.data.get("ingested_accounts", []))
 
             # Calculate date range for transactions
-            date_range_result = await self.calculate_sync_date_range(user_id)
+            date_range_result = await self._calculate_sync_date_range(user_id)
             if not date_range_result.success:
                 sync_results.append({
                     "integration": integration_name,
@@ -564,7 +569,6 @@ class StatusService:
 
         transaction_stats = stats_result.data
         rows = transaction_stats.get("rows", [])
-        columns = transaction_stats.get("columns", [])
 
         if rows and len(rows) > 0:
             # Rows are tuples, use column indices
@@ -640,75 +644,6 @@ class DbService:
     def _clean_and_validate_sql(self, sql: str) -> str:
         # TODO: Implement SQL cleaning and validation
         return sql
-
-
-class AgentService:
-    """Service for AI-powered financial analysis using conversational interface."""
-
-    def __init__(self, ai_provider: "AIProvider"):  # type: ignore
-        """
-        Initialize the agent service.
-
-        Args:
-            ai_provider: AI provider (e.g., AnthropicProvider) for conversational analysis
-        """
-        self.ai_provider = ai_provider
-
-    async def ensure_session_active(self, user_id: UUID, db_path: str) -> Result:
-        """
-        Ensure there is an active session, starting one if needed or if expired.
-
-        Args:
-            user_id: User ID for the session
-            db_path: Path to user's DuckDB database
-
-        Returns:
-            Result indicating success or failure
-        """
-        if not self.ai_provider.has_active_session():
-            return await self.ai_provider.start_session(user_id, db_path)
-
-        return Result(success=True)
-
-    async def chat(self, user_id: UUID, db_path: str, message: str) -> Result:
-        """
-        Send a message to the AI agent and get streaming response.
-
-        Args:
-            user_id: User ID
-            db_path: Path to user's DuckDB database
-            message: User's natural language query
-
-        Returns:
-            Result containing streaming response iterator
-        """
-        # Ensure session is active
-        session_result = await self.ensure_session_active(user_id, db_path)
-        if not session_result.success:
-            return session_result
-
-        # Send message and get streaming response
-        return await self.ai_provider.send_message(message)
-
-    async def clear_session(self) -> Result:
-        """
-        Clear the current conversation session.
-
-        Useful when user wants to start a new conversation topic.
-
-        Returns:
-            Result indicating success or failure
-        """
-        return await self.ai_provider.end_session()
-
-    def has_active_session(self) -> bool:
-        """
-        Check if there is an active conversation session.
-
-        Returns:
-            True if session is active, False otherwise
-        """
-        return self.ai_provider.has_active_session()
 
 
 class TaggingService:
@@ -925,152 +860,24 @@ class ImportService:
             }
         )
 
-    async def find_potential_duplicates(
+    async def detect_columns(
         self,
-        user_id: UUID,
-        account_id: UUID,
-        transactions: List[Transaction],
-    ) -> Result[List[Dict[str, Any]]]:
-        """
-        Find potential duplicate transactions that weren't caught by fingerprint matching.
-
-        Checks for transactions with:
-        - Same account
-        - Same amount
-        - Same date (or within 1 day)
-
-        This catches edge cases like:
-        - Description differences (e.g., "TST*2-4-6-8" vs "TST*X-X-6-8")
-        - Negative zero vs positive zero amounts
-
-        Args:
-            user_id: User context
-            account_id: Account to check
-            transactions: List of transactions to check for potential duplicates
-
-        Returns:
-            Result with list of potential duplicates, each containing:
-            - csv_transaction: The transaction being imported
-            - existing_transaction: The existing transaction in the DB
-            - reason: Why they might be duplicates
-        """
-        if not transactions:
-            return Result(success=True, data=[])
-
-        # Get all existing transactions for this account using SQL query
-        query = f"""
-            SELECT
-                transaction_id,
-                account_id,
-                external_ids,
-                amount,
-                description,
-                transaction_date,
-                posted_date,
-                tags,
-                created_at,
-                updated_at
-            FROM sys_transactions
-            WHERE account_id = '{account_id}'
-        """
-
-        query_result = await self.repository.execute_query(user_id, query)
-        if not query_result.success:
-            return query_result
-
-        # Parse query results into Transaction objects
-        from types import MappingProxyType
-        from decimal import Decimal
-        import json
-        from datetime import datetime, timezone, date as date_type
-
-        def ensure_datetime_tz(dt):
-            """Ensure datetime has timezone info."""
-            if dt is None:
-                return None
-            if isinstance(dt, str):
-                dt = datetime.fromisoformat(dt)
-            if isinstance(dt, datetime):
-                if dt.tzinfo is None:
-                    return dt.replace(tzinfo=timezone.utc)
-                return dt
-            return dt
-
-        def ensure_date(d):
-            """Convert datetime to date or return date as-is."""
-            if isinstance(d, datetime):
-                return d.date()
-            if isinstance(d, date_type):
-                return d
-            if isinstance(d, str):
-                return datetime.fromisoformat(d).date()
-            return d
-
-        existing_txs = []
-        for row in query_result.data.get("rows", []):
-            existing_txs.append(Transaction(
-                id=UUID(row[0]),
-                account_id=UUID(row[1]),
-                external_ids=MappingProxyType(json.loads(row[2]) if row[2] else {}),
-                amount=Decimal(str(row[3])),
-                description=row[4],
-                transaction_date=ensure_date(row[5]),
-                posted_date=ensure_date(row[6]),
-                tags=tuple(row[7]) if row[7] else (),
-                created_at=ensure_datetime_tz(row[8]),
-                updated_at=ensure_datetime_tz(row[9]),
-            ))
-
-        # Build lookup by (date, amount) for fast matching
-        existing_by_date_amount: Dict[tuple, List[Transaction]] = {}
-        for tx in existing_txs:
-            key = (tx.transaction_date, tx.amount)
-            existing_by_date_amount.setdefault(key, []).append(tx)
-
-        potential_duplicates = []
-
-        for csv_tx in transactions:
-            csv_date = csv_tx.transaction_date
-            csv_amount = csv_tx.amount
-
-            # Check exact date + amount match
-            exact_key = (csv_date, csv_amount)
-            if exact_key in existing_by_date_amount:
-                for existing_tx in existing_by_date_amount[exact_key]:
-                    # Skip if fingerprints match (already handled by main dedup logic)
-                    csv_fp = csv_tx.external_ids.get("fingerprint")
-                    existing_fp = existing_tx.external_ids.get("fingerprint")
-                    if csv_fp and existing_fp and csv_fp == existing_fp:
-                        continue
-
-                    potential_duplicates.append({
-                        "csv_transaction": csv_tx,
-                        "existing_transaction": existing_tx,
-                        "reason": "same_date_amount"
-                    })
-
-            # TODO: Could add adjacent date checking here if needed
-            # For now, keeping it simple with exact date matches only
-
-        return Result(success=True, data=potential_duplicates)
-
-    async def detect_csv_columns(
-        self,
+        source_type: str,
         file_path: str
     ) -> Result[Dict[str, Any]]:
         """
-        Detect CSV columns automatically for import.
+        Detect columns automatically for import.
 
         Args:
-            file_path: Path to CSV file
+            file_path: Path to file
 
         Returns:
             Result with column mapping dict like {"date": "Date", "amount": "Amount", ...}
         """
-        # Get CSV provider
-        provider = self.provider_registry.get("csv")
+        # Get provider
+        provider = self.provider_registry.get(source_type)
         if not provider:
-            return Result(success=False, error="CSV provider not available")
+            return Result(success=False, error=f"{source_type} provider not available")
 
         # Call provider-specific detection method
         return provider.detect_columns(file_path)

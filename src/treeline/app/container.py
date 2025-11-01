@@ -6,7 +6,6 @@ from typing import Any, Dict
 from supabase import create_client
 
 from treeline.abstractions import (
-    AIProvider,
     AuthProvider,
     ChartStorage,
     CredentialStore,
@@ -16,13 +15,11 @@ from treeline.abstractions import (
     Repository,
     TagSuggester,
 )
-from treeline.app.service import AccountService, AgentService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
-from treeline.infra.anthropic import AnthropicProvider
+from treeline.app.service import AccountService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
 from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.file_storage import FileChartStorage, FileQueryStorage
 from treeline.infra.keyring_store import KeyringCredentialStore
-from treeline.infra.mcp import ToolRegistry
 from treeline.infra.simplefin import SimpleFINProvider
 from treeline.infra.supabase import SupabaseAuthProvider
 
@@ -115,25 +112,6 @@ class Container:
         if "db_service" not in self._instances:
             self._instances["db_service"] = DbService(self.repository())
         return self._instances["db_service"]
-
-    def tool_registry(self) -> ToolRegistry:
-        """Get the tool registry instance."""
-        if "tool_registry" not in self._instances:
-            self._instances["tool_registry"] = ToolRegistry(self.repository())
-        return self._instances["tool_registry"]
-
-    def ai_provider(self) -> AIProvider:
-        """Get the AI provider instance."""
-        if "ai_provider" not in self._instances:
-            # AnthropicProvider depends on ToolRegistry
-            self._instances["ai_provider"] = AnthropicProvider(self.tool_registry())
-        return self._instances["ai_provider"]
-
-    def agent_service(self) -> AgentService:
-        """Get the agent service instance."""
-        if "agent_service" not in self._instances:
-            self._instances["agent_service"] = AgentService(self.ai_provider())
-        return self._instances["agent_service"]
 
     def _default_tag_suggester(self) -> TagSuggester:
         """

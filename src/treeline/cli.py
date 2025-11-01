@@ -36,128 +36,9 @@ theme = get_theme()
 _container: Container | None = None
 
 
-def get_file_path_completions(text: str) -> list[str]:
-    """Get file path completions for the given text.
-
-    Args:
-        text: The current partial path
-
-    Returns:
-        List of matching file/directory paths
-    """
-    import os
-    import glob
-
-    # Expand ~ to home directory
-    expanded_text = os.path.expanduser(text)
-
-    # If the text is empty or just ~, return home directory contents
-    if not text or text == "~" or text == "~/":
-        base_path = os.path.expanduser("~/")
-        try:
-            items = os.listdir(base_path)
-            return [os.path.join("~", item) for item in sorted(items)]
-        except (OSError, PermissionError):
-            return []
-
-    # Handle partial paths
-    try:
-        # Get the directory and partial filename
-        if os.path.isdir(expanded_text):
-            # If it's a directory, list its contents
-            base_dir = expanded_text
-            pattern = "*"
-        else:
-            # It's a partial path
-            base_dir = os.path.dirname(expanded_text) or "."
-            pattern = os.path.basename(expanded_text) + "*"
-
-        # Get matching paths
-        search_pattern = os.path.join(base_dir, pattern)
-        matches = glob.glob(search_pattern)
-
-        # Convert back to original format (preserve ~ if used)
-        if text.startswith("~/"):
-            home = os.path.expanduser("~")
-            matches = [m.replace(home, "~", 1) if m.startswith(home) else m for m in matches]
-
-        # Sort and return (directories first, then files)
-        def sort_key(p):
-            is_dir = os.path.isdir(os.path.expanduser(p))
-            return (not is_dir, p.lower())
-
-        return sorted(matches, key=sort_key)
-
-    except (OSError, PermissionError):
-        return []
-
-
-def prompt_for_file_path(prompt_text: str = "") -> str:
-    """Prompt user for a file path with autocomplete.
-
-    Args:
-        prompt_text: The prompt text to display (plain text, no Rich markup)
-
-    Returns:
-        The file path entered by the user
-    """
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import PathCompleter
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.filters import completion_is_selected
-
-    # PathCompleter with expanduser=True handles ~ expansion
-    # only_directories=False allows both files and directories
-    completer = PathCompleter(expanduser=True, only_directories=False)
-
-    # Create custom key bindings to handle Enter on directory selections
-    kb = KeyBindings()
-
-    @kb.add('enter', filter=completion_is_selected)
-    def _(event):
-        """When Enter is pressed on a selected completion, insert it and continue editing."""
-        import os
-
-        # Get the current completion
-        completion = event.current_buffer.complete_state.current_completion
-        if completion:
-            # Insert the completion text
-            event.current_buffer.apply_completion(completion)
-
-            # If it's a directory and doesn't end with /, add one
-            current_text = event.current_buffer.text
-            expanded_path = os.path.expanduser(current_text)
-            if os.path.isdir(expanded_path) and not current_text.endswith('/'):
-                event.current_buffer.insert_text('/')
-        # Don't accept the input - let user continue typing
-
-    session = PromptSession(completer=completer, key_bindings=kb)
-
-    if prompt_text:
-        return session.prompt(f"{prompt_text}: ")
-    else:
-        return session.prompt(">: ")
-
-
 def get_treeline_dir() -> Path:
     """Get the treeline data directory in the current working directory."""
     return Path.cwd() / "treeline"
-
-
-# Legacy helper functions for backward compatibility with tests
-def is_authenticated() -> bool:
-    """Check if user is authenticated."""
-    return get_container().config_service().is_authenticated()
-
-
-def get_current_user_id() -> str | None:
-    """Get the current authenticated user ID."""
-    return get_container().config_service().get_current_user_id()
-
-
-def get_current_user_email() -> str | None:
-    """Get the current authenticated user email."""
-    return get_container().config_service().get_current_user_email()
 
 
 def get_container() -> Container:
@@ -169,10 +50,6 @@ def get_container() -> Container:
         _container = Container(str(db_path))
     return _container
 
-
-# ========================================
-# Helper Functions for New CLI Commands
-# ========================================
 
 def require_auth() -> None:
     """Check if user is authenticated. Exit with error if not."""
@@ -215,6 +92,7 @@ def output_json(data: dict) -> None:
     Args:
         data: Data to output as JSON
     """
+    # FIXME: move imports to top
     import json
     from pydantic import BaseModel
 
@@ -381,7 +259,6 @@ def login_command(
         auth_service = container.auth_service()
     except ValueError as e:
         display_error(str(e))
-        console.print(f"[{theme.muted}]Please set SUPABASE_URL and SUPABASE_KEY in your .env file[/{theme.muted}]")
         raise typer.Exit(1)
 
     # Interactive prompts for missing values
@@ -532,9 +409,6 @@ def tag_callback(
 
       # Show only untagged transactions
       treeline tag --untagged
-
-      # Apply tags scriptably
-      treeline tag apply --ids id1,id2 groceries,food
     """
     # If a subcommand is being invoked, don't run the TUI
     if ctx.invoked_subcommand is not None:
@@ -643,381 +517,6 @@ def tag_apply_command(
 
         if errors:
             raise typer.Exit(1)
-
-
-@app.command(name="analysis")
-def analysis_command() -> None:
-    """Launch interactive data analysis workspace."""
-    ensure_treeline_initialized()
-    require_auth()
-    from treeline.commands.analysis_textual import AnalysisApp
-    app_instance = AnalysisApp()
-    app_instance.run()
-
-
-@app.command(name="queries")
-def queries_command() -> None:
-    """Browse and manage saved queries.
-
-    Examples:
-      treeline queries
-    """
-    ensure_treeline_initialized()
-    require_auth()
-    from treeline.commands.queries_textual import QueriesBrowserApp
-    app_instance = QueriesBrowserApp()
-    app_instance.run()
-
-
-@app.command(name="charts")
-def charts_command() -> None:
-    """Browse and manage saved charts.
-
-    Examples:
-      treeline charts
-    """
-    ensure_treeline_initialized()
-    require_auth()
-    from treeline.commands.charts_textual import ChartsBrowserApp
-    app_instance = ChartsBrowserApp()
-    app_instance.run()
-
-
-@app.command(name="chat")
-def chat_command() -> None:
-    """Start an interactive AI conversation about your finances.
-
-    Examples:
-      treeline chat
-    """
-    ensure_treeline_initialized()
-    user_id = get_authenticated_user_id()
-
-    container = get_container()
-    agent_service = container.agent_service()
-
-    # Get database path for this user
-    treeline_dir = get_treeline_dir()
-    db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
-
-    console.print(f"\n[{theme.ui_header}]AI Chat Mode[/{theme.ui_header}]")
-    console.print(f"[{theme.muted}]Ask questions about your finances. Type 'exit' to quit.[/{theme.muted}]\n")
-
-    # Interactive loop
-    while True:
-        try:
-            user_input = Prompt.ask(f"[{theme.emphasis}]You[/{theme.emphasis}]")
-
-            if user_input.lower() in ("exit", "quit"):
-                break
-
-            # Show thinking indicator and process message
-            console.print()
-            with console.status(f"[{theme.status_loading}]Thinking..."):
-                result = asyncio.run(
-                    agent_service.chat(user_id, db_path, user_input)
-                )
-
-            if not result.success:
-                display_error(result.error)
-                console.print()
-                continue
-
-            # Stream the response (same logic as handle_chat_message)
-            response_data = result.data
-            stream = response_data["stream"]
-
-            try:
-                # Consume the async stream
-                async def consume_stream():
-                    from rich.panel import Panel
-                    from rich.syntax import Syntax
-
-                    current_content = []
-                    in_sql_block = False
-                    sql_content = []
-
-                    async for chunk in stream:
-                        # Check if this is a tool indicator
-                        if chunk.startswith("__TOOL_USE__:"):
-                            tool_name = chunk.replace("__TOOL_USE__:", "").strip()
-
-                            # Flush any pending content
-                            if current_content:
-                                console.print("".join(current_content), end="", markup=False)
-                                current_content = []
-
-                            # Display tool usage in a panel
-                            console.print(Panel(
-                                f"[{theme.muted}]Using tool:[/{theme.muted}] [{theme.emphasis}]{tool_name}[/{theme.emphasis}]",
-                                border_style=theme.muted,
-                                padding=(0, 1),
-                            ))
-
-                        elif chunk.startswith("Visualization:"):
-                            # Flush any pending content
-                            if current_content:
-                                console.print("".join(current_content), end="", markup=False)
-                                current_content = []
-
-                            # Charts contain ANSI escape codes - use raw print
-                            console.print()
-                            print(chunk, end="", flush=True)
-                            console.print()
-
-                        else:
-                            # Check for SQL code blocks
-                            if "```sql" in chunk:
-                                in_sql_block = True
-                                before_sql = chunk.split("```sql")[0]
-                                if before_sql:
-                                    current_content.append(before_sql)
-
-                                # Flush content before SQL
-                                if current_content:
-                                    console.print("".join(current_content), end="", markup=False)
-                                    current_content = []
-
-                                # Start collecting SQL
-                                sql_content = []
-                                after_marker = chunk.split("```sql", 1)[1]
-                                if after_marker:
-                                    sql_content.append(after_marker)
-
-                            elif "```" in chunk and in_sql_block:
-                                # End of SQL block
-                                before_end = chunk.split("```")[0]
-                                if before_end:
-                                    sql_content.append(before_end)
-
-                                # Display SQL in a panel with syntax highlighting
-                                sql_text = "".join(sql_content).strip()
-                                if sql_text:
-                                    syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
-                                    console.print(Panel(
-                                        syntax,
-                                        title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
-                                        border_style=theme.primary,
-                                        padding=(0, 1),
-                                    ))
-
-                                sql_content = []
-                                in_sql_block = False
-
-                                # Continue with content after closing ```
-                                after_end = chunk.split("```", 1)[1]
-                                if after_end:
-                                    current_content.append(after_end)
-
-                            elif in_sql_block:
-                                # Accumulate SQL content
-                                sql_content.append(chunk)
-                            else:
-                                # Regular content - accumulate for printing
-                                current_content.append(chunk)
-
-                                # Print in larger chunks for better performance
-                                if len(current_content) > 10:
-                                    console.print("".join(current_content), end="", markup=False)
-                                    current_content = []
-
-                    # Flush any remaining content
-                    if current_content:
-                        console.print("".join(current_content), end="", markup=False)
-                    if sql_content:
-                        # Handle case where SQL block wasn't closed
-                        sql_text = "".join(sql_content).strip()
-                        if sql_text:
-                            syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
-                            console.print(Panel(
-                                syntax,
-                                title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
-                                border_style=theme.primary,
-                                padding=(0, 1),
-                            ))
-
-                asyncio.run(consume_stream())
-
-            except Exception as e:
-                console.print(f"[{theme.error}]Error streaming response: {str(e)}[/{theme.error}]")
-
-            console.print("\n")  # Blank line after response
-
-        except (KeyboardInterrupt, EOFError):
-            break
-        except Exception as e:
-            console.print(f"[{theme.error}]Error: {str(e)}[/{theme.error}]\n")
-
-    console.print(f"[{theme.muted}]Chat ended[/{theme.muted}]\n")
-
-
-@app.command(name="ask")
-def ask_command(
-    question: str = typer.Argument(..., help="Question to ask AI"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
-) -> None:
-    """Ask AI a one-shot question about your finances.
-
-    Examples:
-      # Ask a question
-      treeline ask "What's my spending on groceries this month?"
-
-      # Get response as JSON
-      treeline ask "Show my account balances" --json
-    """
-    ensure_treeline_initialized()
-    user_id = get_authenticated_user_id()
-
-    container = get_container()
-    agent_service = container.agent_service()
-
-    # Get database path for this user
-    treeline_dir = get_treeline_dir()
-    db_path = str(treeline_dir / "treeline.db" / f"{user_id}.duckdb")
-
-    # Process question with status indicator (unless JSON mode)
-    if not json_output:
-        console.print()
-        with console.status(f"[{theme.status_loading}]Thinking..."):
-            result = asyncio.run(agent_service.chat(user_id, db_path, question))
-    else:
-        result = asyncio.run(agent_service.chat(user_id, db_path, question))
-
-    if not result.success:
-        if json_output:
-            output_json({"error": result.error})
-        else:
-            display_error(result.error)
-        raise typer.Exit(1)
-
-    # Get response stream
-    response_data = result.data
-    stream = response_data["stream"]
-
-    if json_output:
-        # Collect full response for JSON output
-        async def collect_response():
-            response_text = []
-            async for chunk in stream:
-                # Skip special markers in JSON mode
-                if not chunk.startswith("__TOOL_USE__:") and not chunk.startswith("Visualization:"):
-                    response_text.append(chunk)
-            return "".join(response_text)
-
-        full_response = asyncio.run(collect_response())
-        output_json({"response": full_response})
-    else:
-        # Stream response to console (same as chat command)
-        try:
-            async def consume_stream():
-                from rich.panel import Panel
-                from rich.syntax import Syntax
-
-                current_content = []
-                in_sql_block = False
-                sql_content = []
-
-                async for chunk in stream:
-                    if chunk.startswith("__TOOL_USE__:"):
-                        tool_name = chunk.replace("__TOOL_USE__:", "").strip()
-                        if current_content:
-                            console.print("".join(current_content), end="", markup=False)
-                            current_content = []
-                        console.print(Panel(
-                            f"[{theme.muted}]Using tool:[/{theme.muted}] [{theme.emphasis}]{tool_name}[/{theme.emphasis}]",
-                            border_style=theme.muted,
-                            padding=(0, 1),
-                        ))
-                    elif chunk.startswith("Visualization:"):
-                        if current_content:
-                            console.print("".join(current_content), end="", markup=False)
-                            current_content = []
-                        console.print()
-                        print(chunk, end="", flush=True)
-                        console.print()
-                    else:
-                        if "```sql" in chunk:
-                            in_sql_block = True
-                            before_sql = chunk.split("```sql")[0]
-                            if before_sql:
-                                current_content.append(before_sql)
-                            if current_content:
-                                console.print("".join(current_content), end="", markup=False)
-                                current_content = []
-                            sql_content = []
-                            after_marker = chunk.split("```sql", 1)[1]
-                            if after_marker:
-                                sql_content.append(after_marker)
-                        elif "```" in chunk and in_sql_block:
-                            before_end = chunk.split("```")[0]
-                            if before_end:
-                                sql_content.append(before_end)
-                            sql_text = "".join(sql_content).strip()
-                            if sql_text:
-                                syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
-                                console.print(Panel(
-                                    syntax,
-                                    title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
-                                    border_style=theme.primary,
-                                    padding=(0, 1),
-                                ))
-                            sql_content = []
-                            in_sql_block = False
-                            after_end = chunk.split("```", 1)[1]
-                            if after_end:
-                                current_content.append(after_end)
-                        elif in_sql_block:
-                            sql_content.append(chunk)
-                        else:
-                            current_content.append(chunk)
-                            if len(current_content) > 10:
-                                console.print("".join(current_content), end="", markup=False)
-                                current_content = []
-
-                # Flush remaining
-                if current_content:
-                    console.print("".join(current_content), end="", markup=False)
-                if sql_content:
-                    sql_text = "".join(sql_content).strip()
-                    if sql_text:
-                        from rich.syntax import Syntax
-                        from rich.panel import Panel
-                        syntax = Syntax(sql_text, "sql", theme="monokai", line_numbers=False)
-                        console.print(Panel(
-                            syntax,
-                            title=f"[{theme.ui_header}]SQL Query[/{theme.ui_header}]",
-                            border_style=theme.primary,
-                            padding=(0, 1),
-                        ))
-
-            asyncio.run(consume_stream())
-            console.print("\n")
-
-        except Exception as e:
-            console.print(f"[{theme.error}]Error streaming response: {str(e)}[/{theme.error}]")
-            raise typer.Exit(1)
-
-
-@app.command(name="clear")
-def clear_command() -> None:
-    """Clear AI conversation history.
-
-    Examples:
-      treeline clear
-    """
-    ensure_treeline_initialized()
-    require_auth()
-
-    container = get_container()
-    agent_service = container.agent_service()
-
-    result = asyncio.run(agent_service.clear_session())
-
-    if result.success:
-        console.print(f"[{theme.success}]✓[/{theme.success}] Conversation history cleared\n")
-    else:
-        display_error(result.error)
-        raise typer.Exit(1)
 
 
 @app.command(name="status")
@@ -1154,139 +653,6 @@ def query_command(
         display_query_result(columns, rows)
 
 
-@app.command(name="schema")
-def schema_command(
-    table_name: str = typer.Argument(None, help="Table name to inspect (omit to list all tables)"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
-) -> None:
-    """Browse database schema and table structures.
-
-    Examples:
-      # List all tables
-      treeline schema
-
-      # Show columns for a specific table
-      treeline schema transactions
-
-      # Output as JSON
-      treeline schema transactions --json
-    """
-    ensure_treeline_initialized()
-    user_id = get_authenticated_user_id()
-
-    container = get_container()
-    db_service = container.db_service()
-
-    if table_name is None:
-        # List all tables
-        sql = """
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'main'
-        ORDER BY table_name;
-        """
-
-        result = asyncio.run(db_service.execute_query(user_id, sql))
-
-        if not result.success:
-            display_error(result.error)
-            raise typer.Exit(1)
-
-        rows = result.data.get("rows", [])
-        tables = [row[0] for row in rows]
-
-        if not tables:
-            if json_output:
-                output_json({"tables": [], "count": 0})
-            else:
-                console.print(f"[{theme.muted}]No tables found. Have you synced your data yet?[/{theme.muted}]\n")
-            return
-
-        # Group into system tables and views
-        system_tables = [t for t in tables if t.startswith("sys_")]
-        user_views = [t for t in tables if not t.startswith("sys_")]
-
-        if json_output:
-            output_json({
-                "tables": tables,
-                "user_views": user_views,
-                "system_tables": system_tables,
-                "count": len(tables)
-            })
-        else:
-            console.print(f"\n[{theme.ui_header}]Available Tables and Views[/{theme.ui_header}]\n")
-
-            if user_views:
-                console.print(f"[{theme.info}]User Views (recommended):[/{theme.info}]")
-                for table in user_views:
-                    console.print(f"  • [{theme.emphasis}]{table}[/{theme.emphasis}]")
-                console.print()
-
-            if system_tables:
-                console.print(f"[{theme.muted}]System Tables:[/{theme.muted}]")
-                for table in system_tables:
-                    console.print(f"  • [{theme.muted}]{table}[/{theme.muted}]")
-                console.print()
-
-            console.print(f"[{theme.muted}]Use 'treeline schema <table_name>' to see column details[/{theme.muted}]\n")
-
-    else:
-        # Show table schema
-        sql = f"""
-        SELECT
-            column_name,
-            data_type,
-            is_nullable
-        FROM information_schema.columns
-        WHERE table_name = '{table_name}'
-        ORDER BY ordinal_position;
-        """
-
-        result = asyncio.run(db_service.execute_query(user_id, sql))
-
-        if not result.success:
-            display_error(result.error)
-            raise typer.Exit(1)
-
-        rows = result.data.get("rows", [])
-
-        if not rows:
-            display_error(f"Table '{table_name}' not found")
-            console.print(f"[{theme.muted}]Use 'treeline schema' to see available tables[/{theme.muted}]")
-            raise typer.Exit(1)
-
-        if json_output:
-            columns_data = [
-                {
-                    "name": row[0],
-                    "type": row[1],
-                    "nullable": row[2] == "YES"
-                }
-                for row in rows
-            ]
-            output_json({
-                "table": table_name,
-                "columns": columns_data,
-                "column_count": len(columns_data)
-            })
-        else:
-            console.print(f"\n[{theme.ui_header}]Table: {table_name}[/{theme.ui_header}]\n")
-
-            # Create Rich table
-            table = Table(show_header=True, header_style=theme.ui_header, border_style=theme.separator)
-            table.add_column("Column", style=theme.emphasis)
-            table.add_column("Type", style=theme.info)
-            table.add_column("Nullable", style=theme.neutral)
-
-            for row in rows:
-                column_name, data_type, is_nullable = row
-                nullable_display = "YES" if is_nullable == "YES" else "NO"
-                table.add_row(column_name, data_type, nullable_display)
-
-            console.print(table)
-            console.print()
-
-
 @app.command(name="sync")
 def sync_command(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON")
@@ -1370,7 +736,6 @@ def import_command(
 
     # INTERACTIVE MODE: No file path provided
     if file_path is None:
-        from treeline.commands.import_csv import handle_import_command
         handle_import_command()
         return
 
@@ -1415,9 +780,9 @@ def import_command(
         if not preview_column_mapping:
             if not json_output:
                 with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
-                    detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+                    detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
             else:
-                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+                detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
 
             if not detect_result.success:
                 display_error(f"Column detection failed: {detect_result.error}")
@@ -1471,9 +836,9 @@ def import_command(
     if not import_column_mapping:
         if not json_output:
             with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
-                detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+                detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
         else:
-            detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+            detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
 
         if not detect_result.success:
             display_error(f"Column detection failed: {detect_result.error}")
