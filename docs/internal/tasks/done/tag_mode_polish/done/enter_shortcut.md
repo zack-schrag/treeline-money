@@ -1,1 +1,0 @@
-The enter shortcut in tag mode doesn't do anything, consider removing.

@@ -1,1 +1,0 @@
-Build a VS Code extension to make it feel even more like an IDE.
