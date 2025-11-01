@@ -9,29 +9,12 @@ from typing import List, Optional
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
+from treeline.app.service import AccountService, ImportService
 from treeline.theme import get_theme
 from treeline.domain import Transaction, Account
 
 console = Console()
 theme = get_theme()
-
-
-def get_container():
-    """Import get_container to avoid circular import."""
-    from treeline.cli import get_container as _get_container
-    return _get_container()
-
-
-def is_authenticated():
-    """Check if user is authenticated."""
-    from treeline.cli import is_authenticated as _is_authenticated
-    return _is_authenticated()
-
-
-def get_current_user_id():
-    """Get current user ID."""
-    from treeline.cli import get_current_user_id as _get_current_user_id
-    return _get_current_user_id()
 
 
 def prompt_for_file_path(prompt_text: str = "") -> str:
@@ -79,7 +62,7 @@ def prompt_for_file_path(prompt_text: str = "") -> str:
         return session.prompt(">: ")
 
 
-def handle_import_command() -> None:
+def handle_import_command(user_id: UUID, import_service: ImportService, account_service: AccountService) -> None:
     """
     Handle interactive CSV import.
 
@@ -90,21 +73,6 @@ def handle_import_command() -> None:
 
     All business logic is delegated to ImportService.
     """
-    # Auth check (CLI concern)
-    if not is_authenticated():
-        console.print(f"[{theme.error}]Error: You must be logged in to import data.[/{theme.error}]")
-        console.print(f"[{theme.muted}]Run 'treeline login' to authenticate[/{theme.muted}]\n")
-        return
-
-    user_id = get_current_user_id()
-    if not user_id:
-        console.print(f"[{theme.error}]Error: Could not get user ID[/{theme.error}]\n")
-        return
-
-    container = get_container()
-    import_service = container.import_service()
-    account_service = container.account_service()
-
     # STEP 1: Collect parameters (CLI presentation logic)
 
     # 1a. Get file path
@@ -130,7 +98,7 @@ def handle_import_command() -> None:
 
     # 1b. Get account selection
     console.print(f"\n[{theme.muted}]Fetching accounts...[/{theme.muted}]")
-    accounts_result = asyncio.run(account_service.get_accounts(UUID(user_id)))
+    accounts_result = asyncio.run(account_service.get_accounts(user_id))
 
     if not accounts_result.success or not accounts_result.data:
         console.print(f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n")
@@ -143,7 +111,7 @@ def handle_import_command() -> None:
 
     # 1c. Column mapping - auto-detect (CLI responsibility to collect params)
     console.print(f"\n[{theme.muted}]Detecting CSV columns...[/{theme.muted}]")
-    detect_result = asyncio.run(import_service.detect_csv_columns(str(csv_path)))
+    detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
 
     if not detect_result.success:
         console.print(f"[{theme.error}]Error detecting columns: {detect_result.error}[/{theme.error}]\n")
@@ -223,7 +191,7 @@ def handle_import_command() -> None:
     }
 
     import_result = asyncio.run(import_service.import_transactions(
-        user_id=UUID(user_id),
+        user_id=user_id,
         source_type="csv",
         account_id=account_id,
         source_options=source_options,

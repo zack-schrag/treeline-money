@@ -734,7 +734,8 @@ def import_command(
 
     # INTERACTIVE MODE: No file path provided
     if file_path is None:
-        handle_import_command()
+        container = get_container()        
+        handle_import_command(user_id=user_id, import_service=container.import_service(), account_service=container.account_service())
         return
 
     # SCRIPTABLE MODE: Collect parameters and call service
