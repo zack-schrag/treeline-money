@@ -113,12 +113,18 @@ async def test_create_integration_success():
 
     user_id = uuid4()
     service = IntegrationService(mock_provider, mock_repository)
-    result = await service.create_integration(user_id, "plaid", {"username": "testuser"})
+    result = await service.create_integration(
+        user_id, "plaid", {"username": "testuser"}
+    )
 
     assert result.success is True
     assert result.data == integration_settings
-    mock_provider.create_integration.assert_called_once_with(user_id, "plaid", {"username": "testuser"})
-    mock_repository.upsert_integration.assert_called_once_with(user_id, "plaid", integration_settings)
+    mock_provider.create_integration.assert_called_once_with(
+        user_id, "plaid", {"username": "testuser"}
+    )
+    mock_repository.upsert_integration.assert_called_once_with(
+        user_id, "plaid", integration_settings
+    )
 
 
 @pytest.mark.asyncio

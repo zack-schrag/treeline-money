@@ -36,13 +36,24 @@ class MockDataProvider(DataAggregationProvider):
     def can_get_balances(self) -> bool:
         return self._can_get_balances
 
-    async def get_accounts(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_accounts(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
-    async def get_transactions(self, user_id, start_date, end_date, provider_account_ids=[], provider_settings={}):
+    async def get_transactions(
+        self,
+        user_id,
+        start_date,
+        end_date,
+        provider_account_ids=[],
+        provider_settings={},
+    ):
         pass
 
-    async def get_balances(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_balances(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
 
@@ -150,7 +161,7 @@ async def test_sync_accounts_maps_external_ids_to_existing_accounts():
         name="Checking",
         external_ids=MappingProxyType({"plaid": "ext123"}),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     # Discovered account from provider with same external ID
@@ -159,7 +170,7 @@ async def test_sync_accounts_maps_external_ids_to_existing_accounts():
         name="Checking Updated",
         external_ids=MappingProxyType({"plaid": "ext123"}),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     mock_repository.get_accounts.return_value = Ok([existing_account])
@@ -195,7 +206,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
         name="Checking",
         external_ids=MappingProxyType({"plaid": "acc123"}),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     # Existing transaction
@@ -207,7 +218,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
         transaction_date=datetime.now(timezone.utc),
         posted_date=datetime.now(timezone.utc),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     # Discovered transaction with same external ID (update case)
@@ -219,7 +230,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
         transaction_date=datetime.now(timezone.utc),
         posted_date=datetime.now(timezone.utc),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     # New transaction
@@ -231,13 +242,17 @@ async def test_sync_transactions_deduplicates_by_external_id():
         transaction_date=datetime.now(timezone.utc),
         posted_date=datetime.now(timezone.utc),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     mock_repository.get_accounts.return_value = Ok([existing_account])
-    mock_provider.get_transactions.return_value = Ok([discovered_tx_same, discovered_tx_new])
+    mock_provider.get_transactions.return_value = Ok(
+        [discovered_tx_same, discovered_tx_new]
+    )
     mock_repository.get_transactions_by_external_ids.return_value = Ok([existing_tx])
-    mock_repository.bulk_upsert_transactions.return_value = Ok([discovered_tx_same, discovered_tx_new])
+    mock_repository.bulk_upsert_transactions.return_value = Ok(
+        [discovered_tx_same, discovered_tx_new]
+    )
 
     provider_registry = {"plaid": mock_provider}
     service = SyncService(provider_registry, mock_repository)
@@ -278,7 +293,7 @@ async def test_sync_accounts_creates_balance_snapshots():
         name="Savings",
         external_ids=MappingProxyType({"plaid": "sav123"}),
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        updated_at=datetime.now(timezone.utc),
     )
 
     mock_repository.get_accounts.return_value = Ok([])

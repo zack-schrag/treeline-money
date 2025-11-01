@@ -46,7 +46,6 @@ async def test_add_account(repository):
     """Test adding a single account."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     account = Account(
         id=uuid4(),
@@ -68,7 +67,6 @@ async def test_get_accounts(repository):
     """Test retrieving accounts."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     account1 = Account(
         id=uuid4(),
@@ -100,7 +98,6 @@ async def test_bulk_upsert_accounts(repository):
     """Test bulk upserting accounts."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     accounts = [
         Account(
@@ -124,7 +121,6 @@ async def test_add_transaction(repository):
     """Test adding a transaction."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     # First add an account
     account = Account(
@@ -160,7 +156,6 @@ async def test_get_transactions_by_external_ids(repository):
     """Test retrieving transactions by external IDs."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     account = Account(
         id=uuid4(),
@@ -198,7 +193,6 @@ async def test_add_balance_snapshot(repository):
     """Test adding a balance snapshot."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     account = Account(
         id=uuid4(),
@@ -229,7 +223,6 @@ async def test_upsert_integration(repository):
     """Test upserting integration settings."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     result = await repository.upsert_integration(
         user_id, "plaid", {"access_token": "test_token"}
@@ -242,7 +235,6 @@ async def test_list_integrations(repository):
     """Test listing integrations."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     await repository.upsert_integration(user_id, "plaid", {"access_token": "token1"})
     await repository.upsert_integration(user_id, "simplefin", {"access_url": "url1"})
@@ -257,7 +249,6 @@ async def test_execute_query(repository):
     """Test executing SQL query."""
     user_id = uuid4()
     await repository.ensure_user_db_initialized(user_id)
-    
 
     # Add an account
     account = Account(
@@ -270,7 +261,9 @@ async def test_execute_query(repository):
     )
     await repository.add_account(user_id, account)
 
-    result = await repository.execute_query(user_id, "SELECT COUNT(*) as count FROM accounts")
+    result = await repository.execute_query(
+        user_id, "SELECT COUNT(*) as count FROM accounts"
+    )
     assert result.success is True
     # Result format depends on implementation
 
@@ -328,10 +321,14 @@ async def test_get_transaction_counts_by_fingerprint(repository):
 
     # Query for counts
     fingerprints = [fingerprint_a, fingerprint_b, "fingerprint:xyz999"]
-    result = await repository.get_transaction_counts_by_fingerprint(user_id, fingerprints)
+    result = await repository.get_transaction_counts_by_fingerprint(
+        user_id, fingerprints
+    )
 
     assert result.success is True
     counts = result.data
     assert counts[fingerprint_a] == 3
     assert counts[fingerprint_b] == 2
-    assert counts.get("fingerprint:xyz999", 0) == 0  # Non-existent fingerprint should return 0
+    assert (
+        counts.get("fingerprint:xyz999", 0) == 0
+    )  # Non-existent fingerprint should return 0

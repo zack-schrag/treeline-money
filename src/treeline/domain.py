@@ -166,15 +166,15 @@ class Transaction(BaseModel):
                 normalized.append(tag)
         return tuple(normalized)
 
-    @model_validator(mode='after')
-    def _generate_fingerprint_if_missing(self) -> 'Transaction':
+    @model_validator(mode="after")
+    def _generate_fingerprint_if_missing(self) -> "Transaction":
         """Auto-generate fingerprint and store in external_ids if not present."""
         if "fingerprint" not in self.external_ids:
             fingerprint = self._calculate_fingerprint()
             # external_ids is a dict, but the model is frozen, so we need to use object.__setattr__
             ids_dict = dict(self.external_ids)
             ids_dict["fingerprint"] = fingerprint
-            object.__setattr__(self, 'external_ids', ids_dict)
+            object.__setattr__(self, "external_ids", ids_dict)
         return self
 
     def _calculate_fingerprint(self) -> str:
@@ -201,10 +201,10 @@ class Transaction(BaseModel):
         desc = (self.description or "").lower()
 
         # Remove literal "null" strings (common in CSV exports)
-        desc_normalized = re.sub(r'\bnull\b', '', desc)
+        desc_normalized = re.sub(r"\bnull\b", "", desc)
 
         # Remove card number masks (10+ X's followed by 4 digits) - these only appear in CSV
-        desc_normalized = re.sub(r'x{10,}\d{4}', '', desc_normalized)
+        desc_normalized = re.sub(r"x{10,}\d{4}", "", desc_normalized)
 
         # Normalize shorter phone/account numbers (7-12 digits or X's + digits)
         # These appear in both CSV and SimpleFIN, just masked differently
@@ -212,21 +212,25 @@ class Transaction(BaseModel):
         def normalize_account_numbers(match):
             text = match.group(0)
             # Extract digits only
-            digits = ''.join(c for c in text if c.isdigit())
+            digits = "".join(c for c in text if c.isdigit())
             # Keep last 4 digits if we have at least 4
             if len(digits) >= 4:
                 return digits[-4:]
             return text
 
-        desc_normalized = re.sub(r'[x0-9]{7,12}', normalize_account_numbers, desc_normalized)
+        desc_normalized = re.sub(
+            r"[x0-9]{7,12}", normalize_account_numbers, desc_normalized
+        )
 
         # Remove whitespace
-        desc_normalized = re.sub(r'\s+', '', desc_normalized)
+        desc_normalized = re.sub(r"\s+", "", desc_normalized)
 
         # Remove all special characters, keep only alphanumeric
-        desc_normalized = re.sub(r'[^a-z0-9]', '', desc_normalized)
+        desc_normalized = re.sub(r"[^a-z0-9]", "", desc_normalized)
 
-        fingerprint_str = f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
+        fingerprint_str = (
+            f"{self.account_id}|{tx_date}|{amount_normalized}|{desc_normalized}"
+        )
         fingerprint_hash = hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
 
         return fingerprint_hash
@@ -260,7 +264,8 @@ class BalanceSnapshot(BaseModel):
         return _ensure_tzinfo(value)
 
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class Result(BaseModel, Generic[T]):
     success: bool
@@ -271,14 +276,17 @@ class Result(BaseModel, Generic[T]):
     def raise_for_error(self, exc_type: Type[Exception] = Exception):
         raise exc_type(self.error or "Error has occurred")
 
+
 def Ok(data: T | None = None, context: Dict[str, Any] | None = None) -> Result[T]:
     return Result(success=True, data=data, context=context)
+
 
 def Fail(error: str, context: Dict[str, Any] | None = None) -> Result[T]:
     return Result(success=False, error=error, context=context)
 
 
 # Analysis Mode Models
+
 
 class AnalysisSession(BaseModel):
     """State for an analysis mode session."""
@@ -292,7 +300,9 @@ class AnalysisSession(BaseModel):
     view_mode: str = "results"  # "results" or "chart" or "wizard" or "save_query" or "save_chart" or "help" or "load_menu" or "browse_query" or "browse_chart"
     scroll_offset: int = 0  # Current scroll position in results (vertical)
     column_offset: int = 0  # Current column offset (horizontal scroll)
-    selected_row: int = 0  # Currently selected/highlighted row (absolute index in results)
+    selected_row: int = (
+        0  # Currently selected/highlighted row (absolute index in results)
+    )
 
     # Chart wizard state
     wizard_step: str = ""  # "chart_type", "x_column", "y_column", or ""
@@ -345,6 +355,7 @@ class AnalysisSession(BaseModel):
 
 
 # Chart Configuration Model
+
 
 class ChartConfig(BaseModel):
     """Represents a saved chart configuration."""

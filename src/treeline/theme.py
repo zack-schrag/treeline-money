@@ -38,7 +38,7 @@ class Theme:
         if not theme_path.exists():
             raise FileNotFoundError(f"Theme '{theme_name}' not found at {theme_path}")
 
-        with open(theme_path, 'r') as f:
+        with open(theme_path, "r") as f:
             theme_data = json.load(f)
 
         return cls(theme_data)

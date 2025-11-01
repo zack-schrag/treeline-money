@@ -63,7 +63,10 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
 
                 for acc_data in data.get("accounts", []):
                     # Filter by account IDs if specified
-                    if provider_account_ids and acc_data["id"] not in provider_account_ids:
+                    if (
+                        provider_account_ids
+                        and acc_data["id"] not in provider_account_ids
+                    ):
                         continue
 
                     # Extract balance if present
@@ -141,19 +144,31 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     for tx_data in acc_data.get("transactions", []):
                         transaction = Transaction(
                             id=uuid4(),
-                            account_id=UUID(int=0),  # Placeholder, will be mapped by service
-                            external_ids=MappingProxyType({
-                                "simplefin": tx_data["id"],
-                            }),
+                            account_id=UUID(
+                                int=0
+                            ),  # Placeholder, will be mapped by service
+                            external_ids=MappingProxyType(
+                                {
+                                    "simplefin": tx_data["id"],
+                                }
+                            ),
                             amount=Decimal(str(tx_data["amount"])),
                             description=tx_data.get("description", ""),
-                            transaction_date=datetime.fromtimestamp(tx_data["posted"], tz=timezone.utc),
-                            posted_date=datetime.fromtimestamp(tx_data["posted"], tz=timezone.utc),
-                            tags=tuple([tx_data["extra"]["category"]]) if tx_data.get("extra", {}).get("category") else tuple(),
+                            transaction_date=datetime.fromtimestamp(
+                                tx_data["posted"], tz=timezone.utc
+                            ),
+                            posted_date=datetime.fromtimestamp(
+                                tx_data["posted"], tz=timezone.utc
+                            ),
+                            tags=tuple([tx_data["extra"]["category"]])
+                            if tx_data.get("extra", {}).get("category")
+                            else tuple(),
                             created_at=datetime.now(timezone.utc),
                             updated_at=datetime.now(timezone.utc),
                         )
-                        transactions_with_accounts.append((simplefin_account_id, transaction))
+                        transactions_with_accounts.append(
+                            (simplefin_account_id, transaction)
+                        )
 
                 return Ok(transactions_with_accounts)
 
@@ -230,8 +245,10 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
 
         clean_url = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
 
-        return Ok({
-            "clean_url": clean_url,
-            "username": parsed.username,
-            "password": parsed.password,
-        })
+        return Ok(
+            {
+                "clean_url": clean_url,
+                "username": parsed.username,
+                "password": parsed.password,
+            }
+        )

@@ -23,5 +23,7 @@ class AuthProvider(ABC):
         pass
 
     @abstractmethod
-    async def validate_authorization_and_get_user_id(self, authorization: str) -> Result[str]:
+    async def validate_authorization_and_get_user_id(
+        self, authorization: str
+    ) -> Result[str]:
         pass

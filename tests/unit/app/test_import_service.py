@@ -86,7 +86,9 @@ class MockRepository(Repository):
     async def get_tag_statistics(self, user_id):
         pass
 
-    async def get_transactions_for_tagging(self, user_id, filters={}, limit=100, offset=0):
+    async def get_transactions_for_tagging(
+        self, user_id, filters={}, limit=100, offset=0
+    ):
         pass
 
     async def update_transaction_tags(self, user_id, transaction_id, tags):
@@ -117,10 +119,19 @@ class MockDataAggregationProvider(DataAggregationProvider):
     async def get_accounts(self, user_id, provider_settings=None):
         pass
 
-    async def get_transactions(self, user_id, start_date, end_date, provider_account_ids=[], provider_settings=None):
+    async def get_transactions(
+        self,
+        user_id,
+        start_date,
+        end_date,
+        provider_account_ids=[],
+        provider_settings=None,
+    ):
         pass
 
-    async def get_balances(self, user_id, provider_account_ids=[], provider_settings=None):
+    async def get_balances(
+        self, user_id, provider_account_ids=[], provider_settings=None
+    ):
         pass
 
 
@@ -178,7 +189,7 @@ async def test_import_transactions_with_no_existing():
         user_id=user_id,
         source_type="csv",
         account_id=account_id,
-        source_options={"file_path": "/test.csv"}
+        source_options={"file_path": "/test.csv"},
     )
 
     assert result.success
@@ -247,9 +258,9 @@ async def test_import_transactions_with_existing_duplicates():
     expected_fingerprint = remapped.external_ids["fingerprint"]
 
     # Simulate 2 existing transactions with this fingerprint
-    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok({
-        expected_fingerprint: 2
-    })
+    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok(
+        {expected_fingerprint: 2}
+    )
     mock_repository.bulk_upsert_transactions.return_value = Ok([])
 
     provider_registry = {"csv": mock_provider}
@@ -259,7 +270,7 @@ async def test_import_transactions_with_existing_duplicates():
         user_id=user_id,
         source_type="csv",
         account_id=account_id,
-        source_options={"file_path": "/test.csv"}
+        source_options={"file_path": "/test.csv"},
     )
 
     assert result.success
@@ -302,9 +313,9 @@ async def test_import_transactions_all_duplicates():
     expected_fingerprint = remapped.external_ids["fingerprint"]
 
     # Simulate 1 existing transaction
-    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok({
-        expected_fingerprint: 1
-    })
+    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok(
+        {expected_fingerprint: 1}
+    )
 
     provider_registry = {"csv": mock_provider}
     service = ImportService(mock_repository, provider_registry)
@@ -313,7 +324,7 @@ async def test_import_transactions_all_duplicates():
         user_id=user_id,
         source_type="csv",
         account_id=account_id,
-        source_options={"file_path": "/test.csv"}
+        source_options={"file_path": "/test.csv"},
     )
 
     assert result.success
@@ -340,7 +351,7 @@ async def test_import_unknown_source_type():
         user_id=user_id,
         source_type="ynab",  # Not in registry
         account_id=account_id,
-        source_options={}
+        source_options={},
     )
 
     assert not result.success
@@ -365,7 +376,7 @@ async def test_import_provider_failure():
         user_id=user_id,
         source_type="csv",
         account_id=account_id,
-        source_options={"file_path": "/test.csv"}
+        source_options={"file_path": "/test.csv"},
     )
 
     assert not result.success
@@ -465,11 +476,13 @@ async def test_import_mixed_fingerprints():
     # 1 coffee exists (import 1 more)
     # 2 lunches exist (import 1 more)
     # 0 dinners exist (import 1)
-    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok({
-        coffee_fp: 1,
-        lunch_fp: 2,
-        dinner_fp: 0,
-    })
+    mock_repository.get_transaction_counts_by_fingerprint.return_value = Ok(
+        {
+            coffee_fp: 1,
+            lunch_fp: 2,
+            dinner_fp: 0,
+        }
+    )
     mock_repository.bulk_upsert_transactions.return_value = Ok([])
 
     provider_registry = {"csv": mock_provider}
@@ -479,7 +492,7 @@ async def test_import_mixed_fingerprints():
         user_id=user_id,
         source_type="csv",
         account_id=account_id,
-        source_options={"file_path": "/test.csv"}
+        source_options={"file_path": "/test.csv"},
     )
 
     assert result.success
@@ -497,7 +510,10 @@ async def test_detect_csv_columns_success():
     class MockCSVProvider(MockDataAggregationProvider):
         def detect_columns(self, file_path):
             from treeline.domain import Ok
-            return Ok({"date": "Date", "amount": "Amount", "description": "Description"})
+
+            return Ok(
+                {"date": "Date", "amount": "Amount", "description": "Description"}
+            )
 
     mock_csv_provider = MockCSVProvider()
     provider_registry = {"csv": mock_csv_provider}
@@ -519,6 +535,7 @@ async def test_detect_csv_columns_provider_failure():
     class MockCSVProvider(MockDataAggregationProvider):
         def detect_columns(self, file_path):
             from treeline.domain import Fail
+
             return Fail("File not found")
 
     mock_csv_provider = MockCSVProvider()
@@ -550,8 +567,16 @@ async def test_preview_csv_import_success():
     ]
 
     class MockCSVProvider(MockDataAggregationProvider):
-        def preview_transactions(self, file_path, column_mapping, date_format="auto", limit=5, flip_signs=False):
+        def preview_transactions(
+            self,
+            file_path,
+            column_mapping,
+            date_format="auto",
+            limit=5,
+            flip_signs=False,
+        ):
             from treeline.domain import Ok
+
             return Ok(preview_transactions)
 
     mock_csv_provider = MockCSVProvider()
@@ -563,7 +588,7 @@ async def test_preview_csv_import_success():
         column_mapping={"date": "Date", "amount": "Amount"},
         date_format="auto",
         limit=5,
-        flip_signs=False
+        flip_signs=False,
     )
 
     assert result.success
@@ -577,8 +602,16 @@ async def test_preview_csv_import_provider_failure():
     mock_repository = MockRepository()
 
     class MockCSVProvider(MockDataAggregationProvider):
-        def preview_transactions(self, file_path, column_mapping, date_format="auto", limit=5, flip_signs=False):
+        def preview_transactions(
+            self,
+            file_path,
+            column_mapping,
+            date_format="auto",
+            limit=5,
+            flip_signs=False,
+        ):
             from treeline.domain import Fail
+
             return Fail("Invalid column mapping")
 
     mock_csv_provider = MockCSVProvider()
@@ -590,7 +623,7 @@ async def test_preview_csv_import_provider_failure():
         column_mapping={"invalid": "columns"},
         date_format="auto",
         limit=5,
-        flip_signs=False
+        flip_signs=False,
     )
 
     assert not result.success

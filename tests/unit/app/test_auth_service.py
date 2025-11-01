@@ -51,7 +51,9 @@ async def test_sign_in_with_password_success():
 
     assert result.success is True
     assert result.data.email == "test@example.com"
-    mock_provider.sign_in_with_password.assert_called_once_with("test@example.com", "password123")
+    mock_provider.sign_in_with_password.assert_called_once_with(
+        "test@example.com", "password123"
+    )
 
 
 @pytest.mark.asyncio
@@ -79,7 +81,9 @@ async def test_sign_up_with_password_success():
 
     assert result.success is True
     assert result.data.email == "newuser@example.com"
-    mock_provider.sign_up_with_password.assert_called_once_with("newuser@example.com", "password123")
+    mock_provider.sign_up_with_password.assert_called_once_with(
+        "newuser@example.com", "password123"
+    )
 
 
 @pytest.mark.asyncio
@@ -94,7 +98,9 @@ async def test_validate_authorization_and_get_user_id_success():
 
     assert result.success is True
     assert result.data == user_id
-    mock_provider.validate_authorization_and_get_user_id.assert_called_once_with("Bearer token123")
+    mock_provider.validate_authorization_and_get_user_id.assert_called_once_with(
+        "Bearer token123"
+    )
 
 
 @pytest.mark.asyncio

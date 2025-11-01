@@ -29,6 +29,7 @@ class DuckDBRepository(Repository):
     def _ensure_timezone(self, dt: datetime) -> datetime:
         """Ensure datetime is timezone-aware."""
         from datetime import date
+
         if dt is None:
             return dt
         # Handle datetime.date objects (from DATE columns) - convert to datetime at midnight UTC
@@ -43,7 +44,9 @@ class DuckDBRepository(Repository):
         """Get the database path for a user."""
         return self.db_dir / f"{user_id}.duckdb"
 
-    def _get_connection(self, user_id: UUID, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    def _get_connection(
+        self, user_id: UUID, read_only: bool = False
+    ) -> duckdb.DuckDBPyConnection:
         """Get a database connection for a user."""
         db_path = self._get_db_path(user_id)
         if read_only:
@@ -118,7 +121,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to add account: {str(e)}")
 
-    async def add_transaction(self, user_id: UUID, transaction: Transaction) -> Result[Transaction]:
+    async def add_transaction(
+        self, user_id: UUID, transaction: Transaction
+    ) -> Result[Transaction]:
         """Add a single transaction."""
         try:
             conn = self._get_connection(user_id)
@@ -149,7 +154,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to add transaction: {str(e)}")
 
-    async def add_balance(self, user_id: UUID, balance: BalanceSnapshot) -> Result[BalanceSnapshot]:
+    async def add_balance(
+        self, user_id: UUID, balance: BalanceSnapshot
+    ) -> Result[BalanceSnapshot]:
         """Add a balance snapshot."""
         try:
             conn = self._get_connection(user_id)
@@ -174,7 +181,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to add balance: {str(e)}")
 
-    async def bulk_upsert_accounts(self, user_id: UUID, accounts: List[Account]) -> Result[List[Account]]:
+    async def bulk_upsert_accounts(
+        self, user_id: UUID, accounts: List[Account]
+    ) -> Result[List[Account]]:
         """Bulk upsert accounts."""
         try:
             conn = self._get_connection(user_id)
@@ -218,7 +227,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to bulk upsert accounts: {str(e)}")
 
-    async def bulk_upsert_transactions(self, user_id: UUID, transactions: List[Transaction]) -> Result[List[Transaction]]:
+    async def bulk_upsert_transactions(
+        self, user_id: UUID, transactions: List[Transaction]
+    ) -> Result[List[Transaction]]:
         """Bulk upsert transactions."""
         try:
             conn = self._get_connection(user_id)
@@ -259,7 +270,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to bulk upsert transactions: {str(e)}")
 
-    async def bulk_add_balances(self, user_id: UUID, balances: List[BalanceSnapshot]) -> Result[List[BalanceSnapshot]]:
+    async def bulk_add_balances(
+        self, user_id: UUID, balances: List[BalanceSnapshot]
+    ) -> Result[List[BalanceSnapshot]]:
         """Bulk add balance snapshots."""
         try:
             conn = self._get_connection(user_id)
@@ -285,7 +298,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to bulk add balances: {str(e)}")
 
-    async def update_account_by_id(self, user_id: UUID, account: Account) -> Result[Account]:
+    async def update_account_by_id(
+        self, user_id: UUID, account: Account
+    ) -> Result[Account]:
         """Update an account by ID."""
         try:
             conn = self._get_connection(user_id)
@@ -334,7 +349,11 @@ class DuckDBRepository(Repository):
                     nickname=row_dict["nickname"],
                     account_type=row_dict["account_type"],
                     currency=row_dict["currency"],
-                    external_ids=MappingProxyType(json.loads(row_dict["external_ids"]) if row_dict["external_ids"] else {}),
+                    external_ids=MappingProxyType(
+                        json.loads(row_dict["external_ids"])
+                        if row_dict["external_ids"]
+                        else {}
+                    ),
                     institution_name=row_dict["institution_name"],
                     institution_url=row_dict["institution_url"],
                     institution_domain=row_dict["institution_domain"],
@@ -348,7 +367,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to get accounts: {str(e)}")
 
-    async def get_account_by_id(self, user_id: UUID, account_id: UUID) -> Result[Account]:
+    async def get_account_by_id(
+        self, user_id: UUID, account_id: UUID
+    ) -> Result[Account]:
         """Get a single account by ID."""
         try:
             conn = self._get_connection(user_id, read_only=True)
@@ -370,7 +391,11 @@ class DuckDBRepository(Repository):
                 nickname=row_dict["nickname"],
                 account_type=row_dict["account_type"],
                 currency=row_dict["currency"],
-                external_ids=MappingProxyType(json.loads(row_dict["external_ids"]) if row_dict["external_ids"] else {}),
+                external_ids=MappingProxyType(
+                    json.loads(row_dict["external_ids"])
+                    if row_dict["external_ids"]
+                    else {}
+                ),
                 institution_name=row_dict["institution_name"],
                 institution_url=row_dict["institution_url"],
                 institution_domain=row_dict["institution_domain"],
@@ -383,7 +408,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to get account: {str(e)}")
 
-    async def get_account_by_external_id(self, user_id: UUID, external_id: str) -> Result[Account]:
+    async def get_account_by_external_id(
+        self, user_id: UUID, external_id: str
+    ) -> Result[Account]:
         """Get an account by external ID."""
         # This requires JSON querying which DuckDB supports
         return Fail("Not implemented")
@@ -400,7 +427,7 @@ class DuckDBRepository(Repository):
                 # Query for transactions with matching external IDs
                 result = conn.execute(
                     "SELECT * FROM sys_transactions WHERE external_ids::VARCHAR LIKE ?",
-                    [f'%{list(ext_id_obj.values())[0]}%']
+                    [f"%{list(ext_id_obj.values())[0]}%"],
                 ).fetchall()
 
                 columns = [desc[0] for desc in conn.description]
@@ -410,10 +437,16 @@ class DuckDBRepository(Repository):
                     transaction = Transaction(
                         id=UUID(row_dict["transaction_id"]),
                         account_id=UUID(row_dict["account_id"]),
-                        external_ids=MappingProxyType(json.loads(row_dict["external_ids"]) if row_dict["external_ids"] else {}),
+                        external_ids=MappingProxyType(
+                            json.loads(row_dict["external_ids"])
+                            if row_dict["external_ids"]
+                            else {}
+                        ),
                         amount=Decimal(str(row_dict["amount"])),
                         description=row_dict["description"],
-                        transaction_date=row_dict["transaction_date"],  # Already a date object
+                        transaction_date=row_dict[
+                            "transaction_date"
+                        ],  # Already a date object
                         posted_date=row_dict["posted_date"],  # Already a date object
                         tags=tuple(row_dict["tags"]) if row_dict["tags"] else tuple(),
                         created_at=self._ensure_timezone(row_dict["created_at"]),
@@ -456,7 +489,9 @@ class DuckDBRepository(Repository):
                     balance=Decimal(str(row_dict["balance"])),
                     snapshot_time=row_dict["snapshot_time"],
                     created_at=row_dict["created_at"],
-                    updated_at=datetime.now(datetime.now().astimezone().tzinfo),  # DuckDB doesn't store updated_at for balances
+                    updated_at=datetime.now(
+                        datetime.now().astimezone().tzinfo
+                    ),  # DuckDB doesn't store updated_at for balances
                 )
                 balances.append(balance)
 
@@ -474,11 +509,13 @@ class DuckDBRepository(Repository):
             columns = [desc[0] for desc in conn.description] if conn.description else []
 
             conn.close()
-            return Ok({
-                "columns": columns,
-                "rows": result,  # Return raw tuples, not dicts
-                "row_count": len(result)
-            })
+            return Ok(
+                {
+                    "columns": columns,
+                    "rows": result,  # Return raw tuples, not dicts
+                    "row_count": len(result),
+                }
+            )
         except Exception as e:
             return Fail(f"Failed to execute query: {str(e)}")
 
@@ -504,18 +541,18 @@ class DuckDBRepository(Repository):
                 """).fetchall()
 
                 # Get sample data
-                sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchall()
-                column_names = [desc[0] for desc in conn.description] if conn.description else []
+                sample_result = conn.execute(
+                    f"SELECT * FROM {table_name} LIMIT 3"
+                ).fetchall()
+                column_names = (
+                    [desc[0] for desc in conn.description] if conn.description else []
+                )
 
                 schema_info[table_name] = {
                     "columns": [
-                        {"name": col[0], "type": col[1]}
-                        for col in columns_result
+                        {"name": col[0], "type": col[1]} for col in columns_result
                     ],
-                    "sample_data": {
-                        "columns": column_names,
-                        "rows": sample_result
-                    }
+                    "sample_data": {"columns": column_names, "rows": sample_result},
                 }
 
             conn.close()
@@ -539,12 +576,14 @@ class DuckDBRepository(Repository):
             conn.close()
 
             if not result or not result[0] or not result[1]:
-                return Ok({
-                    "earliest_date": None,
-                    "latest_date": None,
-                    "total_transactions": 0,
-                    "days_range": None
-                })
+                return Ok(
+                    {
+                        "earliest_date": None,
+                        "latest_date": None,
+                        "total_transactions": 0,
+                        "days_range": None,
+                    }
+                )
 
             earliest = result[0]
             latest = result[1]
@@ -552,17 +591,20 @@ class DuckDBRepository(Repository):
 
             # Calculate date range in days
             from datetime import datetime
+
             if isinstance(earliest, datetime) and isinstance(latest, datetime):
                 days_range = (latest - earliest).days
             else:
                 days_range = None
 
-            return Ok({
-                "earliest_date": earliest,
-                "latest_date": latest,
-                "total_transactions": total,
-                "days_range": days_range
-            })
+            return Ok(
+                {
+                    "earliest_date": earliest,
+                    "latest_date": latest,
+                    "total_transactions": total,
+                    "days_range": days_range,
+                }
+            )
         except Exception as e:
             return Fail(f"Failed to get date range info: {str(e)}")
 
@@ -577,7 +619,7 @@ class DuckDBRepository(Repository):
             conn = self._get_connection(user_id, read_only=True)
 
             # Build query with requested fingerprints and their counts
-            fingerprints_list = ', '.join(f"'{fp}'" for fp in fingerprints)
+            fingerprints_list = ", ".join(f"'{fp}'" for fp in fingerprints)
 
             query = f"""
                 WITH requested_fingerprints AS (
@@ -651,7 +693,9 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to list integrations: {str(e)}")
 
-    async def get_integration_settings(self, user_id: UUID, integration_name: str) -> Result[Dict[str, Any]]:
+    async def get_integration_settings(
+        self, user_id: UUID, integration_name: str
+    ) -> Result[Dict[str, Any]]:
         """Get settings for a specific integration."""
         try:
             conn = self._get_connection(user_id, read_only=True)
@@ -694,7 +738,11 @@ class DuckDBRepository(Repository):
             return Fail(f"Failed to get tag statistics: {str(e)}")
 
     async def get_transactions_for_tagging(
-        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100, offset: int = 0
+        self,
+        user_id: UUID,
+        filters: Dict[str, Any] = {},
+        limit: int = 100,
+        offset: int = 0,
     ) -> Result[List[Transaction]]:
         """Get transactions for tagging session."""
         try:
@@ -715,7 +763,8 @@ class DuckDBRepository(Repository):
 
             where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-            result = conn.execute(f"""
+            result = conn.execute(
+                f"""
                 SELECT
                     transaction_id,
                     account_id,
@@ -731,22 +780,30 @@ class DuckDBRepository(Repository):
                 WHERE {where_sql}
                 ORDER BY transaction_date DESC
                 LIMIT ? OFFSET ?
-            """, params + [limit, offset]).fetchall()
+            """,
+                params + [limit, offset],
+            ).fetchall()
 
             transactions = []
             for row in result:
-                transactions.append(Transaction(
-                    id=UUID(row[0]),
-                    account_id=UUID(row[1]),
-                    external_ids=json.loads(row[2]) if row[2] else {},
-                    amount=Decimal(str(row[3])),
-                    description=row[4],
-                    transaction_date=row[5],  # Already a date, no timezone conversion needed
-                    posted_date=row[6],  # Already a date, no timezone conversion needed
-                    tags=tuple(row[7]) if row[7] else (),
-                    created_at=self._ensure_timezone(row[8]),
-                    updated_at=self._ensure_timezone(row[9]),
-                ))
+                transactions.append(
+                    Transaction(
+                        id=UUID(row[0]),
+                        account_id=UUID(row[1]),
+                        external_ids=json.loads(row[2]) if row[2] else {},
+                        amount=Decimal(str(row[3])),
+                        description=row[4],
+                        transaction_date=row[
+                            5
+                        ],  # Already a date, no timezone conversion needed
+                        posted_date=row[
+                            6
+                        ],  # Already a date, no timezone conversion needed
+                        tags=tuple(row[7]) if row[7] else (),
+                        created_at=self._ensure_timezone(row[8]),
+                        updated_at=self._ensure_timezone(row[9]),
+                    )
+                )
 
             conn.close()
             return Ok(transactions)
@@ -763,14 +820,18 @@ class DuckDBRepository(Repository):
             now = datetime.now(timezone.utc)
 
             # Update the transaction
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE sys_transactions
                 SET tags = ?, updated_at = ?
                 WHERE transaction_id = ?
-            """, [tags, now, transaction_id])
+            """,
+                [tags, now, transaction_id],
+            )
 
             # Fetch the updated transaction
-            result = conn.execute("""
+            result = conn.execute(
+                """
                 SELECT
                     transaction_id,
                     account_id,
@@ -784,7 +845,9 @@ class DuckDBRepository(Repository):
                     updated_at
                 FROM sys_transactions
                 WHERE transaction_id = ?
-            """, [transaction_id]).fetchone()
+            """,
+                [transaction_id],
+            ).fetchone()
 
             if not result:
                 conn.close()
@@ -793,7 +856,9 @@ class DuckDBRepository(Repository):
             transaction = Transaction(
                 id=UUID(result[0]),
                 account_id=UUID(result[1]),
-                external_ids=MappingProxyType(json.loads(result[2]) if result[2] else {}),
+                external_ids=MappingProxyType(
+                    json.loads(result[2]) if result[2] else {}
+                ),
                 amount=Decimal(str(result[3])),
                 description=result[4],
                 transaction_date=self._ensure_timezone(result[5]),

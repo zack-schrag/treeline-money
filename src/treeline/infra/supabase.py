@@ -73,12 +73,15 @@ class SupabaseAuthProvider(AuthProvider):
         except Exception as e:
             return Fail(str(e))
 
-    def on_auth_state_change(self, callback: Callable[[User | None], None]) -> Callable[[], None]:
+    def on_auth_state_change(
+        self, callback: Callable[[User | None], None]
+    ) -> Callable[[], None]:
         """Register a callback for auth state changes.
 
         Returns:
             A function to unsubscribe from auth state changes
         """
+
         def auth_callback(event: str, session: Any) -> None:
             if session and session.user:
                 user = User(id=session.user.id, email=session.user.email or "")
@@ -94,7 +97,9 @@ class SupabaseAuthProvider(AuthProvider):
 
         return unsubscribe
 
-    async def validate_authorization_and_get_user_id(self, authorization: str) -> Result[str]:
+    async def validate_authorization_and_get_user_id(
+        self, authorization: str
+    ) -> Result[str]:
         """Validate authorization token and get user ID."""
         try:
             # Extract JWT token from Authorization header

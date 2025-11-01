@@ -217,6 +217,7 @@ class TaggingScreen(Screen):
 
     def compose(self) -> ComposeResult:
         import platform
+
         # On macOS, Textual maps ctrl to Option key
         page_key = "Opt" if platform.system() == "Darwin" else "Ctrl"
 
@@ -227,9 +228,13 @@ class TaggingScreen(Screen):
             yield Input(placeholder="Search transactions...", id="search_input")
 
         with Horizontal(id="main_container"):
-            yield DataTable(id="transaction_table", zebra_stripes=True, cursor_type="row")
+            yield DataTable(
+                id="transaction_table", zebra_stripes=True, cursor_type="row"
+            )
             with VerticalScroll(id="details_panel"):
-                yield Static("Select a transaction to see details", id="details_content")
+                yield Static(
+                    "Select a transaction to see details", id="details_content"
+                )
 
         yield Static(
             f"↑/↓: Nav | 1-5: Tag | 0: Manual | C: Clear | U: Toggle | {page_key}+←/→: Page | /: Search | Q: Quit",
@@ -239,7 +244,7 @@ class TaggingScreen(Screen):
         with Container(id="tag_input_bar"):
             tag_input = Input(
                 placeholder="Enter tags (comma-separated), ↓ to see suggestions...",
-                id="tag_inline_input"
+                id="tag_inline_input",
             )
             yield tag_input
             # Autocomplete widget for tag suggestions
@@ -315,7 +320,9 @@ class TaggingScreen(Screen):
 
             # Format tags with badge-like styling
             if tx.tags:
-                badge_tags = [f"[cyan][[/cyan]{tag}[cyan]][/cyan]" for tag in tx.tags[:2]]
+                badge_tags = [
+                    f"[cyan][[/cyan]{tag}[cyan]][/cyan]" for tag in tx.tags[:2]
+                ]
                 tags_str = " ".join(badge_tags)
                 if len(tx.tags) > 2:
                     tags_str += f" [dim]+{len(tx.tags) - 2}[/dim]"
@@ -362,27 +369,40 @@ class TaggingScreen(Screen):
         """Update the details panel for the selected transaction."""
         table = self.query_one(DataTable)
 
-        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+        if (
+            table.cursor_row is None
+            or table.cursor_row < 0
+            or table.cursor_row >= len(self.transactions)
+        ):
             return
 
         transaction = self.transactions[table.cursor_row]
 
         # Get suggested tags
         from treeline.cli import get_container
+
         container = get_container()
         tagging_service = container.tagging_service()
 
         suggestions_result = await tagging_service.get_suggested_tags(
             self.user_id, transaction, limit=5
         )
-        self.current_suggestions = suggestions_result.data if suggestions_result.success else []
+        self.current_suggestions = (
+            suggestions_result.data if suggestions_result.success else []
+        )
 
         # Build details text
         details_lines = []
-        details_lines.append(f"[bold]Selected Transaction ({table.cursor_row + 1}/{len(self.transactions)})[/bold]\n")
-        details_lines.append(f"[dim]Account:[/dim] {self.account_map.get(transaction.account_id, 'Unknown')}")
+        details_lines.append(
+            f"[bold]Selected Transaction ({table.cursor_row + 1}/{len(self.transactions)})[/bold]\n"
+        )
+        details_lines.append(
+            f"[dim]Account:[/dim] {self.account_map.get(transaction.account_id, 'Unknown')}"
+        )
         details_lines.append(f"[dim]Date:[/dim] {transaction.transaction_date}")
-        details_lines.append(f"[dim]Description:[/dim] {transaction.description or '(none)'}")
+        details_lines.append(
+            f"[dim]Description:[/dim] {transaction.description or '(none)'}"
+        )
 
         # Format amount with color
         if transaction.amount < 0:
@@ -402,7 +422,7 @@ class TaggingScreen(Screen):
         if self.current_suggestions:
             details_lines.append(f"\n[bold cyan]Suggested Tags:[/bold cyan]")
             for i, tag in enumerate(self.current_suggestions[:5]):
-                details_lines.append(f"  [bold][{i+1}][/bold] {tag}")
+                details_lines.append(f"  [bold][{i + 1}][/bold] {tag}")
 
         details_text = "\n".join(details_lines)
 
@@ -448,7 +468,11 @@ class TaggingScreen(Screen):
         """Enter manual tag entry mode."""
         table = self.query_one(DataTable)
 
-        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+        if (
+            table.cursor_row is None
+            or table.cursor_row < 0
+            or table.cursor_row >= len(self.transactions)
+        ):
             return
 
         transaction = self.transactions[table.cursor_row]
@@ -493,13 +517,12 @@ class TaggingScreen(Screen):
         if result.success:
             # Sort tags by frequency (most used first)
             self.all_existing_tags = sorted(
-                result.data.keys(),
-                key=lambda t: result.data[t],
-                reverse=True
+                result.data.keys(), key=lambda t: result.data[t], reverse=True
             )
 
             # Update the AutoComplete widget's candidates if we're in inline tag mode
             if self.inline_tag_mode and self.tag_autocomplete:
+
                 def update_autocomplete():
                     # Convert tags to DropdownItem objects
                     items = [DropdownItem(tag) for tag in self.all_existing_tags]
@@ -511,7 +534,11 @@ class TaggingScreen(Screen):
         """Save tags from the inline input."""
         table = self.query_one(DataTable)
 
-        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+        if (
+            table.cursor_row is None
+            or table.cursor_row < 0
+            or table.cursor_row >= len(self.transactions)
+        ):
             return
 
         transaction = self.transactions[table.cursor_row]
@@ -533,7 +560,11 @@ class TaggingScreen(Screen):
         """Quickly apply a suggested tag by index (0-4)."""
         table = self.query_one(DataTable)
 
-        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+        if (
+            table.cursor_row is None
+            or table.cursor_row < 0
+            or table.cursor_row >= len(self.transactions)
+        ):
             return
 
         if index >= len(self.current_suggestions):
@@ -552,7 +583,11 @@ class TaggingScreen(Screen):
         """Clear all tags from the selected transaction."""
         table = self.query_one(DataTable)
 
-        if table.cursor_row is None or table.cursor_row < 0 or table.cursor_row >= len(self.transactions):
+        if (
+            table.cursor_row is None
+            or table.cursor_row < 0
+            or table.cursor_row >= len(self.transactions)
+        ):
             return
 
         transaction = self.transactions[table.cursor_row]
@@ -614,7 +649,9 @@ class TaggingScreen(Screen):
         tagging_service = container.tagging_service()
 
         result = asyncio.run(
-            tagging_service.update_transaction_tags(self.user_id, str(transaction.id), tags)
+            tagging_service.update_transaction_tags(
+                self.user_id, str(transaction.id), tags
+            )
         )
 
         if result.success:

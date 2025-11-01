@@ -28,27 +28,39 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def add_transaction(self, user_id: UUID, transaction: Transaction) -> Result[Transaction]:
+    async def add_transaction(
+        self, user_id: UUID, transaction: Transaction
+    ) -> Result[Transaction]:
         pass
 
     @abstractmethod
-    async def add_balance(self, user_id: UUID, balance: BalanceSnapshot) -> Result[BalanceSnapshot]:
+    async def add_balance(
+        self, user_id: UUID, balance: BalanceSnapshot
+    ) -> Result[BalanceSnapshot]:
         pass
 
     @abstractmethod
-    async def bulk_upsert_accounts(self, user_id: UUID, accounts: List[Account]) -> Result[List[Account]]:
+    async def bulk_upsert_accounts(
+        self, user_id: UUID, accounts: List[Account]
+    ) -> Result[List[Account]]:
         pass
 
     @abstractmethod
-    async def bulk_upsert_transactions(self, user_id: UUID, transactions: List[Transaction]) -> Result[List[Transaction]]:
+    async def bulk_upsert_transactions(
+        self, user_id: UUID, transactions: List[Transaction]
+    ) -> Result[List[Transaction]]:
         pass
 
     @abstractmethod
-    async def bulk_add_balances(self, user_id: UUID, balances: List[BalanceSnapshot]) -> Result[List[BalanceSnapshot]]:
+    async def bulk_add_balances(
+        self, user_id: UUID, balances: List[BalanceSnapshot]
+    ) -> Result[List[BalanceSnapshot]]:
         pass
 
     @abstractmethod
-    async def update_account_by_id(self, user_id: UUID, account: Account) -> Result[Account]:
+    async def update_account_by_id(
+        self, user_id: UUID, account: Account
+    ) -> Result[Account]:
         pass
 
     @abstractmethod
@@ -56,19 +68,27 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def get_account_by_id(self, user_id: UUID, account_id: UUID) -> Result[Account]:
+    async def get_account_by_id(
+        self, user_id: UUID, account_id: UUID
+    ) -> Result[Account]:
         pass
 
     @abstractmethod
-    async def get_account_by_external_id(self, user_id: UUID, external_id: str) -> Result[Account]:
+    async def get_account_by_external_id(
+        self, user_id: UUID, external_id: str
+    ) -> Result[Account]:
         pass
 
     @abstractmethod
-    async def get_transactions_by_external_ids(self, user_id: UUID, external_ids: List[Dict[str, str]]) -> Result[List[Transaction]]:
+    async def get_transactions_by_external_ids(
+        self, user_id: UUID, external_ids: List[Dict[str, str]]
+    ) -> Result[List[Transaction]]:
         pass
 
     @abstractmethod
-    async def get_balance_snapshots(self, user_id: UUID, account_id: UUID | None = None, date: str | None = None) -> Result[List[BalanceSnapshot]]:
+    async def get_balance_snapshots(
+        self, user_id: UUID, account_id: UUID | None = None, date: str | None = None
+    ) -> Result[List[BalanceSnapshot]]:
         pass
 
     @abstractmethod
@@ -117,7 +137,11 @@ class Repository(ABC):
 
     @abstractmethod
     async def get_transactions_for_tagging(
-        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100, offset: int = 0
+        self,
+        user_id: UUID,
+        filters: Dict[str, Any] = {},
+        limit: int = 100,
+        offset: int = 0,
     ) -> Result[List[Transaction]]:
         """
         Get transactions for tagging session.
@@ -181,7 +205,9 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def upsert_integration(self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]) -> Result[None]:
+    async def upsert_integration(
+        self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]
+    ) -> Result[None]:
         pass
 
     @abstractmethod
@@ -189,5 +215,7 @@ class Repository(ABC):
         pass
 
     @abstractmethod
-    async def get_integration_settings(self, user_id: UUID, integration_name: str) -> Result[Dict[str, Any]]:
+    async def get_integration_settings(
+        self, user_id: UUID, integration_name: str
+    ) -> Result[Dict[str, Any]]:
         pass

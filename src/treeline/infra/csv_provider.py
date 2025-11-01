@@ -65,7 +65,7 @@ class CSVProvider(DataAggregationProvider):
             return Fail(f"File not found: {file_path}")
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 transactions = []
 
@@ -125,7 +125,9 @@ class CSVProvider(DataAggregationProvider):
             has_debit_credit = bool(debit_col or credit_col)
 
             if not has_amount and not has_debit_credit:
-                return Fail("amount column (or debit/credit columns) required in column_mapping")
+                return Fail(
+                    "amount column (or debit/credit columns) required in column_mapping"
+                )
 
             # Parse date
             date_str = row.get(date_col, "").strip()
@@ -185,7 +187,9 @@ class CSVProvider(DataAggregationProvider):
                     # Only credit has value - preserve sign from CSV
                     amount = credit_amt
                 else:
-                    return Fail(f"Failed to parse debit/credit: {debit_str}/{credit_str}")
+                    return Fail(
+                        f"Failed to parse debit/credit: {debit_str}/{credit_str}"
+                    )
 
             # Parse description and clean it
             description = ""
@@ -219,12 +223,12 @@ class CSVProvider(DataAggregationProvider):
         # Try auto-detection if format is "auto"
         if date_format == "auto":
             formats = [
-                "%Y-%m-%d",      # 2024-10-01
-                "%m/%d/%Y",      # 10/01/2024
-                "%d/%m/%Y",      # 01/10/2024
-                "%Y/%m/%d",      # 2024/10/01
-                "%m-%d-%Y",      # 10-01-2024
-                "%d-%m-%Y",      # 01-10-2024
+                "%Y-%m-%d",  # 2024-10-01
+                "%m/%d/%Y",  # 10/01/2024
+                "%d/%m/%Y",  # 01/10/2024
+                "%Y/%m/%d",  # 2024/10/01
+                "%m-%d-%Y",  # 10-01-2024
+                "%d-%m-%Y",  # 01-10-2024
             ]
         else:
             # Map common format names to strftime formats
@@ -284,13 +288,13 @@ class CSVProvider(DataAggregationProvider):
         cleaned = description
 
         # Remove literal "null" strings (case insensitive)
-        cleaned = re.sub(r'\bnull\b', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bnull\b", "", cleaned, flags=re.IGNORECASE)
 
         # Remove card number masks (XXXXXXXXXXXX followed by digits)
-        cleaned = re.sub(r'x{10,}\d+', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"x{10,}\d+", "", cleaned, flags=re.IGNORECASE)
 
         # Clean up extra whitespace (collapse multiple spaces, trim)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
         return cleaned
 
@@ -300,13 +304,26 @@ class CSVProvider(DataAggregationProvider):
         Returns best-guess mapping for date, amount, and description columns.
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 headers = reader.fieldnames or []
 
             # Common patterns for column detection
-            date_patterns = ['date', 'transaction date', 'trans date', 'posted', 'post date']
-            desc_patterns = ['description', 'memo', 'name', 'payee', 'merchant', 'details']
+            date_patterns = [
+                "date",
+                "transaction date",
+                "trans date",
+                "posted",
+                "post date",
+            ]
+            desc_patterns = [
+                "description",
+                "memo",
+                "name",
+                "payee",
+                "merchant",
+                "details",
+            ]
 
             detected = {}
 
@@ -314,36 +331,36 @@ class CSVProvider(DataAggregationProvider):
             for header in headers:
                 header_lower = header.lower().strip()
                 if any(pattern in header_lower for pattern in date_patterns):
-                    detected['date'] = header
+                    detected["date"] = header
                     break
 
             # Find amount column (prefer single amount column)
             for header in headers:
                 header_lower = header.lower().strip()
-                if header_lower == 'amount' or header_lower == 'total':
-                    detected['amount'] = header
+                if header_lower == "amount" or header_lower == "total":
+                    detected["amount"] = header
                     break
 
             # If no 'amount' found, check for debit/credit
-            if 'amount' not in detected:
+            if "amount" not in detected:
                 debit_col = None
                 credit_col = None
                 for header in headers:
                     header_lower = header.lower().strip()
-                    if 'debit' in header_lower:
+                    if "debit" in header_lower:
                         debit_col = header
-                    if 'credit' in header_lower:
+                    if "credit" in header_lower:
                         credit_col = header
 
                 if debit_col or credit_col:
-                    detected['debit'] = debit_col
-                    detected['credit'] = credit_col
+                    detected["debit"] = debit_col
+                    detected["credit"] = credit_col
 
             # Find description column
             for header in headers:
                 header_lower = header.lower().strip()
                 if any(pattern in header_lower for pattern in desc_patterns):
-                    detected['description'] = header
+                    detected["description"] = header
                     break
 
             return Ok(detected)
@@ -357,14 +374,14 @@ class CSVProvider(DataAggregationProvider):
         column_mapping: Dict[str, str],
         date_format: str = "auto",
         limit: int = 5,
-        flip_signs: bool = False
+        flip_signs: bool = False,
     ) -> Result[List[Transaction]]:
         """Preview first N transactions from CSV with given mapping.
 
         This is used to show the user what will be imported before committing.
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 transactions = []
 

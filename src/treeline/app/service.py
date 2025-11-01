@@ -2,11 +2,18 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
-from datetime import datetime, timezone, date 
+from datetime import datetime, timezone, date
 from uuid import uuid4
 from treeline.domain import BalanceSnapshot
 
-from treeline.abstractions import AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository, TagSuggester
+from treeline.abstractions import (
+    AuthProvider,
+    CredentialStore,
+    DataAggregationProvider,
+    IntegrationProvider,
+    Repository,
+    TagSuggester,
+)
 from treeline.domain import Account, Result, Transaction, User
 
 
@@ -31,7 +38,9 @@ class SyncService:
         """Sync accounts from a data provider."""
         data_provider = self._get_provider(integration_name)
         if not data_provider:
-            return Result(success=False, error=f"Unknown integration: {integration_name}")
+            return Result(
+                success=False, error=f"Unknown integration: {integration_name}"
+            )
 
         if not data_provider.can_get_accounts:
             return Result(success=False, error="Provider does not support accounts")
@@ -59,12 +68,16 @@ class SyncService:
         for discovered_account in discovered_accounts:
             matched = False
             for existing_account in existing_accounts:
-                disc_ext_id = discovered_account.external_ids.get(integration_name_lower)
+                disc_ext_id = discovered_account.external_ids.get(
+                    integration_name_lower
+                )
                 exist_ext_id = existing_account.external_ids.get(integration_name_lower)
 
                 if disc_ext_id and exist_ext_id and disc_ext_id == exist_ext_id:
                     # Update discovered account to use existing ID
-                    updated_account = discovered_account.model_copy(update={"id": existing_account.id})
+                    updated_account = discovered_account.model_copy(
+                        update={"id": existing_account.id}
+                    )
                     updated_accounts.append(updated_account)
                     matched = True
                     break
@@ -75,7 +88,9 @@ class SyncService:
         discovered_accounts = updated_accounts
 
         # Bulk upsert accounts
-        ingested_result = await self.repository.bulk_upsert_accounts(user_id, discovered_accounts)
+        ingested_result = await self.repository.bulk_upsert_accounts(
+            user_id, discovered_accounts
+        )
         if not ingested_result.success:
             return ingested_result
 
@@ -87,9 +102,7 @@ class SyncService:
             if account.id and account.balance is not None:
                 # Check if a balance snapshot already exists for this account today
                 existing_snapshots_result = await self.repository.get_balance_snapshots(
-                    user_id,
-                    account_id=account.id,
-                    date=today
+                    user_id, account_id=account.id, date=today
                 )
 
                 if not existing_snapshots_result.success:
@@ -105,21 +118,26 @@ class SyncService:
                 )
 
                 if not has_same_balance:
-                    balance_snapshots.append(BalanceSnapshot(
-                        id=uuid4(),
-                        account_id=account.id,
-                        balance=account.balance,
-                        snapshot_time=datetime.now(timezone.utc),
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
-                    ))
+                    balance_snapshots.append(
+                        BalanceSnapshot(
+                            id=uuid4(),
+                            account_id=account.id,
+                            balance=account.balance,
+                            snapshot_time=datetime.now(timezone.utc),
+                            created_at=datetime.now(timezone.utc),
+                            updated_at=datetime.now(timezone.utc),
+                        )
+                    )
 
         if balance_snapshots:
             await self.repository.bulk_add_balances(user_id, balance_snapshots)
 
         return Result(
             success=True,
-            data={"discovered_accounts": discovered_accounts, "ingested_accounts": ingested_result.data}
+            data={
+                "discovered_accounts": discovered_accounts,
+                "ingested_accounts": ingested_result.data,
+            },
         )
 
     async def sync_transactions(
@@ -133,7 +151,9 @@ class SyncService:
         """Sync transactions from a data provider."""
         data_provider = self._get_provider(integration_name)
         if not data_provider:
-            return Result(success=False, error=f"Unknown integration: {integration_name}")
+            return Result(
+                success=False, error=f"Unknown integration: {integration_name}"
+            )
 
         if not data_provider.can_get_transactions:
             return Result(success=False, error="Provider does not support transactions")
@@ -197,7 +217,8 @@ class SyncService:
                 # Remove old fingerprint to force recalculation
                 if "fingerprint" in tx_dict["external_ids"]:
                     cleaned_external_ids = {
-                        k: v for k, v in tx_dict["external_ids"].items()
+                        k: v
+                        for k, v in tx_dict["external_ids"].items()
                         if k != "fingerprint"
                     }
                     tx_dict["external_ids"] = cleaned_external_ids
@@ -248,7 +269,9 @@ class SyncService:
                 new_count += 1
 
         # Bulk insert only new transactions
-        ingested_result = await self.repository.bulk_upsert_transactions(user_id, transactions_to_insert)
+        ingested_result = await self.repository.bulk_upsert_transactions(
+            user_id, transactions_to_insert
+        )
         if not ingested_result.success:
             return ingested_result
 
@@ -275,7 +298,7 @@ class SyncService:
         """
         return Result(
             success=False,
-            error="sync_balances is deprecated - balances are synced automatically during sync_accounts"
+            error="sync_balances is deprecated - balances are synced automatically during sync_accounts",
         )
 
     async def get_integrations(self, user_id: UUID) -> Result[List[Dict[str, Any]]]:
@@ -284,13 +307,15 @@ class SyncService:
         await self.repository.ensure_user_db_initialized(user_id)
         return await self.repository.list_integrations(user_id)
 
-    async def _calculate_sync_date_range(self, user_id: UUID) -> Result[Dict[str, datetime]]:
+    async def _calculate_sync_date_range(
+        self, user_id: UUID
+    ) -> Result[Dict[str, datetime]]:
         """Calculate the date range for syncing transactions.
 
         Returns:
             Result with dict containing 'start_date', 'end_date', and 'sync_type' ('initial' or 'incremental')
         """
-        
+
         end_date = datetime.now(timezone.utc)
 
         # Query for the latest transaction date
@@ -307,8 +332,8 @@ class SyncService:
                 data={
                     "start_date": end_date - timedelta(days=90),
                     "end_date": end_date,
-                    "sync_type": "initial"
-                }
+                    "sync_type": "initial",
+                },
             )
 
         rows = max_date_result.data.get("rows", [])
@@ -319,7 +344,9 @@ class SyncService:
             # Convert date to datetime if needed, and ensure timezone-aware
             if isinstance(max_date, date) and not isinstance(max_date, datetime):
                 # DATE column - convert to datetime at midnight UTC
-                max_date = datetime.combine(max_date, datetime.min.time(), tzinfo=timezone.utc)
+                max_date = datetime.combine(
+                    max_date, datetime.min.time(), tzinfo=timezone.utc
+                )
             elif isinstance(max_date, datetime):
                 # TIMESTAMP column - ensure timezone-aware
                 if max_date.tzinfo is None:
@@ -331,8 +358,8 @@ class SyncService:
                 data={
                     "start_date": start_date,
                     "end_date": end_date,
-                    "sync_type": "incremental"
-                }
+                    "sync_type": "incremental",
+                },
             )
 
         # Initial sync: fetch last 90 days
@@ -341,8 +368,8 @@ class SyncService:
             data={
                 "start_date": end_date - timedelta(days=90),
                 "end_date": end_date,
-                "sync_type": "initial"
-            }
+                "sync_type": "initial",
+            },
         )
 
     async def sync_all_integrations(self, user_id: UUID) -> Result[Dict[str, Any]]:
@@ -358,10 +385,7 @@ class SyncService:
         integrations = integrations_result.data or []
 
         if not integrations:
-            return Result(
-                success=False,
-                error="No integrations configured"
-            )
+            return Result(success=False, error="No integrations configured")
 
         sync_results = []
 
@@ -370,15 +394,19 @@ class SyncService:
             integration_options = integration["integrationOptions"]
 
             # Sync accounts
-            accounts_result = await self.sync_accounts(user_id, integration_name, integration_options)
+            accounts_result = await self.sync_accounts(
+                user_id, integration_name, integration_options
+            )
 
             if not accounts_result.success:
-                sync_results.append({
-                    "integration": integration_name,
-                    "accounts_synced": 0,
-                    "transactions_synced": 0,
-                    "error": accounts_result.error
-                })
+                sync_results.append(
+                    {
+                        "integration": integration_name,
+                        "accounts_synced": 0,
+                        "transactions_synced": 0,
+                        "error": accounts_result.error,
+                    }
+                )
                 continue
 
             num_accounts = len(accounts_result.data.get("ingested_accounts", []))
@@ -386,12 +414,14 @@ class SyncService:
             # Calculate date range for transactions
             date_range_result = await self._calculate_sync_date_range(user_id)
             if not date_range_result.success:
-                sync_results.append({
-                    "integration": integration_name,
-                    "accounts_synced": num_accounts,
-                    "transactions_synced": 0,
-                    "error": "Failed to calculate sync date range"
-                })
+                sync_results.append(
+                    {
+                        "integration": integration_name,
+                        "accounts_synced": num_accounts,
+                        "transactions_synced": 0,
+                        "error": "Failed to calculate sync date range",
+                    }
+                )
                 continue
 
             date_range = date_range_result.data
@@ -402,36 +432,39 @@ class SyncService:
                 integration_name,
                 start_date=date_range["start_date"],
                 end_date=date_range["end_date"],
-                provider_options=integration_options
+                provider_options=integration_options,
             )
 
             if not transactions_result.success:
-                sync_results.append({
-                    "integration": integration_name,
-                    "accounts_synced": num_accounts,
-                    "transactions_synced": 0,
-                    "sync_type": date_range["sync_type"],
-                    "error": transactions_result.error
-                })
+                sync_results.append(
+                    {
+                        "integration": integration_name,
+                        "accounts_synced": num_accounts,
+                        "transactions_synced": 0,
+                        "sync_type": date_range["sync_type"],
+                        "error": transactions_result.error,
+                    }
+                )
                 continue
 
-            num_transactions = len(transactions_result.data.get("ingested_transactions", []))
+            num_transactions = len(
+                transactions_result.data.get("ingested_transactions", [])
+            )
             tx_stats = transactions_result.data.get("stats", {})
 
-            sync_results.append({
-                "integration": integration_name,
-                "accounts_synced": num_accounts,
-                "transactions_synced": num_transactions,
-                "transaction_stats": tx_stats,
-                "sync_type": date_range["sync_type"],
-                "start_date": date_range["start_date"],
-                "end_date": date_range["end_date"]
-            })
+            sync_results.append(
+                {
+                    "integration": integration_name,
+                    "accounts_synced": num_accounts,
+                    "transactions_synced": num_transactions,
+                    "transaction_stats": tx_stats,
+                    "sync_type": date_range["sync_type"],
+                    "start_date": date_range["start_date"],
+                    "end_date": date_range["end_date"],
+                }
+            )
 
-        return Result(
-            success=True,
-            data={"results": sync_results}
-        )
+        return Result(success=True, data={"results": sync_results})
 
 
 class AuthService:
@@ -452,14 +485,20 @@ class AuthService:
     async def get_current_user(self) -> Result[User]:
         return await self.auth_provider.get_current_user()
 
-    async def validate_authorization_and_get_user_id(self, authorization: str) -> Result[str]:
-        return await self.auth_provider.validate_authorization_and_get_user_id(authorization)
+    async def validate_authorization_and_get_user_id(
+        self, authorization: str
+    ) -> Result[str]:
+        return await self.auth_provider.validate_authorization_and_get_user_id(
+            authorization
+        )
 
 
 class IntegrationService:
     """Service for managing integrations with external providers."""
 
-    def __init__(self, integration_provider: IntegrationProvider, repository: Repository):
+    def __init__(
+        self, integration_provider: IntegrationProvider, repository: Repository
+    ):
         self.integration_provider = integration_provider
         self.repository = repository
 
@@ -473,7 +512,9 @@ class IntegrationService:
             return result
 
         if result.data:
-            await self.repository.upsert_integration(user_id, integration_name, result.data)
+            await self.repository.upsert_integration(
+                user_id, integration_name, result.data
+            )
 
         return result
 
@@ -502,7 +543,9 @@ class ConfigService:
         self.credential_store.set_credential("user_id", user_id)
         self.credential_store.set_credential("user_email", email)
         # TODO: Store actual access token once we implement token-based auth
-        self.credential_store.set_credential("supabase_access_token", "TODO_access_token")
+        self.credential_store.set_credential(
+            "supabase_access_token", "TODO_access_token"
+        )
 
     def clear_credentials(self) -> None:
         """Clear all stored credentials."""
@@ -555,7 +598,9 @@ class StatusService:
                 MAX(transaction_date) as latest_date
             FROM transactions
         """
-        stats_result = await self.repository.execute_query(user_id, transaction_stats_query)
+        stats_result = await self.repository.execute_query(
+            user_id, transaction_stats_query
+        )
 
         if not stats_result.success:
             return stats_result
@@ -567,8 +612,8 @@ class StatusService:
             # Rows are tuples, use column indices
             row = rows[0]
             total_transactions = row[0] if len(row) > 0 else 0  # COUNT(*)
-            earliest_date = row[1] if len(row) > 1 else None     # MIN(transaction_date)
-            latest_date = row[2] if len(row) > 2 else None       # MAX(transaction_date)
+            earliest_date = row[1] if len(row) > 1 else None  # MIN(transaction_date)
+            latest_date = row[2] if len(row) > 2 else None  # MAX(transaction_date)
         else:
             total_transactions = 0
             earliest_date = None
@@ -671,7 +716,11 @@ class TaggingService:
         )
 
     async def get_transactions_for_tagging(
-        self, user_id: UUID, filters: Dict[str, Any] = {}, limit: int = 100, offset: int = 0
+        self,
+        user_id: UUID,
+        filters: Dict[str, Any] = {},
+        limit: int = 100,
+        offset: int = 0,
     ) -> Result[List[Transaction]]:
         """
         Get transactions matching filters for tagging session.
@@ -740,7 +789,11 @@ class TaggingService:
 class ImportService:
     """Service for one-time bulk imports from files or external sources."""
 
-    def __init__(self, repository: Repository, provider_registry: Dict[str, DataAggregationProvider]):
+    def __init__(
+        self,
+        repository: Repository,
+        provider_registry: Dict[str, DataAggregationProvider],
+    ):
         self.repository = repository
         self.provider_registry = provider_registry
 
@@ -774,7 +827,7 @@ class ImportService:
             start_date=datetime.min,
             end_date=datetime.now(timezone.utc),
             provider_account_ids=[],
-            provider_settings=source_options
+            provider_settings=source_options,
         )
         if not discovered_result.success:
             return discovered_result
@@ -802,8 +855,10 @@ class ImportService:
 
         # Query existing counts per fingerprint
         fingerprints = list(discovered_by_fingerprint.keys())
-        existing_counts_result = await self.repository.get_transaction_counts_by_fingerprint(
-            user_id, fingerprints
+        existing_counts_result = (
+            await self.repository.get_transaction_counts_by_fingerprint(
+                user_id, fingerprints
+            )
         )
         if not existing_counts_result.success:
             return existing_counts_result
@@ -826,11 +881,13 @@ class ImportService:
             # Track skipped transactions with their fingerprint and existing count
             skipped_txs = discovered_txs[new_count:]
             for tx in skipped_txs:
-                skipped_transactions.append({
-                    "transaction": tx,
-                    "fingerprint": fingerprint,
-                    "existing_count": existing_count
-                })
+                skipped_transactions.append(
+                    {
+                        "transaction": tx,
+                        "fingerprint": fingerprint,
+                        "existing_count": existing_count,
+                    }
+                )
             skipped_count += discovered_count - new_count
 
         # Bulk insert (not upsert, these are all new)
@@ -850,13 +907,11 @@ class ImportService:
                 "fingerprints_checked": len(fingerprints),
                 "imported_transactions": transactions_to_import,
                 "skipped_transactions": skipped_transactions,
-            }
+            },
         )
 
     async def detect_columns(
-        self,
-        source_type: str,
-        file_path: str
+        self, source_type: str, file_path: str
     ) -> Result[Dict[str, Any]]:
         """
         Detect columns automatically for import.
@@ -881,7 +936,7 @@ class ImportService:
         column_mapping: Dict[str, str],
         date_format: str = "auto",
         limit: int = 5,
-        flip_signs: bool = False
+        flip_signs: bool = False,
     ) -> Result[List[Transaction]]:
         """
         Preview transactions from CSV file before importing.

@@ -107,7 +107,9 @@ async def test_execute_query_ensures_db_setup():
     result = await service.execute_query(user_id, "SELECT * FROM accounts")
 
     mock_repository.ensure_user_db_initialized.assert_called_once_with(user_id)
-    mock_repository.execute_query.assert_called_once_with(user_id, "SELECT * FROM accounts")
+    mock_repository.execute_query.assert_called_once_with(
+        user_id, "SELECT * FROM accounts"
+    )
     assert result.success is True
     assert result.data == query_result
 

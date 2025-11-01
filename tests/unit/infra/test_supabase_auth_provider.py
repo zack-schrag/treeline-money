@@ -51,7 +51,9 @@ async def test_sign_in_with_password_failure():
     mock_client = MockSupabaseClient()
 
     # Mock error response
-    mock_client.auth.sign_in_with_password.side_effect = Exception("Invalid credentials")
+    mock_client.auth.sign_in_with_password.side_effect = Exception(
+        "Invalid credentials"
+    )
 
     provider = SupabaseAuthProvider(mock_client)
     result = await provider.sign_in_with_password("test@example.com", "wrongpassword")
@@ -80,7 +82,9 @@ async def test_sign_up_with_password_success():
     assert result.success is True
     assert result.data.id == user_id
     assert result.data.email == email
-    mock_client.auth.sign_up.assert_called_once_with({"email": email, "password": "password123"})
+    mock_client.auth.sign_up.assert_called_once_with(
+        {"email": email, "password": "password123"}
+    )
 
 
 @pytest.mark.asyncio
@@ -159,7 +163,9 @@ async def test_validate_authorization_and_get_user_id_invalid_token():
     mock_client.auth.get_user.side_effect = Exception("Invalid token")
 
     provider = SupabaseAuthProvider(mock_client)
-    result = await provider.validate_authorization_and_get_user_id("Bearer invalid_token")
+    result = await provider.validate_authorization_and_get_user_id(
+        "Bearer invalid_token"
+    )
 
     assert result.success is False
     assert "Invalid token" in result.error

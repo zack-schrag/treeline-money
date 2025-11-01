@@ -25,19 +25,38 @@ class DataAggregationProvider(ABC):
         pass
 
     @abstractmethod
-    async def get_accounts(self, user_id: UUID, provider_account_ids: List[str] = [], provider_settings: Dict[str, Any] = {}) -> Result[List[Account]]:
+    async def get_accounts(
+        self,
+        user_id: UUID,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[Account]]:
         pass
 
     @abstractmethod
-    async def get_transactions(self, user_id: UUID, start_date: datetime, end_date: datetime, provider_account_ids: List[str] = [], provider_settings: Dict[str, Any] = {}) -> Result[List[Account]]:
+    async def get_transactions(
+        self,
+        user_id: UUID,
+        start_date: datetime,
+        end_date: datetime,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[Account]]:
         pass
 
     @abstractmethod
-    async def get_balances(self, user_id: UUID, provider_account_ids: List[str] = [], provider_settings: Dict[str, Any] = {}) -> Result[List[Account]]:
+    async def get_balances(
+        self,
+        user_id: UUID,
+        provider_account_ids: List[str] = [],
+        provider_settings: Dict[str, Any] = {},
+    ) -> Result[List[Account]]:
         pass
 
 
 class IntegrationProvider(ABC):
     @abstractmethod
-    async def create_integration(self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]) -> Result[Any]:
+    async def create_integration(
+        self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]
+    ) -> Result[Any]:
         pass

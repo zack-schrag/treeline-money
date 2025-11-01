@@ -35,7 +35,7 @@ async def test_get_transactions_with_simple_csv():
 2024-10-03,Salary Deposit,2500.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -50,9 +50,9 @@ async def test_get_transactions_with_simple_csv():
                 "column_mapping": {
                     "date": "Date",
                     "description": "Description",
-                    "amount": "Amount"
-                }
-            }
+                    "amount": "Amount",
+                },
+            },
         )
 
         assert result.success
@@ -84,7 +84,7 @@ async def test_get_transactions_with_different_date_formats():
 {date_str},Coffee,-5.50
 """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write(csv_content)
             csv_path = f.name
 
@@ -99,10 +99,10 @@ async def test_get_transactions_with_different_date_formats():
                     "column_mapping": {
                         "date": "Date",
                         "description": "Description",
-                        "amount": "Amount"
+                        "amount": "Amount",
                     },
-                    "date_format": format_name
-                }
+                    "date_format": format_name,
+                },
             )
 
             assert result.success, f"Failed to parse {format_name}: {result.error}"
@@ -128,9 +128,9 @@ async def test_get_transactions_missing_file():
             "column_mapping": {
                 "date": "Date",
                 "description": "Description",
-                "amount": "Amount"
-            }
-        }
+                "amount": "Amount",
+            },
+        },
     )
 
     assert not result.success
@@ -147,7 +147,7 @@ async def test_get_transactions_missing_column_mapping():
 2024-10-01,Coffee,-5.50
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -157,7 +157,7 @@ async def test_get_transactions_missing_column_mapping():
             start_date=datetime.min,
             end_date=datetime.max,
             provider_account_ids=[],
-            provider_settings={"file_path": csv_path}
+            provider_settings={"file_path": csv_path},
         )
 
         assert not result.success
@@ -177,7 +177,7 @@ async def test_get_transactions_with_optional_columns():
 2024-10-03,,Grocery,-45.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -193,9 +193,9 @@ async def test_get_transactions_with_optional_columns():
                     "date": "Date",
                     "posted_date": "Posted",
                     "description": "Description",
-                    "amount": "Amount"
-                }
-            }
+                    "amount": "Amount",
+                },
+            },
         )
 
         assert result.success
@@ -224,7 +224,7 @@ async def test_get_transactions_handles_amounts_with_currency_symbols():
 2024-10-02,Cheap Thing,"-$5.50"
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -239,9 +239,9 @@ async def test_get_transactions_handles_amounts_with_currency_symbols():
                 "column_mapping": {
                     "date": "Date",
                     "description": "Description",
-                    "amount": "Amount"
-                }
-            }
+                    "amount": "Amount",
+                },
+            },
         )
 
         assert result.success
@@ -260,9 +260,7 @@ async def test_get_accounts_not_supported():
     user_id = uuid4()
 
     result = await provider.get_accounts(
-        user_id=user_id,
-        provider_account_ids=[],
-        provider_settings={}
+        user_id=user_id, provider_account_ids=[], provider_settings={}
     )
 
     assert not result.success
@@ -276,9 +274,7 @@ async def test_get_balances_not_supported():
     user_id = uuid4()
 
     result = await provider.get_balances(
-        user_id=user_id,
-        provider_account_ids=[],
-        provider_settings={}
+        user_id=user_id, provider_account_ids=[], provider_settings={}
     )
 
     assert not result.success
@@ -293,7 +289,7 @@ def test_detect_columns():
 2024-10-01,Coffee,-5.50
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -318,7 +314,7 @@ def test_detect_columns_debit_credit():
 2024-10-02,Refund,,10.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -345,15 +341,19 @@ def test_preview_transactions():
 2024-10-03,Salary,2500.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
     try:
         result = provider.preview_transactions(
             csv_path,
-            column_mapping={"date": "Date", "description": "Description", "amount": "Amount"},
-            limit=2
+            column_mapping={
+                "date": "Date",
+                "description": "Description",
+                "amount": "Amount",
+            },
+            limit=2,
         )
 
         assert result.success
@@ -375,15 +375,19 @@ def test_preview_transactions_with_sign_flip():
 2024-10-02,Salary,-2500.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
     try:
         result = provider.preview_transactions(
             csv_path,
-            column_mapping={"date": "Date", "description": "Description", "amount": "Amount"},
-            flip_signs=True
+            column_mapping={
+                "date": "Date",
+                "description": "Description",
+                "amount": "Amount",
+            },
+            flip_signs=True,
         )
 
         assert result.success
@@ -410,7 +414,7 @@ async def test_get_transactions_with_debit_credit_columns():
 2024-10-04,Payment,,100.00
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -426,9 +430,9 @@ async def test_get_transactions_with_debit_credit_columns():
                     "date": "Date",
                     "description": "Description",
                     "debit": "Debit",
-                    "credit": "Credit"
-                }
-            }
+                    "credit": "Credit",
+                },
+            },
         )
 
         assert result.success
@@ -436,12 +440,20 @@ async def test_get_transactions_with_debit_credit_columns():
         assert len(transactions) == 4
 
         # Debit values preserved as positive (user will flip if these should be negative)
-        assert transactions[0].amount == Decimal("5.50")  # Coffee (debit, positive in CSV)
-        assert transactions[1].amount == Decimal("45.00")  # Grocery (debit, positive in CSV)
+        assert transactions[0].amount == Decimal(
+            "5.50"
+        )  # Coffee (debit, positive in CSV)
+        assert transactions[1].amount == Decimal(
+            "45.00"
+        )  # Grocery (debit, positive in CSV)
 
         # Credit values preserved as positive
-        assert transactions[2].amount == Decimal("10.00")  # Refund (credit, positive in CSV)
-        assert transactions[3].amount == Decimal("100.00")  # Payment (credit, positive in CSV)
+        assert transactions[2].amount == Decimal(
+            "10.00"
+        )  # Refund (credit, positive in CSV)
+        assert transactions[3].amount == Decimal(
+            "100.00"
+        )  # Payment (credit, positive in CSV)
     finally:
         Path(csv_path).unlink()
 
@@ -468,7 +480,7 @@ async def test_get_transactions_with_citi_credit_card_format():
 2024-10-03,Payment Thank You,,-1669.25
 """
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(csv_content)
         csv_path = f.name
 
@@ -484,9 +496,9 @@ async def test_get_transactions_with_citi_credit_card_format():
                     "date": "Date",
                     "description": "Description",
                     "debit": "Debit",
-                    "credit": "Credit"
-                }
-            }
+                    "credit": "Credit",
+                },
+            },
         )
 
         assert result.success
@@ -494,10 +506,16 @@ async def test_get_transactions_with_citi_credit_card_format():
         assert len(transactions) == 3
 
         # Debit values preserved as positive (from CSV)
-        assert transactions[0].amount == Decimal("5.50")  # Coffee (debit, positive in CSV)
-        assert transactions[1].amount == Decimal("45.00")  # Grocery (debit, positive in CSV)
+        assert transactions[0].amount == Decimal(
+            "5.50"
+        )  # Coffee (debit, positive in CSV)
+        assert transactions[1].amount == Decimal(
+            "45.00"
+        )  # Grocery (debit, positive in CSV)
 
         # Credit value preserved as negative (from CSV)
-        assert transactions[2].amount == Decimal("-1669.25")  # Payment (credit, negative in CSV)
+        assert transactions[2].amount == Decimal(
+            "-1669.25"
+        )  # Payment (credit, negative in CSV)
     finally:
         Path(csv_path).unlink()

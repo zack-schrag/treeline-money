@@ -31,8 +31,8 @@ async def test_get_accounts_success():
                 "org": {
                     "name": "Test Bank",
                     "url": "https://testbank.com",
-                    "domain": "testbank.com"
-                }
+                    "domain": "testbank.com",
+                },
             }
         ]
     }
@@ -40,8 +40,12 @@ async def test_get_accounts_success():
     with patch("httpx.AsyncClient.get") as mock_get:
         mock_get.return_value = Mock(status_code=200, json=lambda: mock_response)
 
-        provider_options = {"accessUrl": "https://username:password@bridge.simplefin.org/simplefin"}
-        result = await provider.get_accounts(user_id, provider_account_ids=[], provider_settings=provider_options)
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
+        result = await provider.get_accounts(
+            user_id, provider_account_ids=[], provider_settings=provider_options
+        )
 
         assert result.success is True
         accounts = result.data
@@ -60,16 +64,44 @@ async def test_get_accounts_filters_by_account_ids():
 
     mock_response = {
         "accounts": [
-            {"id": "acc1", "name": "Account 1", "currency": "USD", "balance": "100", "available-balance": "100", "balance-date": 1735689600, "org": {"name": "Bank", "url": "https://bank.com", "domain": "bank.com"}},
-            {"id": "acc2", "name": "Account 2", "currency": "USD", "balance": "200", "available-balance": "200", "balance-date": 1735689600, "org": {"name": "Bank", "url": "https://bank.com", "domain": "bank.com"}},
+            {
+                "id": "acc1",
+                "name": "Account 1",
+                "currency": "USD",
+                "balance": "100",
+                "available-balance": "100",
+                "balance-date": 1735689600,
+                "org": {
+                    "name": "Bank",
+                    "url": "https://bank.com",
+                    "domain": "bank.com",
+                },
+            },
+            {
+                "id": "acc2",
+                "name": "Account 2",
+                "currency": "USD",
+                "balance": "200",
+                "available-balance": "200",
+                "balance-date": 1735689600,
+                "org": {
+                    "name": "Bank",
+                    "url": "https://bank.com",
+                    "domain": "bank.com",
+                },
+            },
         ]
     }
 
     with patch("httpx.AsyncClient.get") as mock_get:
         mock_get.return_value = Mock(status_code=200, json=lambda: mock_response)
 
-        provider_options = {"accessUrl": "https://username:password@bridge.simplefin.org/simplefin"}
-        result = await provider.get_accounts(user_id, provider_account_ids=["acc1"], provider_settings=provider_options)
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
+        result = await provider.get_accounts(
+            user_id, provider_account_ids=["acc1"], provider_settings=provider_options
+        )
 
         assert result.success is True
         accounts = result.data
@@ -83,7 +115,9 @@ async def test_get_accounts_missing_access_url():
     provider = SimpleFINProvider()
     user_id = uuid4()
 
-    result = await provider.get_accounts(user_id, provider_account_ids=[], provider_settings={})
+    result = await provider.get_accounts(
+        user_id, provider_account_ids=[], provider_settings={}
+    )
 
     assert result.success is False
     assert "accessUrl is required" in result.error
@@ -104,23 +138,27 @@ async def test_get_transactions_success():
                 "balance": "1000",
                 "available-balance": "1000",
                 "balance-date": 1735689600,
-                "org": {"name": "Bank", "url": "https://bank.com", "domain": "bank.com"},
+                "org": {
+                    "name": "Bank",
+                    "url": "https://bank.com",
+                    "domain": "bank.com",
+                },
                 "transactions": [
                     {
                         "id": "tx1",
                         "posted": 1735689600,
                         "amount": "-50.00",
                         "description": "Coffee Shop",
-                        "pending": False
+                        "pending": False,
                     },
                     {
                         "id": "tx2",
                         "posted": 1735689700,
                         "amount": "100.00",
                         "description": "Paycheck",
-                        "pending": False
-                    }
-                ]
+                        "pending": False,
+                    },
+                ],
             }
         ]
     }
@@ -128,12 +166,18 @@ async def test_get_transactions_success():
     with patch("httpx.AsyncClient.get") as mock_get:
         mock_get.return_value = Mock(status_code=200, json=lambda: mock_response)
 
-        provider_options = {"accessUrl": "https://username:password@bridge.simplefin.org/simplefin"}
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
         start_date = datetime(2025, 1, 1, tzinfo=timezone.utc)
         end_date = datetime(2025, 1, 31, tzinfo=timezone.utc)
 
         result = await provider.get_transactions(
-            user_id, start_date, end_date, provider_account_ids=["acc123"], provider_settings=provider_options
+            user_id,
+            start_date,
+            end_date,
+            provider_account_ids=["acc123"],
+            provider_settings=provider_options,
         )
 
         assert result.success is True
@@ -158,7 +202,9 @@ async def test_parse_access_url_invalid():
     result = await provider.get_accounts(
         user_id,
         provider_account_ids=[],
-        provider_settings={"accessUrl": "http://user:pass@bridge.simplefin.org/simplefin"}
+        provider_settings={
+            "accessUrl": "http://user:pass@bridge.simplefin.org/simplefin"
+        },
     )
     assert result.success is False
     assert "HTTPS" in result.error
@@ -167,7 +213,7 @@ async def test_parse_access_url_invalid():
     result = await provider.get_accounts(
         user_id,
         provider_account_ids=[],
-        provider_settings={"accessUrl": "https://user:pass@evil.com/simplefin"}
+        provider_settings={"accessUrl": "https://user:pass@evil.com/simplefin"},
     )
     assert result.success is False
     assert "simplefin.org" in result.error
@@ -216,4 +262,6 @@ async def test_create_integration_invalid_token():
     )
 
     assert result.success is False
-    assert "Invalid setup token" in result.error or "setup token" in result.error.lower()
+    assert (
+        "Invalid setup token" in result.error or "setup token" in result.error.lower()
+    )

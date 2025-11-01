@@ -32,13 +32,24 @@ class MockPlaidProvider(DataAggregationProvider):
     def can_get_balances(self) -> bool:
         return True
 
-    async def get_accounts(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_accounts(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
-    async def get_transactions(self, user_id, start_date, end_date, provider_account_ids=[], provider_settings={}):
+    async def get_transactions(
+        self,
+        user_id,
+        start_date,
+        end_date,
+        provider_account_ids=[],
+        provider_settings={},
+    ):
         pass
 
-    async def get_balances(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_balances(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
 
@@ -62,13 +73,24 @@ class MockSimpleFinProvider(DataAggregationProvider):
     def can_get_balances(self) -> bool:
         return False
 
-    async def get_accounts(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_accounts(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
-    async def get_transactions(self, user_id, start_date, end_date, provider_account_ids=[], provider_settings={}):
+    async def get_transactions(
+        self,
+        user_id,
+        start_date,
+        end_date,
+        provider_account_ids=[],
+        provider_settings={},
+    ):
         pass
 
-    async def get_balances(self, user_id, provider_account_ids=[], provider_settings={}):
+    async def get_balances(
+        self, user_id, provider_account_ids=[], provider_settings={}
+    ):
         pass
 
 

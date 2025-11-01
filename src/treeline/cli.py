@@ -19,6 +19,7 @@ from treeline.theme import get_theme
 # Load environment variables from .env file
 load_dotenv()
 
+
 def version_callback(value: bool):
     """Show version information."""
     if value:
@@ -94,10 +95,11 @@ def output_json(data: dict) -> None:
     Args:
         data: Data to output as JSON
     """
+
     def json_serializer(obj):
         """Custom JSON serializer for Pydantic models and other objects."""
         if isinstance(obj, BaseModel):
-            return obj.model_dump(mode='json')
+            return obj.model_dump(mode="json")
         return str(obj)
 
     print(json.dumps(data, indent=2, default=json_serializer))
@@ -109,7 +111,9 @@ def display_status(status: dict) -> None:
     Args:
         status: Status data from StatusService
     """
-    console.print(f"\n[{theme.ui_header}]📊 Financial Data Status[/{theme.ui_header}]\n")
+    console.print(
+        f"\n[{theme.ui_header}]📊 Financial Data Status[/{theme.ui_header}]\n"
+    )
 
     # Display summary
     summary_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -125,7 +129,9 @@ def display_status(status: dict) -> None:
 
     # Date range
     if status["earliest_date"] and status["latest_date"]:
-        console.print(f"\n[{theme.muted}]Date range: {status['earliest_date']} to {status['latest_date']}[/{theme.muted}]")
+        console.print(
+            f"\n[{theme.muted}]Date range: {status['earliest_date']} to {status['latest_date']}[/{theme.muted}]"
+        )
 
     # Show integrations
     if status["integrations"]:
@@ -142,24 +148,32 @@ def display_sync_result(data: dict) -> None:
     Args:
         data: Sync result data from SyncService
     """
-    console.print(f"\n[{theme.ui_header}]Synchronizing Financial Data[/{theme.ui_header}]\n")
+    console.print(
+        f"\n[{theme.ui_header}]Synchronizing Financial Data[/{theme.ui_header}]\n"
+    )
 
     for sync_result in data["results"]:
         integration_name = sync_result["integration"]
-        console.print(f"[{theme.emphasis}]Syncing {integration_name}...[/{theme.emphasis}]")
+        console.print(
+            f"[{theme.emphasis}]Syncing {integration_name}...[/{theme.emphasis}]"
+        )
 
         if "error" in sync_result:
             console.print(f"[{theme.error}]  ✗ {sync_result['error']}[/{theme.error}]")
             continue
 
-        console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['accounts_synced']} account(s)")
+        console.print(
+            f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['accounts_synced']} account(s)"
+        )
 
         if sync_result["sync_type"] == "incremental":
             console.print(
                 f"[{theme.muted}]  Syncing transactions since {sync_result['start_date'].date()} (with 7-day overlap)[/{theme.muted}]"
             )
         else:
-            console.print(f"[{theme.muted}]  Initial sync: fetching last 90 days of transactions[/{theme.muted}]")
+            console.print(
+                f"[{theme.muted}]  Initial sync: fetching last 90 days of transactions[/{theme.muted}]"
+            )
 
         # Display transaction breakdown if stats are available
         tx_stats = sync_result.get("transaction_stats", {})
@@ -168,18 +182,30 @@ def display_sync_result(data: dict) -> None:
             new = tx_stats.get("new", 0)
             skipped = tx_stats.get("skipped", 0)
 
-            console.print(f"[{theme.success}]  ✓[/{theme.success}] Transaction breakdown:")
-            console.print(f"[{theme.muted}]    Discovered: {discovered}[/{theme.muted}]")
+            console.print(
+                f"[{theme.success}]  ✓[/{theme.success}] Transaction breakdown:"
+            )
+            console.print(
+                f"[{theme.muted}]    Discovered: {discovered}[/{theme.muted}]"
+            )
             console.print(f"[{theme.muted}]    New: {new}[/{theme.muted}]")
-            console.print(f"[{theme.muted}]    Skipped: {skipped} (already exists)[/{theme.muted}]")
+            console.print(
+                f"[{theme.muted}]    Skipped: {skipped} (already exists)[/{theme.muted}]"
+            )
         else:
             # Fallback to old display if stats not available
-            console.print(f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['transactions_synced']} transaction(s)")
+            console.print(
+                f"[{theme.success}]  ✓[/{theme.success}] Synced {sync_result['transactions_synced']} transaction(s)"
+            )
 
-        console.print(f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]"
+        )
 
     console.print(f"\n[{theme.success}]✓[/{theme.success}] Sync completed!\n")
-    console.print(f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n")
+    console.print(
+        f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n"
+    )
 
 
 def display_query_result(columns: list[str], rows: list[list]) -> None:
@@ -192,7 +218,9 @@ def display_query_result(columns: list[str], rows: list[list]) -> None:
     console.print()
 
     # Create Rich table
-    table = Table(show_header=True, header_style=theme.ui_header, border_style=theme.separator)
+    table = Table(
+        show_header=True, header_style=theme.ui_header, border_style=theme.separator
+    )
 
     # Add columns
     for col in columns:
@@ -201,11 +229,16 @@ def display_query_result(columns: list[str], rows: list[list]) -> None:
     # Add rows
     for row in rows:
         # Convert row values to strings
-        str_row = [str(val) if val is not None else f"[{theme.muted}]NULL[/{theme.muted}]" for val in row]
+        str_row = [
+            str(val) if val is not None else f"[{theme.muted}]NULL[/{theme.muted}]"
+            for val in row
+        ]
         table.add_row(*str_row)
 
     console.print(table)
-    console.print(f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n")
+    console.print(
+        f"\n[{theme.muted}]{len(rows)} row{'s' if len(rows) != 1 else ''} returned[/{theme.muted}]\n"
+    )
 
 
 def ensure_treeline_initialized() -> bool:
@@ -222,7 +255,9 @@ def ensure_treeline_initialized() -> bool:
 
     result = asyncio.run(db_service.initialize_db())
     if not result.success:
-        console.print(f"[{theme.error}]Error initializing database: {result.error}[/{theme.error}]")
+        console.print(
+            f"[{theme.error}]Error initializing database: {result.error}[/{theme.error}]"
+        )
         sys.exit(1)
 
     return needs_init
@@ -231,8 +266,12 @@ def ensure_treeline_initialized() -> bool:
 @app.command(name="login")
 def login_command(
     email: str = typer.Option(None, "--email", help="Email address"),
-    password: str = typer.Option(None, "--password", help="Password (not recommended - use prompt)"),
-    create_account: bool = typer.Option(False, "--create-account", help="Create a new account instead of signing in"),
+    password: str = typer.Option(
+        None, "--password", help="Password (not recommended - use prompt)"
+    ),
+    create_account: bool = typer.Option(
+        False, "--create-account", help="Create a new account instead of signing in"
+    ),
 ) -> None:
     """Authenticate with Treeline.
 
@@ -287,16 +326,22 @@ def login_command(
         raise typer.Exit(1)
 
     user = result.data
-    console.print(f"[{theme.success}]✓[/{theme.success}] Successfully authenticated as [{theme.emphasis}]{user.email}[/{theme.emphasis}]\n")
+    console.print(
+        f"[{theme.success}]✓[/{theme.success}] Successfully authenticated as [{theme.emphasis}]{user.email}[/{theme.emphasis}]\n"
+    )
 
     # Save credentials
     config_service.save_user_credentials(str(user.id), user.email)
-    console.print(f"[{theme.muted}]Credentials saved to system keyring[/{theme.muted}]\n")
+    console.print(
+        f"[{theme.muted}]Credentials saved to system keyring[/{theme.muted}]\n"
+    )
 
 
 @app.command(name="setup")
 def setup_command(
-    integration: str = typer.Argument(None, help="Integration name (e.g., 'simplefin'). Omit for interactive wizard."),
+    integration: str = typer.Argument(
+        None, help="Integration name (e.g., 'simplefin'). Omit for interactive wizard."
+    ),
 ) -> None:
     """Set up financial data integrations.
 
@@ -334,7 +379,9 @@ def setup_command(
         setup_simplefin()
     else:
         display_error(f"Unknown integration: {integration}")
-        console.print(f"[{theme.muted}]Supported integrations: simplefin[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]Supported integrations: simplefin[/{theme.muted}]"
+        )
         raise typer.Exit(1)
 
 
@@ -369,7 +416,9 @@ def setup_simplefin() -> None:
 
     # Setup integration
     console.print()
-    with console.status(f"[{theme.status_loading}]Verifying token and setting up integration..."):
+    with console.status(
+        f"[{theme.status_loading}]Verifying token and setting up integration..."
+    ):
         # Ensure user database is initialized
         db_init_result = asyncio.run(db_service.initialize_user_db(user_id))
         if not db_init_result.success:
@@ -378,15 +427,21 @@ def setup_simplefin() -> None:
 
         # Create integration
         result = asyncio.run(
-            integration_service.create_integration(user_id, "simplefin", {"setupToken": setup_token})
+            integration_service.create_integration(
+                user_id, "simplefin", {"setupToken": setup_token}
+            )
         )
 
     if not result.success:
         display_error(f"Setup failed: {result.error}")
         raise typer.Exit(1)
 
-    console.print(f"[{theme.success}]✓[/{theme.success}] SimpleFIN integration setup successfully!\n")
-    console.print(f"[{theme.muted}]Use 'treeline sync' to import your transactions[/{theme.muted}]\n")
+    console.print(
+        f"[{theme.success}]✓[/{theme.success}] SimpleFIN integration setup successfully!\n"
+    )
+    console.print(
+        f"[{theme.muted}]Use 'treeline sync' to import your transactions[/{theme.muted}]\n"
+    )
 
 
 # Tag command group
@@ -397,7 +452,9 @@ app.add_typer(tag_app, name="tag")
 @tag_app.callback(invoke_without_command=True)
 def tag_callback(
     ctx: typer.Context,
-    untagged_only: bool = typer.Option(False, "--untagged", help="Show only untagged transactions"),
+    untagged_only: bool = typer.Option(
+        False, "--untagged", help="Show only untagged transactions"
+    ),
 ) -> None:
     """Launch interactive transaction tagging interface.
 
@@ -416,13 +473,16 @@ def tag_callback(
     user_id = get_authenticated_user_id()
 
     from treeline.commands.tag_textual import TaggingApp
+
     app_instance = TaggingApp(user_id=user_id, untagged_only=untagged_only)
     app_instance.run()
 
 
 @tag_app.command(name="apply")
 def tag_apply_command(
-    ids: str = typer.Option(None, "--ids", help="Comma-separated transaction IDs (or read from stdin)"),
+    ids: str = typer.Option(
+        None, "--ids", help="Comma-separated transaction IDs (or read from stdin)"
+    ),
     tags: str = typer.Argument(..., help="Comma-separated tags to apply"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -457,9 +517,13 @@ def tag_apply_command(
 
         # Support both newline-separated and comma-separated IDs
         if "\n" in stdin_input:
-            transaction_ids = [tid.strip() for tid in stdin_input.split("\n") if tid.strip()]
+            transaction_ids = [
+                tid.strip() for tid in stdin_input.split("\n") if tid.strip()
+            ]
         else:
-            transaction_ids = [tid.strip() for tid in stdin_input.split(",") if tid.strip()]
+            transaction_ids = [
+                tid.strip() for tid in stdin_input.split(",") if tid.strip()
+            ]
 
     if not transaction_ids:
         display_error("No transaction IDs provided")
@@ -484,33 +548,43 @@ def tag_apply_command(
         )
 
         if result.success:
-            results.append({
-                "transaction_id": transaction_id,
-                "tags": tag_list,
-                "success": True
-            })
+            results.append(
+                {"transaction_id": transaction_id, "tags": tag_list, "success": True}
+            )
         else:
-            errors.append({
-                "transaction_id": transaction_id,
-                "error": result.error,
-                "success": False
-            })
+            errors.append(
+                {
+                    "transaction_id": transaction_id,
+                    "error": result.error,
+                    "success": False,
+                }
+            )
 
     if json_output:
-        output_json({
-            "succeeded": len(results),
-            "failed": len(errors),
-            "results": results + errors
-        })
+        output_json(
+            {
+                "succeeded": len(results),
+                "failed": len(errors),
+                "results": results + errors,
+            }
+        )
     else:
         if results:
-            console.print(f"\n[{theme.success}]✓ Successfully tagged {len(results)} transaction(s)[/{theme.success}]")
-            console.print(f"[{theme.muted}]Tags applied: {', '.join(tag_list)}[/{theme.muted}]\n")
+            console.print(
+                f"\n[{theme.success}]✓ Successfully tagged {len(results)} transaction(s)[/{theme.success}]"
+            )
+            console.print(
+                f"[{theme.muted}]Tags applied: {', '.join(tag_list)}[/{theme.muted}]\n"
+            )
 
         if errors:
-            console.print(f"[{theme.error}]✗ Failed to tag {len(errors)} transaction(s)[/{theme.error}]")
+            console.print(
+                f"[{theme.error}]✗ Failed to tag {len(errors)} transaction(s)[/{theme.error}]"
+            )
             for error in errors:
-                console.print(f"[{theme.muted}]  {error['transaction_id']}: {error['error']}[/{theme.muted}]")
+                console.print(
+                    f"[{theme.muted}]  {error['transaction_id']}: {error['error']}[/{theme.muted}]"
+                )
             console.print()
 
         if errors:
@@ -519,7 +593,7 @@ def tag_apply_command(
 
 @app.command(name="status")
 def status_command(
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Show account summary and statistics."""
     ensure_treeline_initialized()
@@ -547,14 +621,14 @@ def status_command(
                 {
                     "id": str(acc.id),
                     "name": acc.name,
-                    "institution_name": acc.institution_name
+                    "institution_name": acc.institution_name,
                 }
                 for acc in result.data["accounts"]
             ],
             "date_range": {
                 "earliest": result.data["earliest_date"],
                 "latest": result.data["latest_date"],
-            }
+            },
         }
         output_json(json_data)
     else:
@@ -564,8 +638,12 @@ def status_command(
 @app.command(name="query")
 def query_command(
     sql: str = typer.Argument(..., help="SQL query to execute (SELECT/WITH only)"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format (table, json, csv)"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON (alias for --format json)"),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format (table, json, csv)"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output as JSON (alias for --format json)"
+    ),
 ) -> None:
     """Execute a SQL query and display results.
 
@@ -594,7 +672,9 @@ def query_command(
 
     if not sql_upper.startswith("SELECT") and not sql_upper.startswith("WITH"):
         display_error("Only SELECT and WITH queries are allowed")
-        console.print(f"[{theme.muted}]For data modifications, use the analysis TUI[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]For data modifications, use the analysis TUI[/{theme.muted}]"
+        )
         raise typer.Exit(1)
 
     # Determine output format
@@ -630,19 +710,17 @@ def query_command(
             # Just print header for CSV
             import csv
             import sys
+
             writer = csv.writer(sys.stdout)
             writer.writerow(columns)
         return
 
     if output_format == "json":
-        output_json({
-            "columns": columns,
-            "rows": rows,
-            "row_count": len(rows)
-        })
+        output_json({"columns": columns, "rows": rows, "row_count": len(rows)})
     elif output_format == "csv":
         import csv
         import sys
+
         writer = csv.writer(sys.stdout)
         writer.writerow(columns)
         for row in rows:
@@ -653,7 +731,7 @@ def query_command(
 
 @app.command(name="sync")
 def sync_command(
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON")
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Synchronize data from connected integrations."""
     ensure_treeline_initialized()
@@ -684,7 +762,9 @@ def sync_command(
     if not result.success:
         display_error(result.error)
         if result.error == "No integrations configured":
-            console.print(f"[{theme.muted}]Use 'treeline simplefin' to setup an integration first[/{theme.muted}]")
+            console.print(
+                f"[{theme.muted}]Use 'treeline simplefin' to setup an integration first[/{theme.muted}]"
+            )
         raise typer.Exit(1)
 
     if json_output:
@@ -695,14 +775,30 @@ def sync_command(
 
 @app.command(name="import")
 def import_command(
-    file_path: str = typer.Argument(None, help="Path to CSV file (omit for interactive mode)"),
-    account_id: str = typer.Option(None, "--account-id", help="Account ID to import into"),
-    date_column: str = typer.Option(None, "--date-column", help="CSV column name for date"),
-    amount_column: str = typer.Option(None, "--amount-column", help="CSV column name for amount"),
-    description_column: str = typer.Option(None, "--description-column", help="CSV column name for description"),
-    debit_column: str = typer.Option(None, "--debit-column", help="CSV column name for debits"),
-    credit_column: str = typer.Option(None, "--credit-column", help="CSV column name for credits"),
-    flip_signs: bool = typer.Option(False, "--flip-signs", help="Flip transaction signs (for credit cards)"),
+    file_path: str = typer.Argument(
+        None, help="Path to CSV file (omit for interactive mode)"
+    ),
+    account_id: str = typer.Option(
+        None, "--account-id", help="Account ID to import into"
+    ),
+    date_column: str = typer.Option(
+        None, "--date-column", help="CSV column name for date"
+    ),
+    amount_column: str = typer.Option(
+        None, "--amount-column", help="CSV column name for amount"
+    ),
+    description_column: str = typer.Option(
+        None, "--description-column", help="CSV column name for description"
+    ),
+    debit_column: str = typer.Option(
+        None, "--debit-column", help="CSV column name for debits"
+    ),
+    credit_column: str = typer.Option(
+        None, "--credit-column", help="CSV column name for credits"
+    ),
+    flip_signs: bool = typer.Option(
+        False, "--flip-signs", help="Flip transaction signs (for credit cards)"
+    ),
     preview: bool = typer.Option(False, "--preview", help="Preview only, don't import"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -734,14 +830,19 @@ def import_command(
 
     # INTERACTIVE MODE: No file path provided
     if file_path is None:
-        container = get_container()        
-        handle_import_command(user_id=user_id, import_service=container.import_service(), account_service=container.account_service())
+        container = get_container()
+        handle_import_command(
+            user_id=user_id,
+            import_service=container.import_service(),
+            account_service=container.account_service(),
+        )
         return
 
     # SCRIPTABLE MODE: Collect parameters and call service
 
     # Validate file exists
     from pathlib import Path as PathLib
+
     csv_path = PathLib(file_path).expanduser()
     if not csv_path.exists():
         display_error(f"File not found: {file_path}")
@@ -750,7 +851,9 @@ def import_command(
     # Validate account_id is provided
     if not account_id:
         display_error("--account-id is required for scriptable import")
-        console.print(f"[{theme.muted}]Run 'treeline status --json' to see account IDs[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]Run 'treeline status --json' to see account IDs[/{theme.muted}]"
+        )
         raise typer.Exit(1)
 
     # Build column mapping (if provided)
@@ -778,10 +881,20 @@ def import_command(
         preview_column_mapping = column_mapping
         if not preview_column_mapping:
             if not json_output:
-                with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
-                    detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
+                with console.status(
+                    f"[{theme.status_loading}]Detecting CSV columns..."
+                ):
+                    detect_result = asyncio.run(
+                        import_service.detect_columns(
+                            source_type="csv", file_path=str(csv_path)
+                        )
+                    )
             else:
-                detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
+                detect_result = asyncio.run(
+                    import_service.detect_columns(
+                        source_type="csv", file_path=str(csv_path)
+                    )
+                )
 
             if not detect_result.success:
                 display_error(f"Column detection failed: {detect_result.error}")
@@ -789,13 +902,15 @@ def import_command(
 
             preview_column_mapping = detect_result.data
 
-        preview_result = asyncio.run(import_service.preview_csv_import(
-            file_path=str(csv_path),
-            column_mapping=preview_column_mapping,
-            date_format="auto",
-            limit=10,
-            flip_signs=flip_signs
-        ))
+        preview_result = asyncio.run(
+            import_service.preview_csv_import(
+                file_path=str(csv_path),
+                column_mapping=preview_column_mapping,
+                date_format="auto",
+                limit=10,
+                flip_signs=flip_signs,
+            )
+        )
 
         if not preview_result.success:
             display_error(f"Preview failed: {preview_result.error}")
@@ -810,10 +925,10 @@ def import_command(
                     {
                         "date": str(tx.transaction_date),
                         "description": tx.description,
-                        "amount": float(tx.amount)
+                        "amount": float(tx.amount),
                     }
                     for tx in preview_result.data
-                ]
+                ],
             }
             output_json(preview_data)
         else:
@@ -822,11 +937,21 @@ def import_command(
             console.print(f"Flip signs: {flip_signs}\n")
 
             for tx in preview_result.data[:10]:
-                amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
-                amount_str = f"-${abs(tx.amount):,.2f}" if tx.amount < 0 else f"${tx.amount:,.2f}"
-                console.print(f"  {tx.transaction_date}  [{amount_style}]{amount_str:>12}[/{amount_style}]  {tx.description}")
+                amount_style = (
+                    theme.negative_amount if tx.amount < 0 else theme.positive_amount
+                )
+                amount_str = (
+                    f"-${abs(tx.amount):,.2f}"
+                    if tx.amount < 0
+                    else f"${tx.amount:,.2f}"
+                )
+                console.print(
+                    f"  {tx.transaction_date}  [{amount_style}]{amount_str:>12}[/{amount_style}]  {tx.description}"
+                )
 
-            console.print(f"\n[{theme.muted}]Remove --preview flag to import[/{theme.muted}]\n")
+            console.print(
+                f"\n[{theme.muted}]Remove --preview flag to import[/{theme.muted}]\n"
+            )
         return
 
     # SINGLE service call - import mode
@@ -835,9 +960,17 @@ def import_command(
     if not import_column_mapping:
         if not json_output:
             with console.status(f"[{theme.status_loading}]Detecting CSV columns..."):
-                detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
+                detect_result = asyncio.run(
+                    import_service.detect_columns(
+                        source_type="csv", file_path=str(csv_path)
+                    )
+                )
         else:
-            detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
+            detect_result = asyncio.run(
+                import_service.detect_columns(
+                    source_type="csv", file_path=str(csv_path)
+                )
+            )
 
         if not detect_result.success:
             display_error(f"Column detection failed: {detect_result.error}")
@@ -854,19 +987,23 @@ def import_command(
 
     if not json_output:
         with console.status(f"[{theme.status_loading}]Importing transactions..."):
-            result = asyncio.run(import_service.import_transactions(
+            result = asyncio.run(
+                import_service.import_transactions(
+                    user_id=user_id,
+                    source_type="csv",
+                    account_id=UUID(account_id),
+                    source_options=source_options,
+                )
+            )
+    else:
+        result = asyncio.run(
+            import_service.import_transactions(
                 user_id=user_id,
                 source_type="csv",
                 account_id=UUID(account_id),
                 source_options=source_options,
-            ))
-    else:
-        result = asyncio.run(import_service.import_transactions(
-            user_id=user_id,
-            source_type="csv",
-            account_id=UUID(account_id),
-            source_options=source_options,
-        ))
+            )
+        )
 
     if not result.success:
         display_error(result.error)
@@ -892,7 +1029,7 @@ def main(
         callback=version_callback,
         is_eager=True,
         help="Show version information",
-    )
+    ),
 ):
     """Treeline - AI-native personal finance in your terminal."""
     pass

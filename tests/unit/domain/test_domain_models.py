@@ -143,7 +143,9 @@ def test_transaction_auto_generates_dedup_key() -> None:
 
     # fingerprint should be auto-generated in external_ids
     assert "fingerprint" in tx.external_ids
-    assert len(tx.external_ids["fingerprint"]) == 16  # SHA256 hash truncated to 16 chars
+    assert (
+        len(tx.external_ids["fingerprint"]) == 16
+    )  # SHA256 hash truncated to 16 chars
 
     # Same transaction data should generate same fingerprint
     tx2 = Transaction(
@@ -211,7 +213,9 @@ def test_transaction_dedup_key_strips_csv_noise() -> None:
 
     # Should generate same fingerprint despite format differences
     # Both normalize to: "acmestore123seattlewa"
-    assert tx_csv.external_ids["fingerprint"] == tx_simplefin.external_ids["fingerprint"]
+    assert (
+        tx_csv.external_ids["fingerprint"] == tx_simplefin.external_ids["fingerprint"]
+    )
 
 
 def test_transaction_dedup_key_preserves_order_ids() -> None:
@@ -353,4 +357,6 @@ def test_transaction_dedup_key_respects_sign() -> None:
     )
 
     # Should generate DIFFERENT fingerprints (purchase vs refund)
-    assert tx_purchase.external_ids["fingerprint"] != tx_refund.external_ids["fingerprint"]
+    assert (
+        tx_purchase.external_ids["fingerprint"] != tx_refund.external_ids["fingerprint"]
+    )

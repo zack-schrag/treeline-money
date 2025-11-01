@@ -38,7 +38,7 @@ def prompt_for_file_path(prompt_text: str = "") -> str:
     # Create custom key bindings to handle Enter on directory selections
     kb = KeyBindings()
 
-    @kb.add('enter', filter=completion_is_selected)
+    @kb.add("enter", filter=completion_is_selected)
     def _(event):
         """When Enter is pressed on a selected completion, insert it and continue editing."""
         # Get the current completion
@@ -50,8 +50,8 @@ def prompt_for_file_path(prompt_text: str = "") -> str:
             # If it's a directory and doesn't end with /, add one
             current_text = event.current_buffer.text
             expanded_path = os.path.expanduser(current_text)
-            if os.path.isdir(expanded_path) and not current_text.endswith('/'):
-                event.current_buffer.insert_text('/')
+            if os.path.isdir(expanded_path) and not current_text.endswith("/"):
+                event.current_buffer.insert_text("/")
         # Don't accept the input - let user continue typing
 
     session = PromptSession(completer=completer, key_bindings=kb)
@@ -62,7 +62,9 @@ def prompt_for_file_path(prompt_text: str = "") -> str:
         return session.prompt(">: ")
 
 
-def handle_import_command(user_id: UUID, import_service: ImportService, account_service: AccountService) -> None:
+def handle_import_command(
+    user_id: UUID, import_service: ImportService, account_service: AccountService
+) -> None:
     """
     Handle interactive CSV import.
 
@@ -93,7 +95,9 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
     expanded_path = os.path.expanduser(file_path)
     csv_path = Path(expanded_path)
     if not csv_path.exists():
-        console.print(f"[{theme.error}]Error: File not found: {file_path}[/{theme.error}]\n")
+        console.print(
+            f"[{theme.error}]Error: File not found: {file_path}[/{theme.error}]\n"
+        )
         return
 
     # 1b. Get account selection
@@ -101,7 +105,9 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
     accounts_result = asyncio.run(account_service.get_accounts(user_id))
 
     if not accounts_result.success or not accounts_result.data:
-        console.print(f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n")
+        console.print(
+            f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n"
+        )
         return
 
     account_id = prompt_account_selection(accounts_result.data)
@@ -111,10 +117,14 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
 
     # 1c. Column mapping - auto-detect (CLI responsibility to collect params)
     console.print(f"\n[{theme.muted}]Detecting CSV columns...[/{theme.muted}]")
-    detect_result = asyncio.run(import_service.detect_columns(source_type="csv", file_path=str(csv_path)))
+    detect_result = asyncio.run(
+        import_service.detect_columns(source_type="csv", file_path=str(csv_path))
+    )
 
     if not detect_result.success:
-        console.print(f"[{theme.error}]Error detecting columns: {detect_result.error}[/{theme.error}]\n")
+        console.print(
+            f"[{theme.error}]Error detecting columns: {detect_result.error}[/{theme.error}]\n"
+        )
         return
 
     column_mapping = detect_result.data
@@ -129,26 +139,36 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
         # Get preview from service
         console.print(f"\n[{theme.muted}]Generating preview...[/{theme.muted}]")
 
-        preview_result = asyncio.run(import_service.preview_csv_import(
-            file_path=str(csv_path),
-            column_mapping=column_mapping,
-            date_format="auto",
-            limit=15,  # Get more for better preview
-            flip_signs=flip_signs
-        ))
+        preview_result = asyncio.run(
+            import_service.preview_csv_import(
+                file_path=str(csv_path),
+                column_mapping=column_mapping,
+                date_format="auto",
+                limit=15,  # Get more for better preview
+                flip_signs=flip_signs,
+            )
+        )
 
         if not preview_result.success:
-            console.print(f"[{theme.error}]Error: {preview_result.error}[/{theme.error}]\n")
+            console.print(
+                f"[{theme.error}]Error: {preview_result.error}[/{theme.error}]\n"
+            )
             return
 
         preview_txs = preview_result.data
 
         # Display preview (CLI presentation)
-        console.print(f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n")
+        console.print(
+            f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n"
+        )
         display_preview_table(preview_txs[:5])
-        console.print(f"\n[{theme.muted}]({len(preview_txs)} total transactions in file)[/{theme.muted}]")
+        console.print(
+            f"\n[{theme.muted}]({len(preview_txs)} total transactions in file)[/{theme.muted}]"
+        )
         console.print(f"[{theme.ui_header}]Preview Check[/{theme.ui_header}]")
-        console.print(f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n")
+        console.print(
+            f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n"
+        )
 
         # Interactive menu (CLI workflow)
         console.print(f"[{theme.info}]What would you like to do?[/{theme.info}]")
@@ -159,7 +179,11 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
         console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
 
         try:
-            choice = Prompt.ask(f"\n[{theme.info}]Choice[/{theme.info}]", choices=["1", "2", "3", "4"], default="1")
+            choice = Prompt.ask(
+                f"\n[{theme.info}]Choice[/{theme.info}]",
+                choices=["1", "2", "3", "4"],
+                default="1",
+            )
         except (KeyboardInterrupt, EOFError):
             console.print(f"\n[{theme.warning}]Import cancelled[/{theme.warning}]\n")
             return
@@ -168,13 +192,17 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
             break  # Proceed to import
         elif choice == "2":
             # Show more transactions
-            console.print(f"\n[{theme.ui_header}]Extended Preview - First 15 Transactions:[/{theme.ui_header}]\n")
+            console.print(
+                f"\n[{theme.ui_header}]Extended Preview - First 15 Transactions:[/{theme.ui_header}]\n"
+            )
             display_preview_table(preview_txs[:15])
             console.print()
         elif choice == "3":
             # Flip signs and loop will re-preview
             flip_signs = not flip_signs
-            console.print(f"[{theme.muted}]Signs flipped, regenerating preview...[/{theme.muted}]")
+            console.print(
+                f"[{theme.muted}]Signs flipped, regenerating preview...[/{theme.muted}]"
+            )
         else:  # choice == "4"
             console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
             return
@@ -190,17 +218,21 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
         "flip_signs": flip_signs,
     }
 
-    import_result = asyncio.run(import_service.import_transactions(
-        user_id=user_id,
-        source_type="csv",
-        account_id=account_id,
-        source_options=source_options,
-    ))
+    import_result = asyncio.run(
+        import_service.import_transactions(
+            user_id=user_id,
+            source_type="csv",
+            account_id=account_id,
+            source_options=source_options,
+        )
+    )
 
     # STEP 4: Display result (CLI presentation)
 
     if not import_result.success:
-        console.print(f"\n[{theme.error}]Error: {import_result.error}[/{theme.error}]\n")
+        console.print(
+            f"\n[{theme.error}]Error: {import_result.error}[/{theme.error}]\n"
+        )
         return
 
     stats = import_result.data
@@ -213,17 +245,22 @@ def handle_import_command(user_id: UUID, import_service: ImportService, account_
 
 # Helper functions (CLI presentation logic)
 
+
 def prompt_account_selection(accounts: List[Account]) -> Optional[UUID]:
     """Display accounts and get user selection."""
     console.print(f"\n[{theme.info}]Select account to import into:[/{theme.info}]")
     console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
 
     for i, account in enumerate(accounts, 1):
-        institution = f" - {account.institution_name}" if account.institution_name else ""
+        institution = (
+            f" - {account.institution_name}" if account.institution_name else ""
+        )
         console.print(f"  [{i}] {account.name}{institution}")
 
     try:
-        account_choice = Prompt.ask(f"\n[{theme.info}]Account number[/{theme.info}]", default="1")
+        account_choice = Prompt.ask(
+            f"\n[{theme.info}]Account number[/{theme.info}]", default="1"
+        )
     except (KeyboardInterrupt, EOFError):
         return None
 

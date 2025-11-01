@@ -43,10 +43,9 @@ class CommonTagSuggester(TagSuggester):
         current_tags = set(transaction.tags or [])
 
         # Filter out tags already applied and return top N
-        suggestions = [
-            tag for tag in self.COMMON_TAGS
-            if tag not in current_tags
-        ][:limit]
+        suggestions = [tag for tag in self.COMMON_TAGS if tag not in current_tags][
+            :limit
+        ]
 
         return Ok(suggestions)
 
@@ -95,17 +94,12 @@ class FrequencyTagSuggester(TagSuggester):
         current_tags = set(transaction.tags or [])
 
         # Sort tags by frequency (descending) and filter out existing tags
-        sorted_tags = sorted(
-            tag_stats.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        sorted_tags = sorted(tag_stats.items(), key=lambda x: x[1], reverse=True)
 
         # Filter and limit
-        suggestions = [
-            tag for tag, count in sorted_tags
-            if tag not in current_tags
-        ][:limit]
+        suggestions = [tag for tag, count in sorted_tags if tag not in current_tags][
+            :limit
+        ]
 
         return Result(success=True, data=suggestions)
 

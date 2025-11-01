@@ -30,6 +30,7 @@ async def test_update_transaction_tags_persists_changes():
 
         # Create a test account first
         from treeline.domain import Account
+
         account = Account(
             id=uuid4(),
             name="Test Account",
@@ -42,7 +43,7 @@ async def test_update_transaction_tags_persists_changes():
             institution_url=None,
             institution_domain=None,
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
         await repo.add_account(user_id, account)
 
@@ -57,7 +58,7 @@ async def test_update_transaction_tags_persists_changes():
             posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
             tags=(),
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
 
         # Add the transaction
@@ -71,7 +72,9 @@ async def test_update_transaction_tags_persists_changes():
         )
 
         # Verify the update succeeded
-        assert update_result.success, f"Update failed: {update_result.error if not update_result.success else ''}"
+        assert update_result.success, (
+            f"Update failed: {update_result.error if not update_result.success else ''}"
+        )
         updated_transaction = update_result.data
 
         # Verify the tags were actually updated
@@ -83,11 +86,11 @@ async def test_update_transaction_tags_persists_changes():
         # We'll use execute_query to fetch directly from the database
         query_result = await repo.execute_query(
             user_id,
-            f"SELECT tags FROM sys_transactions WHERE transaction_id = '{transaction.id}'"
+            f"SELECT tags FROM sys_transactions WHERE transaction_id = '{transaction.id}'",
         )
         assert query_result.success
         result_data = query_result.data
-        rows = result_data['rows']
+        rows = result_data["rows"]
 
         assert len(rows) == 1
         persisted_tags = rows[0][0]  # First row, first column (tags)
@@ -112,6 +115,7 @@ async def test_update_transaction_tags_can_clear_tags():
 
         # Create account
         from treeline.domain import Account
+
         account = Account(
             id=uuid4(),
             name="Test Account",
@@ -124,7 +128,7 @@ async def test_update_transaction_tags_can_clear_tags():
             institution_url=None,
             institution_domain=None,
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
         await repo.add_account(user_id, account)
 
@@ -139,7 +143,7 @@ async def test_update_transaction_tags_can_clear_tags():
             posted_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
             tags=("coffee", "food"),
             created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
+            updated_at=datetime.now(timezone.utc),
         )
 
         await repo.add_transaction(user_id, transaction)

@@ -13,8 +13,22 @@ from treeline.abstractions import (
     Repository,
     TagSuggester,
 )
-from treeline.app.service import AccountService, AuthService, ConfigService, DbService, ImportService, IntegrationService, StatusService, SyncService, TaggingService
-from treeline.infra.tag_suggesters import FrequencyTagSuggester, CommonTagSuggester, CombinedTagSuggester
+from treeline.app.service import (
+    AccountService,
+    AuthService,
+    ConfigService,
+    DbService,
+    ImportService,
+    IntegrationService,
+    StatusService,
+    SyncService,
+    TaggingService,
+)
+from treeline.infra.tag_suggesters import (
+    FrequencyTagSuggester,
+    CommonTagSuggester,
+    CombinedTagSuggester,
+)
 from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
@@ -89,7 +103,9 @@ class Container:
 
         # Integration services are not cached since they're provider-specific
         if not isinstance(provider, IntegrationProvider):
-            raise ValueError(f"Provider {integration_name} does not support integration setup")
+            raise ValueError(
+                f"Provider {integration_name} does not support integration setup"
+            )
 
         return IntegrationService(provider, self.repository())
 
@@ -122,7 +138,9 @@ class Container:
         common_suggester = CommonTagSuggester()
         return CombinedTagSuggester(frequency_suggester, common_suggester)
 
-    def tagging_service(self, tag_suggester: TagSuggester | None = None) -> TaggingService:
+    def tagging_service(
+        self, tag_suggester: TagSuggester | None = None
+    ) -> TaggingService:
         """
         Get a tagging service instance with provided or default tag suggester.
 
