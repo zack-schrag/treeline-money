@@ -106,7 +106,7 @@ Your Treeline data lives in a local DuckDB file. You can connect to it directly 
 ### Example with DBeaver:
 1. Install DBeaver: https://dbeaver.io/
 2. Create a new DuckDB connection
-3. Point to your database file: `~/treeline/[user-id].duckdb`
+3. Point to your database file: `~/.treeline/[user-id].duckdb`
 4. Run queries directly:
 
 ```sql
@@ -157,7 +157,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Connect to your Treeline database
-conn = duckdb.connect('~/treeline/[user-id].duckdb', read_only=True)
+conn = duckdb.connect('~/.treeline/[user-id].duckdb', read_only=True)
 
 # Query data
 df = conn.execute("""
@@ -186,7 +186,7 @@ import duckdb
 # Create a reactive notebook
 mo.md("# My Financial Dashboard")
 
-conn = duckdb.connect('~/treeline/[user-id].duckdb', read_only=True)
+conn = duckdb.connect('~/.treeline/[user-id].duckdb', read_only=True)
 
 # Create interactive widgets
 date_range = mo.ui.date_range()
@@ -238,7 +238,7 @@ import smtplib
 from email.mime.text import MIMEText
 
 # Connect to database
-conn = duckdb.connect('~/treeline/[user-id].duckdb', read_only=True)
+conn = duckdb.connect('~/.treeline/[user-id].duckdb', read_only=True)
 
 # Get last week's data
 last_week = datetime.now() - timedelta(days=7)
@@ -297,16 +297,15 @@ conn.close()
 
 Your Treeline data is stored locally in:
 ```
-~/treeline/
-├── treeline.db/
-│   └── [user-id].duckdb # Your financial database
+~/.treeline/
+├── [user-id].duckdb     # Your financial database
 ├── queries/             # Saved SQL queries
 ├── charts/              # Saved chart configurations
 ├── config.json          # Configuration
 └── backups/             # Automatic backups (if enabled)
 ```
 
-The database file path is: `~/treeline/treeline.db/[user-id].duckdb`
+The database file path is: `~/.treeline/[user-id].duckdb`
 
 You can find your user ID by running:
 ```bash

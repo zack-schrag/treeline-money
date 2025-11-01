@@ -41,8 +41,8 @@ treeline status
 # This creates a "treeline" folder in /path/to/data
 ```
 
-Your data will be stored in `/path/to/data/treeline/`:
-- `treeline.db/` - Your encrypted DuckDB database
+Your data will be stored in `~/.treeline/`:
+- `[user-id].duckdb` - Your encrypted DuckDB database
 - `queries/` - Saved SQL queries
 - `charts/` - Saved chart configurations
 
@@ -241,7 +241,7 @@ Run `treeline login` to authenticate first.
 
 ### Can't Find My Database
 
-Your database is in `./treeline/treeline.db/[user-id].duckdb` in your current directory.
+Your database is in `~/.treeline/[user-id].duckdb` in your home directory.
 
 ### CSV Import Not Working
 

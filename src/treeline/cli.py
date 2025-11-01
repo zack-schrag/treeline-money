@@ -40,8 +40,8 @@ _container: Container | None = None
 
 
 def get_treeline_dir() -> Path:
-    """Get the treeline data directory in the current working directory."""
-    return Path.cwd() / "treeline"
+    """Get the treeline data directory in the user's home directory."""
+    return Path.home() / ".treeline"
 
 
 def get_container() -> Container:
@@ -49,8 +49,7 @@ def get_container() -> Container:
     global _container
     if _container is None:
         treeline_dir = get_treeline_dir()
-        db_path = treeline_dir / "treeline.db"
-        _container = Container(str(db_path))
+        _container = Container(str(treeline_dir))
     return _container
 
 

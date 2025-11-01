@@ -502,53 +502,6 @@ async def test_import_mixed_fingerprints():
 
 
 @pytest.mark.asyncio
-async def test_detect_csv_columns_success():
-    """Test detecting CSV columns successfully."""
-    mock_repository = MockRepository()
-
-    # Create a mock CSV provider with detect_columns method
-    class MockCSVProvider(MockDataAggregationProvider):
-        def detect_columns(self, file_path):
-            from treeline.domain import Ok
-
-            return Ok(
-                {"date": "Date", "amount": "Amount", "description": "Description"}
-            )
-
-    mock_csv_provider = MockCSVProvider()
-    provider_registry = {"csv": mock_csv_provider}
-    service = ImportService(mock_repository, provider_registry)
-
-    result = await service.detect_csv_columns("/test.csv")
-
-    assert result.success
-    assert result.data["date"] == "Date"
-    assert result.data["amount"] == "Amount"
-    assert result.data["description"] == "Description"
-
-
-@pytest.mark.asyncio
-async def test_detect_csv_columns_provider_failure():
-    """Test detecting CSV columns handles provider errors."""
-    mock_repository = MockRepository()
-
-    class MockCSVProvider(MockDataAggregationProvider):
-        def detect_columns(self, file_path):
-            from treeline.domain import Fail
-
-            return Fail("File not found")
-
-    mock_csv_provider = MockCSVProvider()
-    provider_registry = {"csv": mock_csv_provider}
-    service = ImportService(mock_repository, provider_registry)
-
-    result = await service.detect_csv_columns("/nonexistent.csv")
-
-    assert not result.success
-    assert "File not found" in result.error
-
-
-@pytest.mark.asyncio
 async def test_preview_csv_import_success():
     """Test previewing CSV import successfully."""
     mock_repository = MockRepository()

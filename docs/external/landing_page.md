@@ -116,7 +116,7 @@ Treeline feels more like a coding IDE than a traditional finance app:
 
 ```
 ~/.treeline/
-├── treeline.db          # Your encrypted DuckDB database
+├── [user-id].duckdb     # Your encrypted DuckDB database
 ├── queries/             # Saved SQL queries
 │   ├── monthly_summary.sql
 │   └── spending_trends.sql
