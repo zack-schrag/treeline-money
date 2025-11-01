@@ -2,8 +2,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID
+from datetime import datetime, timezone, date 
+from uuid import uuid4
+from treeline.domain import BalanceSnapshot
 
-from treeline.abstractions import AIProvider, AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository, TagSuggester
+from treeline.abstractions import AuthProvider, CredentialStore, DataAggregationProvider, IntegrationProvider, Repository, TagSuggester
 from treeline.domain import Account, Result, Transaction, User
 
 
@@ -77,12 +80,6 @@ class SyncService:
             return ingested_result
 
         # Create balance snapshots for accounts with valid data, but only if no balance exists for today
-        # FIXME: move these imports to top
-        from datetime import date
-        from uuid import uuid4
-        from treeline.domain import BalanceSnapshot
-        
-
         today = date.today().isoformat()  # YYYY-MM-DD format
         balance_snapshots = []
 
@@ -108,8 +105,6 @@ class SyncService:
                 )
 
                 if not has_same_balance:
-                    # FIXME: move imports to top
-                    from datetime import datetime, timezone
                     balance_snapshots.append(BalanceSnapshot(
                         id=uuid4(),
                         account_id=account.id,
@@ -322,8 +317,6 @@ class SyncService:
             max_date = rows[0][0]
 
             # Convert date to datetime if needed, and ensure timezone-aware
-            # FIXME: move imports to top
-            from datetime import date
             if isinstance(max_date, date) and not isinstance(max_date, datetime):
                 # DATE column - convert to datetime at midnight UTC
                 max_date = datetime.combine(max_date, datetime.min.time(), tzinfo=timezone.utc)

@@ -1,6 +1,5 @@
 """Abstractions for dependency inversion (hexagonal architecture)."""
 
-from treeline.abstractions.ai import AIProvider
 from treeline.abstractions.auth import AuthProvider
 from treeline.abstractions.config import CredentialStore
 from treeline.abstractions.data import DataAggregationProvider, IntegrationProvider
@@ -9,7 +8,6 @@ from treeline.abstractions.storage import ChartStorage, QueryStorage
 from treeline.abstractions.tagging import TagSuggester
 
 __all__ = [
-    "AIProvider",
     "AuthProvider",
     "ChartStorage",
     "CredentialStore",

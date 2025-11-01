@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+import json
+from pydantic import BaseModel
 from treeline.app.container import Container
 from treeline.commands.import_csv import handle_import_command
 from treeline.theme import get_theme
@@ -92,10 +94,6 @@ def output_json(data: dict) -> None:
     Args:
         data: Data to output as JSON
     """
-    # FIXME: move imports to top
-    import json
-    from pydantic import BaseModel
-
     def json_serializer(obj):
         """Custom JSON serializer for Pydantic models and other objects."""
         if isinstance(obj, BaseModel):
