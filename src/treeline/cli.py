@@ -827,23 +827,22 @@ def import_command(
     """
     ensure_treeline_initialized()
     user_id = get_authenticated_user_id()
+    container = get_container()
+    import_service = container.import_service()
+    account_service = container.account_service()
 
     # INTERACTIVE MODE: No file path provided
     if file_path is None:
-        container = get_container()
+        
         handle_import_command(
             user_id=user_id,
-            import_service=container.import_service(),
-            account_service=container.account_service(),
+            import_service=import_service,
+            account_service=account_service,
         )
         return
 
     # SCRIPTABLE MODE: Collect parameters and call service
-
-    # Validate file exists
-    from pathlib import Path as PathLib
-
-    csv_path = PathLib(file_path).expanduser()
+    csv_path = Path(file_path).expanduser()
     if not csv_path.exists():
         display_error(f"File not found: {file_path}")
         raise typer.Exit(1)
@@ -870,10 +869,6 @@ def import_command(
             column_mapping["debit"] = debit_column
         if credit_column:
             column_mapping["credit"] = credit_column
-
-    # Get service
-    container = get_container()
-    import_service = container.import_service()
 
     # SINGLE service call - preview mode
     if preview:

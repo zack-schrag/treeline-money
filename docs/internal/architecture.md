@@ -22,17 +22,10 @@ class DataProvider(ABC):
 Note the difference between these examples. The first "leaks" the details of the underlying technology choice (SimpleFIN). This makes it harder to add support for other providers such as Plaid, CSV imports, etc. The second example keeps the technology choices separated out from the abstraction. This good abstraction can now be used for any new tech choice, without changing the method signature(s).
 
 ### Critical Architecture Rules
-
-**File I/O and Storage:**
-- All file operations (reading, writing, Path operations) MUST go through storage abstractions in `abstractions/storage.py`
-- Commands and CLI layers MUST NEVER perform direct file I/O (no `Path.read_text()`, `Path.write_text()`, etc.)
-- Storage implementations belong in the infrastructure layer (e.g., `infra/file_storage.py`)
-- Access storage through the Container pattern: `container.chart_storage()`, `container.query_storage()`
-
 **Domain Models:**
 - ALL domain models MUST be defined in `src/treeline/domain.py`
 - Domain models should NEVER be defined in commands, CLI, or infrastructure layers
-- If you're creating a new entity (Account, Transaction, ChartConfig, etc.), it goes in domain.py
+- If you're creating a new entity (Account, Transaction, etc.), it goes in domain.py
 
 **Layer Responsibilities:**
 - **CLI/Commands**: Parse input, call services, display results. No business logic, no file I/O, no database access.
@@ -54,7 +47,6 @@ This section describes what the app should *feel* like to the user. Note this do
   - Rich: https://rich.readthedocs.io/en/latest/
   - Textual: https://github.com/Textualize/textual
 - DuckDB: (version 1.4 or above)
-- YouPlot: https://duckdb.org/docs/stable/guides/data_viewers/youplot.html
 
 ## Server Side
 - Supabase -> authentication and DuckDB backups
@@ -68,10 +60,8 @@ src/treeline/
         auth.py
         db.py # DB abstraction for executing queries
         backup.py # Abstraction for managing DB backups and restore
-        ai.py # AI abstraction for interacting with LLM APIs
         data.py # DataProvider abstraction
         config.py # dealing with configuration such as env vars and macOS keyring, etc. If there's a library that does this already, let's prefer that.
-        storage.py # Storage abstractions for persisting queries, charts, and other user data
         tagging.py # TagSuggester abstraction
     app/ # Core business logic that is independent of underlying technology choices (e.g. transaction fetching and deduplication)
         service.py # core business logic classes
@@ -79,10 +69,7 @@ src/treeline/
     infra/ # this is where "adapter" implementations live, one file per underlying technology or api.
         duckdb.py
         simplefin.py
-        openai.py
-        anthropic.py
         supabase.py
-        file_storage.py # File-based storage implementations
 ```
 
 # Database Schema
