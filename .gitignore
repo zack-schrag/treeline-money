@@ -92,3 +92,4 @@ tokens.json
 # data
 .data
 .internal/
+.ruff_cache/

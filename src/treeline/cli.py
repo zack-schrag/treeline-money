@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from treeline.app.container import Container
 from treeline.commands.import_csv import handle_import_command
 from treeline.theme import get_theme
+from treeline.utils import get_treeline_dir
 
 # Load environment variables from .env file
 load_dotenv()
@@ -37,11 +38,6 @@ theme = get_theme()
 
 # Global container instance
 _container: Container | None = None
-
-
-def get_treeline_dir() -> Path:
-    """Get the treeline data directory in the user's home directory."""
-    return Path.home() / ".treeline"
 
 
 def get_container() -> Container:
@@ -141,15 +137,22 @@ def display_status(status: dict) -> None:
     console.print()
 
 
-def display_sync_result(data: dict) -> None:
+def display_sync_result(
+    data: dict, dry_run: bool = False, verbose: bool = False
+) -> None:
     """Display sync results using Rich formatting.
 
     Args:
         data: Sync result data from SyncService
+        dry_run: Whether this was a dry-run sync
+        verbose: Whether to show verbose output
     """
-    console.print(
-        f"\n[{theme.ui_header}]Synchronizing Financial Data[/{theme.ui_header}]\n"
+    header = (
+        "Synchronizing Financial Data (DRY RUN)"
+        if dry_run
+        else "Synchronizing Financial Data"
     )
+    console.print(f"\n[{theme.ui_header}]{header}[/{theme.ui_header}]\n")
 
     for sync_result in data["results"]:
         integration_name = sync_result["integration"]
@@ -191,6 +194,32 @@ def display_sync_result(data: dict) -> None:
             console.print(
                 f"[{theme.muted}]    Skipped: {skipped} (already exists)[/{theme.muted}]"
             )
+
+            # Display tagger stats if available
+            tagger_stats = sync_result.get("tagger_stats", {})
+            verbose_logs = sync_result.get("tagger_verbose_logs", [])
+
+            if tagger_stats:
+                console.print(
+                    f"[{theme.success}]  ✓[/{theme.success}] Auto-tagging applied:"
+                )
+                for tagger_name, tag_count in tagger_stats.items():
+                    console.print(
+                        f"[{theme.muted}]    {tagger_name}: {tag_count} tag(s)[/{theme.muted}]"
+                    )
+
+            # Show verbose tagging details if requested
+            if verbose and verbose_logs:
+                console.print(f"\n[{theme.info}]  Tagging details:[/{theme.info}]")
+                for log in verbose_logs:
+                    console.print(f"[{theme.muted}]    {log}[/{theme.muted}]")
+
+            # Always show errors even if not verbose
+            error_logs = [log for log in verbose_logs if log.startswith("ERROR:")]
+            if error_logs and not verbose:
+                console.print(f"\n[{theme.error}]  Tagger errors:[/{theme.error}]")
+                for log in error_logs:
+                    console.print(f"[{theme.error}]    {log}[/{theme.error}]")
         else:
             # Fallback to old display if stats not available
             console.print(
@@ -201,10 +230,18 @@ def display_sync_result(data: dict) -> None:
             f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]"
         )
 
-    console.print(f"\n[{theme.success}]✓[/{theme.success}] Sync completed!\n")
-    console.print(
-        f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n"
-    )
+    if dry_run:
+        console.print(
+            f"\n[{theme.warning}]⚠[/{theme.warning}] Dry run completed - no changes were made\n"
+        )
+        console.print(
+            f"[{theme.muted}]Run without --dry-run to apply these changes[/{theme.muted}]\n"
+        )
+    else:
+        console.print(f"\n[{theme.success}]✓[/{theme.success}] Sync completed!\n")
+        console.print(
+            f"[{theme.muted}]Use 'treeline status' to see your updated data[/{theme.muted}]\n"
+        )
 
 
 def display_query_result(columns: list[str], rows: list[list]) -> None:
@@ -731,8 +768,25 @@ def query_command(
 @app.command(name="sync")
 def sync_command(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would be synced without making changes"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show detailed tagging information"
+    ),
 ) -> None:
-    """Synchronize data from connected integrations."""
+    """Synchronize data from connected integrations.
+
+    Examples:
+      # Normal sync
+      treeline sync
+
+      # Test taggers without saving changes
+      treeline sync --dry-run --verbose
+
+      # See detailed tagging info during real sync
+      treeline sync --verbose
+    """
     ensure_treeline_initialized()
     user_id = get_authenticated_user_id()
 
@@ -753,10 +807,23 @@ def sync_command(
 
     # Sync all integrations with visual feedback
     if not json_output:
-        with console.status(f"[{theme.status_loading}]Syncing integrations..."):
-            result = asyncio.run(sync_service.sync_all_integrations(user_id))
+        status_msg = (
+            "Syncing integrations (dry-run)..."
+            if dry_run
+            else "Syncing integrations..."
+        )
+        with console.status(f"[{theme.status_loading}]{status_msg}"):
+            result = asyncio.run(
+                sync_service.sync_all_integrations(
+                    user_id, dry_run=dry_run, verbose=verbose
+                )
+            )
     else:
-        result = asyncio.run(sync_service.sync_all_integrations(user_id))
+        result = asyncio.run(
+            sync_service.sync_all_integrations(
+                user_id, dry_run=dry_run, verbose=verbose
+            )
+        )
 
     if not result.success:
         display_error(result.error)
@@ -769,7 +836,7 @@ def sync_command(
     if json_output:
         output_json(result.data)
     else:
-        display_sync_result(result.data)
+        display_sync_result(result.data, dry_run=dry_run, verbose=verbose)
 
 
 @app.command(name="import")
@@ -832,7 +899,6 @@ def import_command(
 
     # INTERACTIVE MODE: No file path provided
     if file_path is None:
-        
         handle_import_command(
             user_id=user_id,
             import_service=import_service,
@@ -1012,6 +1078,176 @@ def import_command(
         console.print(f"  Discovered: {stats['discovered']} transactions")
         console.print(f"  Imported: {stats['imported']} new transactions")
         console.print(f"  Skipped: {stats['skipped']} duplicates\n")
+
+
+@app.command(name="new")
+def new_command(
+    resource_type: str = typer.Argument(
+        ..., help="Type of resource to create (e.g., 'tagger')"
+    ),
+    name: str = typer.Argument(..., help="Name for the new resource"),
+) -> None:
+    """Create a new resource from a template.
+
+    Examples:
+      # Create a new tagger
+      treeline new tagger groceries
+
+      # Create a tagger for work expenses
+      treeline new tagger work_expenses
+    """
+    if resource_type == "tagger":
+        _create_tagger(name)
+    else:
+        display_error(f"Unknown resource type: {resource_type}")
+        console.print(f"[{theme.muted}]Available types: tagger[/{theme.muted}]")
+        raise typer.Exit(1)
+
+
+def _create_tagger(name: str) -> None:
+    """Create a new tagger file."""
+    import re
+
+    # Validate name - must be a valid Python module name
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+        display_error(
+            f"Invalid tagger name: '{name}'. "
+            "Name must be a valid Python identifier (letters, numbers, underscores only, "
+            "cannot start with a number)."
+        )
+        raise typer.Exit(1)
+
+    # Get taggers directory
+    taggers_dir = get_treeline_dir() / "taggers"
+    taggers_dir.mkdir(parents=True, exist_ok=True)
+
+    tagger_file = taggers_dir / f"{name}.py"
+
+    if tagger_file.exists():
+        display_error(f"Tagger already exists: {tagger_file}")
+        raise typer.Exit(1)
+
+    # Write skeleton template
+    template = f'''"""
+Auto-tagger: {name}
+
+Add your auto-tagging logic here. This function will be called for each
+transaction during sync. Return a list of tags to apply.
+"""
+from treeline.domain import Transaction
+from treeline.ext import tagger
+
+
+@tagger
+def {name}(transaction: Transaction) -> list[str]:
+    """
+    Auto-tag transactions based on custom rules.
+
+    Args:
+        transaction: The transaction to analyze (read-only)
+
+    Returns:
+        List of tags to apply to this transaction
+
+    Example:
+        if 'COFFEE' in transaction.description.upper():
+            return ['coffee', 'food']
+    """
+    # TODO: Add your tagging logic here
+    return []
+'''
+
+    tagger_file.write_text(template)
+    console.print(f"[{theme.success}]✓[/{theme.success}] Created tagger: {tagger_file}")
+    console.print(
+        f"\n[{theme.muted}]Edit this file to add your tagging logic, then run 'treeline sync'[/{theme.muted}]\n"
+    )
+
+
+@app.command(name="list")
+def list_command(
+    resource_type: str = typer.Argument(
+        ..., help="Type of resource to list (e.g., 'taggers')"
+    ),
+) -> None:
+    """List installed resources.
+
+    Examples:
+      # List all taggers
+      treeline list taggers
+    """
+    if resource_type == "taggers":
+        _list_taggers()
+    else:
+        display_error(f"Unknown resource type: {resource_type}")
+        console.print(f"[{theme.muted}]Available types: taggers[/{theme.muted}]")
+        raise typer.Exit(1)
+
+
+def _list_taggers() -> None:
+    """List all installed taggers."""
+    import importlib.util
+    import inspect
+    from treeline.ext.decorators import get_taggers, clear_taggers
+
+    taggers_dir = get_treeline_dir() / "taggers"
+
+    if not taggers_dir.exists():
+        console.print(f"\n[{theme.muted}]No taggers directory found.[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]Create a tagger with: treeline new tagger <name>[/{theme.muted}]\n"
+        )
+        return
+
+    tagger_files = list(taggers_dir.glob("*.py"))
+
+    if not tagger_files:
+        console.print(f"\n[{theme.muted}]No taggers found.[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]Create a tagger with: treeline new tagger <name>[/{theme.muted}]\n"
+        )
+        return
+
+    console.print(f"\n[{theme.ui_header}]Installed Taggers[/{theme.ui_header}]\n")
+
+    # Clear any previously loaded taggers to get fresh state
+    clear_taggers()
+
+    for tagger_file in sorted(tagger_files):
+        if tagger_file.name.startswith("_"):
+            continue
+
+        console.print(f"[{theme.emphasis}]{tagger_file.name}[/{theme.emphasis}]")
+
+        # Try to load and discover functions
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"user_taggers.{tagger_file.stem}", tagger_file
+            )
+            module = importlib.util.module_from_spec(spec)
+
+            # Clear taggers before loading
+            before_count = len(get_taggers())
+            spec.loader.exec_module(module)
+            after_count = len(get_taggers())
+
+            # Get functions registered by this module
+            new_taggers = get_taggers()[before_count:after_count]
+
+            if new_taggers:
+                for func in new_taggers:
+                    console.print(
+                        f"  [{theme.muted}]→ {func.__name__}()[/{theme.muted}]"
+                    )
+            else:
+                console.print(
+                    f"  [{theme.warning}]⚠ No @tagger functions found[/{theme.warning}]"
+                )
+
+        except Exception as e:
+            console.print(f"  [{theme.error}]✗ Failed to load: {e}[/{theme.error}]")
+
+    console.print()
 
 
 @app.callback()

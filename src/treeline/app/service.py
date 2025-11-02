@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 from uuid import UUID
 from datetime import datetime, timezone, date
 from uuid import uuid4
 from treeline.domain import BalanceSnapshot
+from pathlib import Path
+import importlib.util
+import sys
 
 from treeline.abstractions import (
     AuthProvider,
@@ -15,6 +18,7 @@ from treeline.abstractions import (
     TagSuggester,
 )
 from treeline.domain import Account, Result, Transaction, User
+from treeline.utils import get_treeline_dir
 
 
 class SyncService:
@@ -31,6 +35,107 @@ class SyncService:
     def _get_provider(self, integration_name: str) -> DataAggregationProvider | None:
         """Get the provider for a given integration name."""
         return self.provider_registry.get(integration_name.lower())
+
+    def _load_and_get_taggers(self) -> List[Callable[[Transaction], List[str]]]:
+        """Load and return all user-defined tagger functions from ~/.treeline/taggers/
+
+        Note: In tests, taggers can be registered via @tagger decorator before calling sync.
+        This method will use those if the taggers directory doesn't exist.
+
+        Returns:
+            List of tagger functions
+        """
+        from treeline.ext.decorators import get_taggers
+
+        taggers_dir = get_treeline_dir() / "taggers"
+        if not taggers_dir.exists():
+            # No taggers directory - return whatever's in the registry (e.g., from tests)
+            return get_taggers()
+
+        # Taggers directory exists - load from filesystem
+        # Note: We don't clear the registry here because tests may have registered taggers
+        # Real usage will have an empty registry at this point
+        for tagger_file in taggers_dir.glob("*.py"):
+            if tagger_file.name.startswith("_"):
+                continue
+
+            try:
+                spec = importlib.util.spec_from_file_location(
+                    f"user_taggers.{tagger_file.stem}", tagger_file
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[f"user_taggers.{tagger_file.stem}"] = module
+                spec.loader.exec_module(module)
+            except Exception as e:
+                # Log but don't fail - bad user code shouldn't break sync
+                print(f"Warning: Failed to load tagger {tagger_file.name}: {e}")
+
+        return get_taggers()
+
+    def _apply_taggers(
+        self,
+        transaction: Transaction,
+        taggers: List[Callable[[Transaction], List[str]]],
+        verbose: bool = False,
+    ) -> tuple[Transaction, Dict[str, int], List[str]]:
+        """Apply taggers to a transaction.
+
+        Args:
+            transaction: Transaction to tag
+            taggers: List of tagger functions to apply
+            verbose: Whether to collect verbose logging info
+
+        Returns:
+            Tuple of (tagged transaction, stats dict with tag counts per tagger, verbose logs)
+        """
+        if not taggers:
+            return transaction, {}, []
+
+        # Collect all tags
+        all_tags = list(transaction.tags)  # Start with existing tags
+        initial_tag_count = len(all_tags)
+        tagger_stats: Dict[str, int] = {}
+        verbose_logs: List[str] = []
+
+        for tagger_func in taggers:
+            try:
+                new_tags = tagger_func(transaction)
+                if new_tags:
+                    # Track stats for this tagger
+                    tagger_name = tagger_func.__name__
+                    tagger_stats[tagger_name] = tagger_stats.get(tagger_name, 0) + len(
+                        new_tags
+                    )
+                    all_tags.extend(new_tags)
+
+                    # Verbose logging
+                    if verbose:
+                        desc = (
+                            transaction.description[:50] + "..."
+                            if transaction.description
+                            and len(transaction.description) > 50
+                            else transaction.description or "No description"
+                        )
+                        tags_str = ", ".join(new_tags)
+                        verbose_logs.append(
+                            f"{tagger_name} → [{desc}] +tags: {tags_str}"
+                        )
+            except Exception as e:
+                # Log but don't fail - bad user code shouldn't break sync
+                error_msg = f"Tagger {tagger_func.__name__} failed: {e}"
+                # Always add to verbose logs so errors are visible
+                verbose_logs.append(f"ERROR: {error_msg}")
+
+        # Only create new transaction if tags changed
+        if len(all_tags) > initial_tag_count:
+            # Transaction.tags field will deduplicate and normalize
+            return (
+                transaction.model_copy(update={"tags": all_tags}),
+                tagger_stats,
+                verbose_logs,
+            )
+
+        return transaction, tagger_stats, verbose_logs
 
     async def sync_accounts(
         self, user_id: UUID, integration_name: str, provider_options: Dict[str, Any]
@@ -147,6 +252,8 @@ class SyncService:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         provider_options: Dict[str, Any] | None = None,
+        dry_run: bool = False,
+        verbose: bool = False,
     ) -> Result[Dict[str, Any]]:
         """Sync transactions from a data provider."""
         data_provider = self._get_provider(integration_name)
@@ -258,33 +365,63 @@ class SyncService:
         new_count = 0
         skipped_count = 0
 
+        # Load taggers once for this sync
+        taggers = self._load_and_get_taggers()
+        combined_tagger_stats: Dict[str, int] = {}
+        all_verbose_logs: List[str] = []
+
         for discovered_tx in mapped_transactions:
             ext_id = discovered_tx.external_ids.get(integration_name_lower)
             if ext_id and ext_id in existing_by_ext_id:
                 # Skip: transaction already exists, preserve user data (tags, etc.)
                 skipped_count += 1
             else:
-                # New transaction
-                transactions_to_insert.append(discovered_tx)
+                # New transaction - apply taggers
+                tagged_tx, tx_stats, tx_logs = self._apply_taggers(
+                    discovered_tx, taggers, verbose=verbose
+                )
+                transactions_to_insert.append(tagged_tx)
                 new_count += 1
 
-        # Bulk insert only new transactions
-        ingested_result = await self.repository.bulk_upsert_transactions(
-            user_id, transactions_to_insert
-        )
-        if not ingested_result.success:
-            return ingested_result
+                # Aggregate tagger stats
+                for tagger_name, count in tx_stats.items():
+                    combined_tagger_stats[tagger_name] = (
+                        combined_tagger_stats.get(tagger_name, 0) + count
+                    )
+
+                # Collect verbose logs (always collect errors, collect all if verbose)
+                if verbose:
+                    all_verbose_logs.extend(tx_logs)
+                else:
+                    # Only collect errors when not verbose
+                    all_verbose_logs.extend(
+                        [log for log in tx_logs if log.startswith("ERROR:")]
+                    )
+
+        # Bulk insert only new transactions (unless dry-run)
+        if dry_run:
+            # In dry-run mode, don't actually insert
+            ingested_transactions = transactions_to_insert
+        else:
+            ingested_result = await self.repository.bulk_upsert_transactions(
+                user_id, transactions_to_insert
+            )
+            if not ingested_result.success:
+                return ingested_result
+            ingested_transactions = ingested_result.data
 
         return Result(
             success=True,
             data={
                 "discovered_transactions": mapped_transactions,
-                "ingested_transactions": ingested_result.data,
+                "ingested_transactions": ingested_transactions,
                 "stats": {
                     "discovered": len(mapped_transactions),
                     "new": new_count,
                     "skipped": skipped_count,
                 },
+                "tagger_stats": combined_tagger_stats,
+                "tagger_verbose_logs": all_verbose_logs,  # Always return (contains errors even if not verbose)
             },
         )
 
@@ -372,8 +509,15 @@ class SyncService:
             },
         )
 
-    async def sync_all_integrations(self, user_id: UUID) -> Result[Dict[str, Any]]:
+    async def sync_all_integrations(
+        self, user_id: UUID, dry_run: bool = False, verbose: bool = False
+    ) -> Result[Dict[str, Any]]:
         """Sync all configured integrations for a user.
+
+        Args:
+            user_id: User ID to sync for
+            dry_run: If True, don't actually save changes to the database
+            verbose: If True, include verbose tagging logs
 
         Returns a summary of sync results for each integration.
         """
@@ -393,23 +537,26 @@ class SyncService:
             integration_name = integration["integrationName"]
             integration_options = integration["integrationOptions"]
 
-            # Sync accounts
-            accounts_result = await self.sync_accounts(
-                user_id, integration_name, integration_options
-            )
-
-            if not accounts_result.success:
-                sync_results.append(
-                    {
-                        "integration": integration_name,
-                        "accounts_synced": 0,
-                        "transactions_synced": 0,
-                        "error": accounts_result.error,
-                    }
+            # Sync accounts (skip in dry-run since we don't save them anyway)
+            if not dry_run:
+                accounts_result = await self.sync_accounts(
+                    user_id, integration_name, integration_options
                 )
-                continue
 
-            num_accounts = len(accounts_result.data.get("ingested_accounts", []))
+                if not accounts_result.success:
+                    sync_results.append(
+                        {
+                            "integration": integration_name,
+                            "accounts_synced": 0,
+                            "transactions_synced": 0,
+                            "error": accounts_result.error,
+                        }
+                    )
+                    continue
+
+                num_accounts = len(accounts_result.data.get("ingested_accounts", []))
+            else:
+                num_accounts = 0  # Don't sync accounts in dry-run
 
             # Calculate date range for transactions
             date_range_result = await self._calculate_sync_date_range(user_id)
@@ -433,6 +580,8 @@ class SyncService:
                 start_date=date_range["start_date"],
                 end_date=date_range["end_date"],
                 provider_options=integration_options,
+                dry_run=dry_run,
+                verbose=verbose,
             )
 
             if not transactions_result.success:
@@ -451,6 +600,10 @@ class SyncService:
                 transactions_result.data.get("ingested_transactions", [])
             )
             tx_stats = transactions_result.data.get("stats", {})
+            tagger_stats = transactions_result.data.get("tagger_stats", {})
+            tagger_verbose_logs = transactions_result.data.get(
+                "tagger_verbose_logs", []
+            )
 
             sync_results.append(
                 {
@@ -458,6 +611,8 @@ class SyncService:
                     "accounts_synced": num_accounts,
                     "transactions_synced": num_transactions,
                     "transaction_stats": tx_stats,
+                    "tagger_stats": tagger_stats,
+                    "tagger_verbose_logs": tagger_verbose_logs,
                     "sync_type": date_range["sync_type"],
                     "start_date": date_range["start_date"],
                     "end_date": date_range["end_date"],
