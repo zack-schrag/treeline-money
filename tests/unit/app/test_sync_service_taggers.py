@@ -67,9 +67,10 @@ def mock_provider():
 async def test_sync_service_applies_taggers(mock_repository, mock_provider):
     """Test that SyncService applies taggers to new transactions."""
 
-    # Define a test tagger using kwargs signature (no imports needed!)
+    # Define a test tagger with explicit parameters
+    # Note: Must start with "tag_" prefix (like pytest's "test_")
     @tagger
-    def tag_groceries(description, **kwargs):
+    def tag_groceries(description, amount, transaction_date, account_id, **kwargs):
         if description and "WHOLE FOODS" in description.upper():
             return ["groceries", "food"]
         return []
@@ -116,12 +117,12 @@ async def test_sync_service_handles_tagger_errors(mock_repository, mock_provider
 
     # Define a tagger that raises an error
     @tagger
-    def broken_tagger(**kwargs):
+    def tag_broken_tagger(description, amount, transaction_date, account_id, **kwargs):
         raise ValueError("Intentional error")
 
     # Define a working tagger
     @tagger
-    def working_tagger(**kwargs):
+    def tag_working_tagger(description, amount, transaction_date, account_id, **kwargs):
         return ["test-tag"]
 
     # Create service

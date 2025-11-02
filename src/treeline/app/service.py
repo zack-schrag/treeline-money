@@ -67,8 +67,9 @@ class SyncService:
 
                 # Auto-discover: find all callable functions in the module
                 for name, obj in inspect.getmembers(module, inspect.isfunction):
-                    # Skip private functions and imported functions
-                    if name.startswith("_") or obj.__module__ != module.__name__:
+                    # Only include functions that start with "tag_" (like pytest's "test_")
+                    # Skip imported functions from other modules
+                    if not name.startswith("tag_") or obj.__module__ != module.__name__:
                         continue
                     # Register the function as a tagger
                     register_tagger(obj)

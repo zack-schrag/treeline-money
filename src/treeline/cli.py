@@ -1134,11 +1134,13 @@ Auto-tagger: {name}
 Add your auto-tagging logic here. This function will be called for each
 transaction during sync. Return a list of tags to apply.
 
-No imports needed! Transaction fields are passed as keyword arguments.
+No imports needed! Transaction fields are passed as parameters.
+
+IMPORTANT: Function must start with "tag_" prefix (like pytest's "test_" convention).
 """
 
 
-def {name}(description, amount, transaction_date, posted_date, **kwargs):
+def tag_{name}(description, amount, transaction_date, account_id, **kwargs):
     """
     Auto-tag transactions based on custom rules.
 
@@ -1146,8 +1148,8 @@ def {name}(description, amount, transaction_date, posted_date, **kwargs):
         description: Transaction description (str | None)
         amount: Transaction amount (Decimal)
         transaction_date: Date of transaction (date)
-        posted_date: Date transaction posted (date)
-        **kwargs: Additional fields (tags, account_id, etc.)
+        account_id: UUID of the account (UUID)
+        **kwargs: Additional fields (posted_date, tags, etc.)
 
     Returns:
         List of tags to apply to this transaction
@@ -1160,6 +1162,10 @@ def {name}(description, amount, transaction_date, posted_date, **kwargs):
         # Tag by amount
         if amount > 100:
             return ['large-purchase']
+
+        # Tag by account_id
+        # if str(account_id) == 'YOUR-ACCOUNT-UUID':
+        #     return ['personal']
 
         # No match
         return []
@@ -1199,7 +1205,6 @@ def _list_taggers() -> None:
     """List all installed taggers."""
     import importlib.util
     import inspect
-    from treeline.ext.decorators import get_taggers, clear_taggers
 
     taggers_dir = get_treeline_dir() / "taggers"
 
@@ -1221,38 +1226,55 @@ def _list_taggers() -> None:
 
     console.print(f"\n[{theme.ui_header}]Installed Taggers[/{theme.ui_header}]\n")
 
-    # Clear any previously loaded taggers to get fresh state
-    clear_taggers()
-
     for tagger_file in sorted(tagger_files):
         if tagger_file.name.startswith("_"):
             continue
 
         console.print(f"[{theme.emphasis}]{tagger_file.name}[/{theme.emphasis}]")
 
-        # Try to load and discover functions
+        # Try to load and discover functions using auto-discovery (same as service layer)
         try:
             spec = importlib.util.spec_from_file_location(
                 f"user_taggers.{tagger_file.stem}", tagger_file
             )
             module = importlib.util.module_from_spec(spec)
-
-            # Clear taggers before loading
-            before_count = len(get_taggers())
             spec.loader.exec_module(module)
-            after_count = len(get_taggers())
 
-            # Get functions registered by this module
-            new_taggers = get_taggers()[before_count:after_count]
+            # Auto-discover all functions (same logic as service layer)
+            discovered_functions = []
+            for name, obj in inspect.getmembers(module, inspect.isfunction):
+                # Only include functions that start with "tag_" (like pytest's "test_")
+                # Skip imported functions from other modules
+                if not name.startswith("tag_") or obj.__module__ != module.__name__:
+                    continue
+                discovered_functions.append(obj)
 
-            if new_taggers:
-                for func in new_taggers:
+            if discovered_functions:
+                for func in discovered_functions:
+                    # Show signature with explicit parameters
+                    sig = inspect.signature(func)
+                    params = list(sig.parameters.keys())
+                    # Show first 4 params if they match our expected signature
+                    if len(params) >= 4 and params[:4] == [
+                        "description",
+                        "amount",
+                        "transaction_date",
+                        "account_id",
+                    ]:
+                        param_display = (
+                            "description, amount, transaction_date, account_id, ..."
+                        )
+                    else:
+                        param_display = ", ".join(params[:3]) + (
+                            ", ..." if len(params) > 3 else ""
+                        )
+
                     console.print(
-                        f"  [{theme.muted}]→ {func.__name__}()[/{theme.muted}]"
+                        f"  [{theme.muted}]→ {func.__name__}({param_display})[/{theme.muted}]"
                     )
             else:
                 console.print(
-                    f"  [{theme.warning}]⚠ No @tagger functions found[/{theme.warning}]"
+                    f"  [{theme.warning}]⚠ No functions found[/{theme.warning}]"
                 )
 
         except Exception as e:

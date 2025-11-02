@@ -17,15 +17,14 @@ This creates `~/.treeline/taggers/groceries.py` with a skeleton template.
 Open the file and add your tagging logic:
 
 ```python
-from treeline.domain import Transaction
-from treeline.ext import tagger
-
-
-@tagger
-def groceries(transaction: Transaction) -> list[str]:
+def tag_groceries(description, **kwargs):
     """Auto-tag grocery store purchases."""
+    if not description:
+        return []
+
     stores = ['WHOLE FOODS', 'SAFEWAY', 'TRADER JOE']
-    if any(store in transaction.description.upper() for store in stores):
+    desc_upper = description.upper()
+    if any(store in desc_upper for store in stores):
         return ['groceries', 'food']
     return []
 ```
@@ -74,56 +73,72 @@ Shows all installed taggers and the functions they contain.
 ### Basic Structure
 
 ```python
-from treeline.domain import Transaction
-from treeline.ext import tagger
+def tag_my_tagger(description, amount, transaction_date, account_id, **kwargs):
+    """Describe what this tagger does.
 
+    Args:
+        description: Transaction description (str | None)
+        amount: Transaction amount (Decimal)
+        transaction_date: Date of transaction (date)
+        account_id: UUID of the account
+        **kwargs: Additional fields (posted_date, tags, etc.)
 
-@tagger
-def my_tagger(transaction: Transaction) -> list[str]:
-    """Describe what this tagger does."""
+    Returns:
+        List of tags to apply
+    """
     # Your logic here
     if some_condition:
         return ['tag1', 'tag2']
     return []
 ```
 
+**IMPORTANT:** Function names must start with `tag_` prefix (like pytest's `test_` convention). This prevents accidental function discovery.
+
+Note: No imports needed! All transaction fields are passed as function parameters.
+
 ### Multiple Taggers
 
-You can have multiple `@tagger` functions in a single file, or create multiple files. All taggers run in sequence.
+You can have multiple tagger functions in a single file, or create multiple files. All taggers run in sequence.
 
 ```python
-@tagger
-def tag_groceries(transaction: Transaction) -> list[str]:
-    if 'WHOLE FOODS' in transaction.description.upper():
+def tag_groceries(description, **kwargs):
+    if description and 'WHOLE FOODS' in description.upper():
         return ['groceries']
     return []
 
 
-@tagger
-def tag_large_purchases(transaction: Transaction) -> list[str]:
-    if abs(transaction.amount) > 500:
+def tag_large_purchases(amount, **kwargs):
+    if abs(amount) > 500:
         return ['large-purchase', 'review']
     return []
 ```
 
+Note: Both functions start with `tag_` - this is required for auto-discovery.
+
 ### Available Transaction Fields
 
-- `transaction.description` - Transaction description (str | None)
-- `transaction.amount` - Transaction amount (Decimal)
-- `transaction.transaction_date` - Transaction date (date)
-- `transaction.posted_date` - Posted date (date)
-- `transaction.account_id` - Account UUID
-- `transaction.tags` - Existing tags (tuple[str, ...])
+Main parameters (explicitly in function signature):
+- `description` - Transaction description (str | None)
+- `amount` - Transaction amount (Decimal)
+- `transaction_date` - Transaction date (date)
+- `account_id` - Account UUID
+
+Additional fields (available in `**kwargs`):
+- `posted_date` - Posted date (date)
+- `tags` - Existing tags (tuple[str, ...])
+- `id` - Transaction UUID
+- `external_ids` - External IDs (dict)
+- `created_at` - Creation timestamp (datetime)
+- `updated_at` - Update timestamp (datetime)
 
 ### Example Taggers
 
 #### Categorize by merchant
 
 ```python
-@tagger
-def categorize_by_merchant(transaction: Transaction) -> list[str]:
+def tag_categorize_by_merchant(description, **kwargs):
     """Categorize transactions by merchant name."""
-    desc = transaction.description.upper() if transaction.description else ""
+    desc = description.upper() if description else ""
 
     categories = {
         'AMAZON': ['shopping', 'online'],
@@ -143,10 +158,9 @@ def categorize_by_merchant(transaction: Transaction) -> list[str]:
 #### Flag large purchases
 
 ```python
-@tagger
-def flag_large_purchases(transaction: Transaction) -> list[str]:
+def tag_large_purchases(amount, **kwargs):
     """Flag purchases over $500 for review."""
-    if abs(transaction.amount) > 500:
+    if abs(amount) > 500:
         return ['large-purchase', 'review']
     return []
 ```
@@ -156,14 +170,13 @@ def flag_large_purchases(transaction: Transaction) -> list[str]:
 ```python
 import re
 
-@tagger
-def extract_ticket_number(transaction: Transaction) -> list[str]:
+def tag_extract_ticket_number(description, **kwargs):
     """Extract ticket numbers from descriptions."""
-    if not transaction.description:
+    if not description:
         return []
 
     # Match patterns like "TICKET #12345"
-    match = re.search(r'TICKET\s*#?(\d+)', transaction.description.upper())
+    match = re.search(r'TICKET\s*#?(\d+)', description.upper())
     if match:
         return [f'ticket-{match.group(1)}']
 
