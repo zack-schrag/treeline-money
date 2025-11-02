@@ -36,25 +36,23 @@ class SyncService:
         """Get the provider for a given integration name."""
         return self.provider_registry.get(integration_name.lower())
 
-    def _load_and_get_taggers(self) -> List[Callable[[Transaction], List[str]]]:
+    def _load_and_get_taggers(self) -> List[Callable[..., List[str]]]:
         """Load and return all user-defined tagger functions from ~/.treeline/taggers/
 
-        Note: In tests, taggers can be registered via @tagger decorator before calling sync.
-        This method will use those if the taggers directory doesn't exist.
+        Auto-discovers all functions defined in tagger files. The @tagger decorator is optional.
 
         Returns:
             List of tagger functions
         """
-        from treeline.ext.decorators import get_taggers
+        import inspect
+        from treeline.ext.decorators import get_taggers, register_tagger
 
         taggers_dir = get_treeline_dir() / "taggers"
         if not taggers_dir.exists():
             # No taggers directory - return whatever's in the registry (e.g., from tests)
             return get_taggers()
 
-        # Taggers directory exists - load from filesystem
-        # Note: We don't clear the registry here because tests may have registered taggers
-        # Real usage will have an empty registry at this point
+        # Taggers directory exists - load from filesystem and auto-discover functions
         for tagger_file in taggers_dir.glob("*.py"):
             if tagger_file.name.startswith("_"):
                 continue
@@ -66,6 +64,15 @@ class SyncService:
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[f"user_taggers.{tagger_file.stem}"] = module
                 spec.loader.exec_module(module)
+
+                # Auto-discover: find all callable functions in the module
+                for name, obj in inspect.getmembers(module, inspect.isfunction):
+                    # Skip private functions and imported functions
+                    if name.startswith("_") or obj.__module__ != module.__name__:
+                        continue
+                    # Register the function as a tagger
+                    register_tagger(obj)
+
             except Exception as e:
                 # Log but don't fail - bad user code shouldn't break sync
                 print(f"Warning: Failed to load tagger {tagger_file.name}: {e}")
@@ -75,7 +82,7 @@ class SyncService:
     def _apply_taggers(
         self,
         transaction: Transaction,
-        taggers: List[Callable[[Transaction], List[str]]],
+        taggers: List[Callable[..., List[str]]],
         verbose: bool = False,
     ) -> tuple[Transaction, Dict[str, int], List[str]]:
         """Apply taggers to a transaction.
@@ -97,9 +104,23 @@ class SyncService:
         tagger_stats: Dict[str, int] = {}
         verbose_logs: List[str] = []
 
+        # Prepare kwargs for tagger functions
+        tx_kwargs = {
+            "description": transaction.description,
+            "amount": transaction.amount,
+            "transaction_date": transaction.transaction_date,
+            "posted_date": transaction.posted_date,
+            "tags": transaction.tags,
+            "account_id": transaction.account_id,
+            "id": transaction.id,
+            "external_ids": transaction.external_ids,
+            "created_at": transaction.created_at,
+            "updated_at": transaction.updated_at,
+        }
+
         for tagger_func in taggers:
             try:
-                new_tags = tagger_func(transaction)
+                new_tags = tagger_func(**tx_kwargs)
                 if new_tags:
                     # Track stats for this tagger
                     tagger_name = tagger_func.__name__

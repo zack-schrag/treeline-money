@@ -1133,25 +1133,36 @@ Auto-tagger: {name}
 
 Add your auto-tagging logic here. This function will be called for each
 transaction during sync. Return a list of tags to apply.
+
+No imports needed! Transaction fields are passed as keyword arguments.
 """
-from treeline.domain import Transaction
-from treeline.ext import tagger
 
 
-@tagger
-def {name}(transaction: Transaction) -> list[str]:
+def {name}(description, amount, transaction_date, posted_date, **kwargs):
     """
     Auto-tag transactions based on custom rules.
 
     Args:
-        transaction: The transaction to analyze (read-only)
+        description: Transaction description (str | None)
+        amount: Transaction amount (Decimal)
+        transaction_date: Date of transaction (date)
+        posted_date: Date transaction posted (date)
+        **kwargs: Additional fields (tags, account_id, etc.)
 
     Returns:
         List of tags to apply to this transaction
 
-    Example:
-        if 'COFFEE' in transaction.description.upper():
+    Examples:
+        # Tag by description
+        if description and 'COFFEE' in description.upper():
             return ['coffee', 'food']
+
+        # Tag by amount
+        if amount > 100:
+            return ['large-purchase']
+
+        # No match
+        return []
     """
     # TODO: Add your tagging logic here
     return []
