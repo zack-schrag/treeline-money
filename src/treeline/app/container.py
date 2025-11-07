@@ -34,6 +34,7 @@ from treeline.infra.csv_provider import CSVProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.keyring_store import KeyringCredentialStore
 from treeline.infra.simplefin import SimpleFINProvider
+from treeline.infra.demo_provider import DemoDataProvider
 from treeline.infra.supabase import SupabaseAuthProvider
 
 
@@ -80,12 +81,33 @@ class Container:
         return self._instances["auth_service"]
 
     def provider_registry(self) -> Dict[str, DataAggregationProvider]:
-        """Get the provider registry."""
+        """Get the provider registry.
+
+        In demo mode (TREELINE_DEMO_MODE=true), all providers return mock data.
+        """
         if "provider_registry" not in self._instances:
-            self._instances["provider_registry"] = {
-                "simplefin": SimpleFINProvider(),
-                "csv": CSVProvider(),
-            }
+            # Check if demo mode is enabled
+            demo_mode = os.getenv("TREELINE_DEMO_MODE", "").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+
+            if demo_mode:
+                # In demo mode, all integrations use the demo provider
+                demo_provider = DemoDataProvider()
+                self._instances["provider_registry"] = {
+                    "simplefin": demo_provider,
+                    "csv": demo_provider,
+                    # Future integrations also use demo provider in demo mode
+                    "plaid": demo_provider,
+                }
+            else:
+                # Production mode: use real providers
+                self._instances["provider_registry"] = {
+                    "simplefin": SimpleFINProvider(),
+                    "csv": CSVProvider(),
+                }
         return self._instances["provider_registry"]
 
     def sync_service(self) -> SyncService:

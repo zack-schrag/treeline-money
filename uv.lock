@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -640,20 +640,6 @@ crypto = [
 ]
 
 [[package]]
-name = "pyplot"
-version = "0.1.0"
-source = { directory = "../pyplot" }
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
-    { name = "ruff", specifier = ">=0.8.0" },
-]
-
-[[package]]
 name = "pytest"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1155,7 +1141,6 @@ dependencies = [
     { name = "keyring" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
-    { name = "pyplot" },
     { name = "python-dotenv" },
     { name = "readchar" },
     { name = "rich" },
@@ -1184,7 +1169,6 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.6.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.11.9" },
-    { name = "pyplot", directory = "../pyplot" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "readchar", specifier = ">=4.2.1" },
