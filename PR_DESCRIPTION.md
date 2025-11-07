@@ -21,12 +21,13 @@ When `TREELINE_DEMO_MODE=true` is set, all data providers (SimpleFIN, CSV, etc.)
 
 ### New Files
 - `src/treeline/infra/demo_provider.py` - Mock data provider implementation
-- `tests/unit/infra/test_demo_provider.py` - Provider unit tests (7 tests)
-- `tests/unit/app/test_container_demo_mode.py` - Container integration tests (4 tests)
+- `tests/unit/app/test_container_demo_mode.py` - Container tests (2 tests)
+- `tests/unit/app/test_demo_mode_e2e.py` - End-to-end integration tests (4 tests)
 - `docs/external/guides/demo_mode.md` - User documentation
 
 ### Modified Files
-- `src/treeline/app/container.py` - Check env var and use demo provider when enabled
+- `src/treeline/app/container.py` - Check env var, use demo provider with inline ternaries
+- `src/treeline/app/service.py` - Bypass authentication in demo mode
 - `.env.example` - Document TREELINE_DEMO_MODE option
 - `pyproject.toml` - Remove pyplot dependency (was blocking installs)
 
@@ -135,24 +136,23 @@ export TREELINE_DEMO_MODE=false
 
 ## Testing
 
-All new tests pass (11 new tests):
+All new tests pass (6 tests):
 ```bash
-$ uv run pytest tests/unit/infra/test_demo_provider.py tests/unit/app/test_container_demo_mode.py -v
+$ uv run pytest tests/unit/app/test_container_demo_mode.py tests/unit/app/test_demo_mode_e2e.py -v
 
-tests/unit/infra/test_demo_provider.py::test_get_accounts_returns_demo_data PASSED
-tests/unit/infra/test_demo_provider.py::test_get_transactions_returns_demo_data PASSED
-tests/unit/infra/test_demo_provider.py::test_create_integration_succeeds_without_real_token PASSED
-tests/unit/infra/test_demo_provider.py::test_get_accounts_filters_by_account_ids PASSED
-tests/unit/infra/test_demo_provider.py::test_get_transactions_filters_by_date_range PASSED
-tests/unit/infra/test_demo_provider.py::test_demo_provider_properties PASSED
-tests/unit/infra/test_demo_provider.py::test_demo_provider_works_for_any_integration PASSED
-tests/unit/app/test_container_demo_mode.py::test_container_uses_demo_provider_when_env_var_set PASSED
-tests/unit/app/test_container_demo_mode.py::test_container_uses_real_providers_when_env_var_not_set PASSED
-tests/unit/app/test_container_demo_mode.py::test_container_recognizes_various_truthy_values PASSED
-tests/unit/app/test_container_demo_mode.py::test_container_treats_false_values_as_disabled PASSED
+tests/unit/app/test_container_demo_mode.py::test_container_uses_demo_provider_when_demo_mode_enabled PASSED
+tests/unit/app/test_container_demo_mode.py::test_container_uses_real_providers_when_demo_mode_disabled PASSED
+tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_sync_integration_service PASSED
+tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_query_transactions PASSED
+tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_tag_transactions PASSED
+tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_status PASSED
 
-11 passed in 1.06s
+6 passed in 6.81s
 ```
+
+**Test Coverage:**
+- 2 container tests verify correct provider selection based on env var
+- 4 e2e integration tests verify full workflows (sync, query, tag, status)
 
 ## Benefits
 
