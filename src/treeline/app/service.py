@@ -631,7 +631,7 @@ class ConfigService:
         import os
 
         if os.getenv("TREELINE_DEMO_MODE", "").lower() in ("true", "1", "yes"):
-            return "demo-user-00000000-0000-0000-0000-000000000000"
+            return "00000000-0000-0000-0000-000000000000"
 
         # return self.credential_store.get_credential("user_id")
         return self.credential_store.get_credential("user_id")
