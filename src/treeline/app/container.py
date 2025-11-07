@@ -24,6 +24,7 @@ from treeline.app.service import (
     SyncService,
     TaggingService,
 )
+from treeline.app.backfill_service import BackfillService
 from treeline.infra.tag_suggesters import (
     FrequencyTagSuggester,
     CommonTagSuggester,
@@ -162,3 +163,9 @@ class Container:
                 self.repository(), self.provider_registry()
             )
         return self._instances["import_service"]
+
+    def backfill_service(self) -> BackfillService:
+        """Get the backfill service instance."""
+        if "backfill_service" not in self._instances:
+            self._instances["backfill_service"] = BackfillService(self.repository())
+        return self._instances["backfill_service"]

@@ -205,6 +205,26 @@ class Repository(ABC):
         pass
 
     @abstractmethod
+    async def get_transactions_by_account(
+        self,
+        user_id: UUID,
+        account_id: UUID,
+        order_by: str = "transaction_date DESC",
+    ) -> Result[List[Transaction]]:
+        """
+        Get all transactions for a specific account.
+
+        Args:
+            user_id: User context
+            account_id: Account ID to filter by
+            order_by: SQL order clause (default: transaction_date DESC)
+
+        Returns:
+            Result containing list of Transaction objects ordered as specified
+        """
+        pass
+
+    @abstractmethod
     async def upsert_integration(
         self, user_id: UUID, integration_name: str, integration_options: Dict[str, Any]
     ) -> Result[None]:

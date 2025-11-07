@@ -487,11 +487,9 @@ class DuckDBRepository(Repository):
                     id=UUID(row_dict["snapshot_id"]),
                     account_id=UUID(row_dict["account_id"]),
                     balance=Decimal(str(row_dict["balance"])),
-                    snapshot_time=row_dict["snapshot_time"],
-                    created_at=row_dict["created_at"],
-                    updated_at=datetime.now(
-                        datetime.now().astimezone().tzinfo
-                    ),  # DuckDB doesn't store updated_at for balances
+                    snapshot_time=self._ensure_timezone(row_dict["snapshot_time"]),
+                    created_at=self._ensure_timezone(row_dict["created_at"]),
+                    updated_at=self._ensure_timezone(row_dict["updated_at"]),
                 )
                 balances.append(balance)
 
@@ -809,6 +807,58 @@ class DuckDBRepository(Repository):
             return Ok(transactions)
         except Exception as e:
             return Fail(f"Failed to get transactions for tagging: {str(e)}")
+
+    async def get_transactions_by_account(
+        self,
+        user_id: UUID,
+        account_id: UUID,
+        order_by: str = "transaction_date DESC",
+    ) -> Result[List[Transaction]]:
+        """Get all transactions for a specific account."""
+        try:
+            conn = self._get_connection(user_id, read_only=True)
+
+            result = conn.execute(
+                f"""
+                SELECT
+                    transaction_id,
+                    account_id,
+                    external_ids,
+                    amount,
+                    description,
+                    transaction_date,
+                    posted_date,
+                    tags,
+                    created_at,
+                    updated_at
+                FROM sys_transactions
+                WHERE account_id = ?
+                ORDER BY {order_by}
+            """,
+                [str(account_id)],
+            ).fetchall()
+
+            transactions = []
+            for row in result:
+                transactions.append(
+                    Transaction(
+                        id=UUID(row[0]),
+                        account_id=UUID(row[1]),
+                        external_ids=json.loads(row[2]) if row[2] else {},
+                        amount=Decimal(str(row[3])),
+                        description=row[4],
+                        transaction_date=row[5],
+                        posted_date=row[6],
+                        tags=tuple(row[7]) if row[7] else (),
+                        created_at=self._ensure_timezone(row[8]),
+                        updated_at=self._ensure_timezone(row[9]),
+                    )
+                )
+
+            conn.close()
+            return Ok(transactions)
+        except Exception as e:
+            return Fail(f"Failed to get transactions by account: {str(e)}")
 
     async def update_transaction_tags(
         self, user_id: UUID, transaction_id: str, tags: List[str]
