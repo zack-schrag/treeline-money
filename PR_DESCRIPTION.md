@@ -22,12 +22,13 @@ When `TREELINE_DEMO_MODE=true` is set, all data providers (SimpleFIN, CSV, etc.)
 ### New Files
 - `src/treeline/infra/demo_provider.py` - Mock data provider implementation
 - `tests/unit/app/test_container_demo_mode.py` - Container tests (2 tests)
-- `tests/unit/app/test_demo_mode_e2e.py` - End-to-end integration tests (4 tests)
+- `tests/smoke/test_demo_mode_cli.py` - End-to-end CLI smoke tests (3 tests)
 - `docs/external/guides/demo_mode.md` - User documentation
 
 ### Modified Files
 - `src/treeline/app/container.py` - Check env var, use demo provider with inline ternaries
 - `src/treeline/app/service.py` - Bypass authentication in demo mode
+- `src/treeline/utils.py` - Add TREELINE_DIR env var for testing
 - `.env.example` - Document TREELINE_DEMO_MODE option
 - `pyproject.toml` - Remove pyplot dependency (was blocking installs)
 
@@ -136,23 +137,25 @@ export TREELINE_DEMO_MODE=false
 
 ## Testing
 
-All new tests pass (6 tests):
+All new tests pass (5 tests):
 ```bash
-$ uv run pytest tests/unit/app/test_container_demo_mode.py tests/unit/app/test_demo_mode_e2e.py -v
+$ uv run pytest tests/unit/app/test_container_demo_mode.py tests/smoke/test_demo_mode_cli.py -v
 
 tests/unit/app/test_container_demo_mode.py::test_container_uses_demo_provider_when_demo_mode_enabled PASSED
 tests/unit/app/test_container_demo_mode.py::test_container_uses_real_providers_when_demo_mode_disabled PASSED
-tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_sync_integration_service PASSED
-tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_query_transactions PASSED
-tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_tag_transactions PASSED
-tests/unit/app/test_demo_mode_e2e.py::test_demo_mode_status PASSED
+tests/smoke/test_demo_mode_cli.py::test_demo_mode_sync_and_status PASSED
+tests/smoke/test_demo_mode_cli.py::test_demo_mode_query PASSED
+tests/smoke/test_demo_mode_cli.py::test_demo_mode_tag_and_query PASSED
 
-6 passed in 6.81s
+5 passed in 15.29s
 ```
 
 **Test Coverage:**
 - 2 container tests verify correct provider selection based on env var
-- 4 e2e integration tests verify full workflows (sync, query, tag, status)
+- 3 CLI smoke tests verify actual CLI commands work end-to-end
+  - Sync and status commands with demo data
+  - SQL queries on demo transactions
+  - Applying tags and querying them back
 
 ## Benefits
 
