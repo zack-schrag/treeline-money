@@ -28,6 +28,7 @@ When `TREELINE_DEMO_MODE=true` is set, all data providers (SimpleFIN, CSV, etc.)
 ### Modified Files
 - `src/treeline/app/container.py` - Check env var, use demo provider with inline ternaries
 - `src/treeline/app/service.py` - Bypass authentication in demo mode
+- `src/treeline/cli.py` - Add optional `--token` flag to setup command for non-interactive mode
 - `src/treeline/utils.py` - Add TREELINE_DIR env var for testing
 - `.env.example` - Document TREELINE_DEMO_MODE option
 - `pyproject.toml` - Remove pyplot dependency (was blocking installs)
@@ -57,6 +58,8 @@ export TREELINE_DEMO_MODE=true
 ```
 
 ### Setup Integration (accepts any token)
+
+**Interactive mode:**
 ```bash
 $ treeline setup simplefin
 
@@ -68,6 +71,17 @@ Enter your SimpleFIN setup token
 (Press Ctrl+C to cancel)
 
 Token: demo-token
+
+✓ SimpleFIN integration setup successfully!
+
+Use 'treeline sync' to import your transactions
+```
+
+**Non-interactive mode (for testing/automation):**
+```bash
+$ treeline setup simplefin --token demo-token
+
+SimpleFIN Setup
 
 ✓ SimpleFIN integration setup successfully!
 
@@ -152,10 +166,11 @@ tests/smoke/test_demo_mode_cli.py::test_demo_mode_tag_and_query PASSED
 
 **Test Coverage:**
 - 2 container tests verify correct provider selection based on env var
-- 3 CLI smoke tests verify actual CLI commands work end-to-end
-  - Sync and status commands with demo data
-  - SQL queries on demo transactions
-  - Applying tags and querying them back
+- 3 CLI smoke tests verify actual CLI commands work end-to-end (zero treeline imports!)
+  - Uses `treeline setup simplefin --token demo-token` for non-interactive setup
+  - Tests sync and status commands with demo data
+  - Tests SQL queries on demo transactions
+  - Tests applying tags and querying them back
 
 ## Benefits
 

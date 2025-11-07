@@ -1,6 +1,7 @@
 """Smoke tests for demo mode CLI commands.
 
 These tests verify that CLI commands work end-to-end in demo mode.
+No treeline imports - only CLI interaction via subprocess.
 """
 
 import json
@@ -35,45 +36,14 @@ def run_treeline_cli(args: list[str], treeline_dir: str) -> subprocess.Completed
     )
 
 
-def setup_demo_integration(treeline_dir: str):
-    """Helper to set up demo integration programmatically."""
-    from treeline.app.container import Container
-    from uuid import UUID
-    import asyncio
-
-    # Ensure demo mode is enabled for this process too
-    os.environ["TREELINE_DEMO_MODE"] = "true"
-    os.environ["TREELINE_DIR"] = str(Path(treeline_dir) / ".treeline")
-    os.environ["SUPABASE_URL"] = "http://demo.supabase.co"
-    os.environ["SUPABASE_KEY"] = "demo-key"
-
-    # Create .treeline directory
-    treeline_path = Path(treeline_dir) / ".treeline"
-    treeline_path.mkdir(parents=True, exist_ok=True)
-
-    # Initialize container with DB directory (not file path)
-    container = Container(str(treeline_path))
-    user_id = UUID("00000000-0000-0000-0000-000000000000")
-
-    # Initialize DB
-    db_service = container.db_service()
-    asyncio.run(db_service.initialize_db())
-    asyncio.run(db_service.initialize_user_db(user_id))
-
-    # Create demo integration
-    integration_service = container.integration_service("simplefin")
-    asyncio.run(
-        integration_service.create_integration(
-            user_id, "simplefin", {"setupToken": "demo"}
-        )
-    )
-
-
 def test_demo_mode_sync_and_status():
     """Test that sync and status work in demo mode."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Set up integration programmatically (since CLI setup requires interactive input)
-        setup_demo_integration(tmpdir)
+        # Set up integration using CLI command with --token flag
+        result = run_treeline_cli(
+            ["setup", "simplefin", "--token", "demo-token"], tmpdir
+        )
+        assert result.returncode == 0, f"setup failed: {result.stderr}"
 
         # Sync should work with demo provider
         result = run_treeline_cli(["sync"], tmpdir)
@@ -91,7 +61,8 @@ def test_demo_mode_sync_and_status():
 def test_demo_mode_query():
     """Test that SQL queries work on demo data."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        setup_demo_integration(tmpdir)
+        # Setup and sync using CLI commands
+        run_treeline_cli(["setup", "simplefin", "--token", "demo-token"], tmpdir)
         run_treeline_cli(["sync"], tmpdir)
 
         # Query transactions
@@ -108,7 +79,8 @@ def test_demo_mode_query():
 def test_demo_mode_tag_and_query():
     """Test that tags can be applied and queried."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        setup_demo_integration(tmpdir)
+        # Setup and sync using CLI commands
+        run_treeline_cli(["setup", "simplefin", "--token", "demo-token"], tmpdir)
         run_treeline_cli(["sync"], tmpdir)
 
         # Get a transaction ID

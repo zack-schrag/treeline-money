@@ -379,6 +379,9 @@ def setup_command(
     integration: str = typer.Argument(
         None, help="Integration name (e.g., 'simplefin'). Omit for interactive wizard."
     ),
+    token: str = typer.Option(
+        None, "--token", help="Setup token (optional, will prompt if not provided)"
+    ),
 ) -> None:
     """Set up financial data integrations.
 
@@ -388,6 +391,9 @@ def setup_command(
 
       # Direct SimpleFIN setup
       treeline setup simplefin
+
+      # Non-interactive setup with token
+      treeline setup simplefin --token YOUR_TOKEN
     """
     ensure_treeline_initialized()
     require_auth()
@@ -413,7 +419,7 @@ def setup_command(
 
     # Handle specific integrations
     if integration.lower() == "simplefin":
-        setup_simplefin()
+        setup_simplefin(token)
     else:
         display_error(f"Unknown integration: {integration}")
         console.print(
@@ -422,8 +428,12 @@ def setup_command(
         raise typer.Exit(1)
 
 
-def setup_simplefin() -> None:
-    """Set up SimpleFIN integration (helper function)."""
+def setup_simplefin(token: str | None = None) -> None:
+    """Set up SimpleFIN integration (helper function).
+
+    Args:
+        token: Optional setup token. If not provided, will prompt interactively.
+    """
     user_id = get_authenticated_user_id()
 
     container = get_container()
@@ -431,25 +441,30 @@ def setup_simplefin() -> None:
     integration_service = container.integration_service("simplefin")
 
     console.print(f"\n[{theme.ui_header}]SimpleFIN Setup[/{theme.ui_header}]\n")
-    console.print(
-        f"[{theme.muted}]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/{theme.muted}]\n"
-    )
 
-    # Prompt for setup token
-    console.print(f"[{theme.info}]Enter your SimpleFIN setup token[/{theme.info}]")
-    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
+    # Use provided token or prompt for it
+    if token:
+        setup_token = token.strip()
+    else:
+        console.print(
+            f"[{theme.muted}]If you don't have a SimpleFIN account, create one at: https://beta-bridge.simplefin.org/[/{theme.muted}]\n"
+        )
 
-    try:
-        setup_token = Prompt.ask("Token")
-    except (KeyboardInterrupt, EOFError):
-        console.print(f"\n[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
-        raise typer.Exit(0)
+        # Prompt for setup token
+        console.print(f"[{theme.info}]Enter your SimpleFIN setup token[/{theme.info}]")
+        console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
 
-    if not setup_token or not setup_token.strip():
-        console.print(f"[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
-        raise typer.Exit(0)
+        try:
+            setup_token = Prompt.ask("Token")
+        except (KeyboardInterrupt, EOFError):
+            console.print(f"\n[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+            raise typer.Exit(0)
 
-    setup_token = setup_token.strip()
+        if not setup_token or not setup_token.strip():
+            console.print(f"[{theme.warning}]Setup cancelled[/{theme.warning}]\n")
+            raise typer.Exit(0)
+
+        setup_token = setup_token.strip()
 
     # Setup integration
     console.print()
