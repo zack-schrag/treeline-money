@@ -614,11 +614,26 @@ class ConfigService:
 
     def is_authenticated(self) -> bool:
         """Check if user is authenticated."""
+        # In demo mode, always return True to bypass authentication
+        import os
+
+        if os.getenv("TREELINE_DEMO_MODE", "").lower() in ("true", "1", "yes"):
+            return True
+
+        # user_id = self.credential_store.get_credential("user_id")
+        # return user_id is not None
         user_id = self.credential_store.get_credential("user_id")
         return user_id is not None
 
     def get_current_user_id(self) -> str | None:
         """Get the current authenticated user ID."""
+        # In demo mode, return a fixed demo user ID
+        import os
+
+        if os.getenv("TREELINE_DEMO_MODE", "").lower() in ("true", "1", "yes"):
+            return "demo-user-00000000-0000-0000-0000-000000000000"
+
+        # return self.credential_store.get_credential("user_id")
         return self.credential_store.get_credential("user_id")
 
     def get_current_user_email(self) -> str | None:
