@@ -86,28 +86,17 @@ class Container:
         In demo mode (TREELINE_DEMO_MODE=true), all providers return mock data.
         """
         if "provider_registry" not in self._instances:
-            # Check if demo mode is enabled
             demo_mode = os.getenv("TREELINE_DEMO_MODE", "").lower() in (
                 "true",
                 "1",
                 "yes",
             )
+            demo_provider = DemoDataProvider()
 
-            if demo_mode:
-                # In demo mode, all integrations use the demo provider
-                demo_provider = DemoDataProvider()
-                self._instances["provider_registry"] = {
-                    "simplefin": demo_provider,
-                    "csv": demo_provider,
-                    # Future integrations also use demo provider in demo mode
-                    "plaid": demo_provider,
-                }
-            else:
-                # Production mode: use real providers
-                self._instances["provider_registry"] = {
-                    "simplefin": SimpleFINProvider(),
-                    "csv": CSVProvider(),
-                }
+            self._instances["provider_registry"] = {
+                "simplefin": demo_provider if demo_mode else SimpleFINProvider(),
+                "csv": demo_provider if demo_mode else CSVProvider(),
+            }
         return self._instances["provider_registry"]
 
     def sync_service(self) -> SyncService:
