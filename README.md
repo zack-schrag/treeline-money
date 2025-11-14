@@ -4,6 +4,8 @@
 
 Treeline gives you complete control over your financial data. Built for power users who want direct access to their data.
 
+> **⚠️ Early Stage Software**: Treeline is in active development. While it's stable for personal use, expect potential breaking changes in future releases. Always back up your data.
+
 If you've ever:
 - Spent hours building a custom spreadsheet that could rival Mint
 - Been frustrated with the lack of customization from existing finance tools
@@ -153,8 +155,19 @@ treeline query "SELECT * FROM transactions" --format csv > all_transactions.csv
 ## What can you do with Treeline?
 Some ideas to get you started:
 - Build an interactive dashboard with Marimo or Streamlit (or whatever your favorite tool is)
-- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it. 
+- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it.
 - Automatically parse bank statements, format as CSV, then import into Treeline
 - Train an ML model on your data to tag transactions, then use the ML model in a automatic tagger (see `treeline new tagger --help`)
 - Setup a cron job to run `treeline sync` daily
 - Setup a cron job to backup your data into Google Drive or Dropbox
+
+## Getting Help
+
+- **Bug reports & feature requests**: [GitHub Issues](https://github.com/zack-schrag/treeline-money/issues)
+- **Questions & discussions**: [GitHub Discussions](https://github.com/zack-schrag/treeline-money/discussions)
+
+When filing a bug report, please include:
+- Your operating system and Python version
+- The command you ran
+- The full error message or unexpected behavior
+- Steps to reproduce the issue

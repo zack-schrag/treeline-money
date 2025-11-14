@@ -1,6 +1,6 @@
 [project]
 name = "treeline-money"
-version = "0.1.0"
+version = "0.1.1"
 description = "Personal finance in your terminal"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -8,6 +8,15 @@ license = {text = "MIT"}
 authors = [
     {name = "Zack Schrag"}
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+treeline = ["themes/*.json", "infra/migrations/*.sql"]
 keywords = [
     "personal-finance",
     "cli",
