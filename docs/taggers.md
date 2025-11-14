@@ -6,15 +6,15 @@ Auto-taggers automatically apply tags to transactions based on custom Python rul
 
 ```bash
 # 1. Create a tagger
-treeline new tagger groceries
+tl new tagger groceries
 
 # 2. Edit ~/.treeline/taggers/groceries.py with your rules
 
 # 3. Sync to auto-tag new transactions
-treeline sync
+tl sync
 
 # 4. Apply to existing transactions (optional)
-treeline backfill tags
+tl backfill tags
 ```
 
 ## Writing Taggers
@@ -148,7 +148,7 @@ def tag_coffee(description, **kwargs):
 ### Create a tagger
 
 ```bash
-treeline new tagger <name>
+tl new tagger <name>
 ```
 
 Creates `~/.treeline/taggers/<name>.py` with a template.
@@ -158,7 +158,7 @@ Tagger names must be valid Python identifiers (letters, numbers, underscores onl
 ### List taggers
 
 ```bash
-treeline list taggers
+tl list taggers
 ```
 
 Shows all installed taggers and their functions.
@@ -169,30 +169,30 @@ Apply taggers to transactions that already exist:
 
 ```bash
 # Apply all taggers to all transactions
-treeline backfill tags
+tl backfill tags
 
 # Preview changes without saving
-treeline backfill tags --dry-run -v
+tl backfill tags --dry-run -v
 
 # Apply specific tagger
-treeline backfill tags --tagger groceries.tag_stores
+tl backfill tags --tagger groceries.tag_stores
 
 # Apply all taggers from a file
-treeline backfill tags --tagger groceries
+tl backfill tags --tagger groceries
 ```
 
 ## How It Works
 
 ### During Sync
 
-1. `treeline sync` loads all taggers from `~/.treeline/taggers/`
+1. `tl sync` loads all taggers from `~/.treeline/taggers/`
 2. Taggers run ONLY on new transactions (to preserve manual tags)
 3. Tags are added to transactions before saving
 4. Sync output shows tag statistics
 
 ### Manual Backfill
 
-1. `treeline backfill tags` applies taggers to existing transactions
+1. `tl backfill tags` applies taggers to existing transactions
 2. Runs on ALL transactions (or filtered subset)
 3. Tags are additive - existing tags are kept
 4. Use `--dry-run` to preview changes
@@ -222,12 +222,12 @@ The Transaction model automatically deduplicates tags, so multiple taggers can s
 1. Check file is in `~/.treeline/taggers/` and ends with `.py`
 2. Check filename doesn't start with `_` (skipped by convention)
 3. Verify function name starts with `tag_` prefix
-4. Run `treeline list taggers` to see loaded taggers
+4. Run `tl list taggers` to see loaded taggers
 
 ### Tags not appearing
 
 1. Taggers only run on **new** transactions during sync
-2. Use `treeline backfill tags` for existing transactions
+2. Use `tl backfill tags` for existing transactions
 3. Check tagger logic returns non-empty list
 4. Use `--verbose` flag to see tagging details
 
@@ -235,8 +235,8 @@ The Transaction model automatically deduplicates tags, so multiple taggers can s
 
 ```bash
 # See detailed tagging during sync
-treeline sync --verbose
+tl sync --verbose
 
 # Preview backfill with details
-treeline backfill tags --dry-run --verbose
+tl backfill tags --dry-run --verbose
 ```

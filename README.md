@@ -33,15 +33,17 @@ pip install treeline-money
 
 # Load demo data
 export TREELINE_DEMO_MODE=true
-treeline sync
+tl sync
 
 # Explore with demo data
-treeline status
-treeline query "SELECT * FROM transactions LIMIT 10"
+tl status
+tl query "SELECT * FROM transactions LIMIT 10"
 
 # When you're done with demoing:
 unset TREELINE_DEMO_MODE
 ```
+
+> **💡 Note**: Examples use `tl` (the short alias), but `treeline` works too
 
 See [docs/demo_mode.md](./docs/demo_mode.md) for details.
 
@@ -52,37 +54,37 @@ See [docs/demo_mode.md](./docs/demo_mode.md) for details.
 pip install treeline-money
 
 # 2. Connect to SimpleFIN
-treeline setup simplefin
+tl setup simplefin
 
 # 3. Sync your data
-treeline sync
+tl sync
 
 # 4. Start exploring
-treeline status
-treeline query "SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 10"
+tl status
+tl query "SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 10"
 ```
 
 ### Tagging transactions
 ```bash
 # Start interactive tagging mode
-treeline tag
+tl tag
 
 # Or tag directly from CLI
-treeline tag apply --ids abc123,def456 groceries,food
+tl tag apply --ids abc123,def456 groceries,food
 
 # Or pipe IDs from query to apply tags in bulk
 # Note: Use intermediate variable to avoid database lock conflicts
-TX_IDS=$(treeline query "SELECT transaction_id FROM transactions WHERE description ILIKE '%QFC%'" --json | jq -r '.rows[][]')
-echo "$TX_IDS" | treeline tag apply groceries
+TX_IDS=$(tl query "SELECT transaction_id FROM transactions WHERE description ILIKE '%QFC%'" --json | jq -r '.rows[][]')
+echo "$TX_IDS" | tl tag apply groceries
 ```
 
 ### Auto-tagging rules on sync or import
 ```bash
-treeline new tagger large_purchases
+tl new tagger large_purchases
 ```
 This will create a new file in `~/.treeline/taggers/large_purchases.py`. Fill out the Python logic, then test by doing a backfill with optional `--dry-run` flag:
 ```bash
-treeline backfill tags --dry-run --verbose
+tl backfill tags --dry-run --verbose
 ```
 This will show the tags that would be applied, but makes no edits to the database. Remove the the `--dry-run` once you're confident in the logic.
 
@@ -134,22 +136,22 @@ Historical balance data (joins balance + account details):
 
 ```bash
 # Spending by tag
-treeline query "SELECT tags, SUM(amount) as total FROM transactions WHERE amount < 0 GROUP BY tags ORDER BY total"
+tl query "SELECT tags, SUM(amount) as total FROM transactions WHERE amount < 0 GROUP BY tags ORDER BY total"
 
 # Monthly spending trends
-treeline query "SELECT strftime('%Y-%m', transaction_date) as month, SUM(amount) as total FROM transactions WHERE amount < 0 GROUP BY month ORDER BY month DESC"
+tl query "SELECT strftime('%Y-%m', transaction_date) as month, SUM(amount) as total FROM transactions WHERE amount < 0 GROUP BY month ORDER BY month DESC"
 
 # Account balances over time
-treeline query "SELECT account_name, snapshot_time, balance FROM balance_snapshots ORDER BY snapshot_time DESC"
+tl query "SELECT account_name, snapshot_time, balance FROM balance_snapshots ORDER BY snapshot_time DESC"
 
 # Top 10 biggest purchases
-treeline query "SELECT transaction_date, description, amount, account_name FROM transactions WHERE amount < 0 ORDER BY amount LIMIT 10"
+tl query "SELECT transaction_date, description, amount, account_name FROM transactions WHERE amount < 0 ORDER BY amount LIMIT 10"
 
 # Transactions without tags
-treeline query "SELECT transaction_date, description, amount FROM transactions WHERE tags = [] ORDER BY transaction_date DESC LIMIT 20"
+tl query "SELECT transaction_date, description, amount FROM transactions WHERE tags = [] ORDER BY transaction_date DESC LIMIT 20"
 
 # Export all transactions to CSV
-treeline query "SELECT * FROM transactions" --format csv > all_transactions.csv
+tl query "SELECT * FROM transactions" --format csv > all_transactions.csv
 ```
 
 ## What can you do with Treeline?
@@ -157,8 +159,8 @@ Some ideas to get you started:
 - Build an interactive dashboard with Marimo or Streamlit (or whatever your favorite tool is)
 - Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it.
 - Automatically parse bank statements, format as CSV, then import into Treeline
-- Train an ML model on your data to tag transactions, then use the ML model in a automatic tagger (see `treeline new tagger --help`)
-- Setup a cron job to run `treeline sync` daily
+- Train an ML model on your data to tag transactions, then use the ML model in a automatic tagger (see `tl new tagger --help`)
+- Setup a cron job to run `tl sync` daily
 - Setup a cron job to backup your data into Google Drive or Dropbox
 
 ## Getting Help

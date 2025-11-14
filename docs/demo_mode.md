@@ -13,12 +13,12 @@ Demo mode lets you test Treeline with realistic fake data without connecting to 
 export TREELINE_DEMO_MODE=true
 
 # Load demo data
-treeline sync
+tl sync
 
 # Start exploring
-treeline status
-treeline query "SELECT * FROM transactions LIMIT 10"
-treeline tag
+tl status
+tl query "SELECT * FROM transactions LIMIT 10"
+tl tag
 ```
 
 ## How It Works
@@ -58,9 +58,9 @@ The demo data includes transactions across categories:
 Prefix any command with the environment variable:
 
 ```bash
-TREELINE_DEMO_MODE=true treeline sync
-TREELINE_DEMO_MODE=true treeline status
-TREELINE_DEMO_MODE=true treeline query "SELECT * FROM transactions"
+TREELINE_DEMO_MODE=true tl sync
+TREELINE_DEMO_MODE=true tl status
+TREELINE_DEMO_MODE=true tl query "SELECT * FROM transactions"
 ```
 
 ### Persistent Demo Mode
@@ -81,9 +81,9 @@ TREELINE_DEMO_MODE=true
 Then run commands normally:
 
 ```bash
-treeline sync
-treeline status
-treeline query "SELECT * FROM accounts"
+tl sync
+tl status
+tl query "SELECT * FROM accounts"
 ```
 
 ## Setup with Demo Mode
@@ -94,11 +94,11 @@ You can still run setup commands in demo mode:
 export TREELINE_DEMO_MODE=true
 
 # This will accept any token
-treeline setup simplefin
+tl setup simplefin
 # Enter any value when prompted, e.g., "demo-token"
 
 # Sync will return demo data
-treeline sync
+tl sync
 ```
 
 ## Disable Demo Mode
