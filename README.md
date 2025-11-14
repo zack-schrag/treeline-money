@@ -2,22 +2,24 @@
 
 **Personal finance analysis in your terminal**
 
-Treeline gives you complete control over your financial data. Built for power users who want direct access to their data.
+Treeline gives you complete control over your financial data. Built for power users and tinkerers who want direct access to their data.
 
-> **⚠️ Early Stage Software**: Treeline is in active development. While it's stable for personal use, expect potential breaking changes in future releases. Always back up your data.
+![Treeline Demo](./demo.gif)
+
+> **⚠️ Early Stage Software**: Treeline is in active development. Expect potential breaking changes in future releases. Always back up your data.
 
 If you've ever:
 - Spent hours building a custom spreadsheet that could rival Mint
 - Been frustrated with the lack of customization from existing finance tools
-- Wished you build your own automations tailored to *your* financial life
-- Wanted *full* control over your data
+- Wished you could build your own automations tailored to *your* financial life
+- Wanted full control over your data
 
 You're in the right place 😃
 
 ## Features
 - **SQL Queries** - Direct DuckDB access to your financial data
 - **SimpleFIN Sync** - Automatic bank synchronization via SimpleFIN
-- **CSV Import** - Import transactions from any bank CSV export, with automatic deduplication
+- **CSV Import** - Import transactions from any bank CSV export, with automatic transaction deduplication
 - **Local Database** - All data stored locally in DuckDB
 - **Scriptable** - JSON output, CSV export, and support for input / output piping
 - **Auto-Tagging** - Python-based rules to build custom logic for automatically categorizing transactions
@@ -65,6 +67,9 @@ tl query "SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 10"
 ```
 
 ### Tagging transactions
+
+![Tag Demo](./demo-tag.gif)
+
 ```bash
 # Start interactive tagging mode
 tl tag
@@ -157,7 +162,8 @@ tl query "SELECT * FROM transactions" --format csv > all_transactions.csv
 ## What can you do with Treeline?
 Some ideas to get you started:
 - Build an interactive dashboard with Marimo or Streamlit (or whatever your favorite tool is)
-- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it.
+- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. 
+  - *Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it using the commands.*
 - Automatically parse bank statements, format as CSV, then import into Treeline
 - Train an ML model on your data to tag transactions, then use the ML model in a automatic tagger (see `tl new tagger --help`)
 - Setup a cron job to run `tl sync` daily
