@@ -8,15 +8,6 @@ license = {text = "MIT"}
 authors = [
     {name = "Zack Schrag"}
 ]
-
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-data]
-treeline = ["themes/*.json", "infra/migrations/*.sql"]
 keywords = [
     "personal-finance",
     "cli",
@@ -58,6 +49,19 @@ dependencies = [
 Homepage = "https://github.com/zack-schrag/treeline-money"
 Repository = "https://github.com/zack-schrag/treeline-money"
 Issues = "https://github.com/zack-schrag/treeline-money/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+treeline = ["themes/*.json", "infra/migrations/*.sql"]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.uv]
 package = true
