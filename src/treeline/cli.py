@@ -849,6 +849,11 @@ def import_command(
     flip_signs: bool = typer.Option(
         False, "--flip-signs", help="Flip transaction signs (for credit cards)"
     ),
+    debit_negative: bool = typer.Option(
+        False,
+        "--debit-negative",
+        help="Negate debit amounts (for unsigned debit/credit CSVs)",
+    ),
     preview: bool = typer.Option(False, "--preview", help="Preview only, don't import"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
@@ -951,6 +956,7 @@ def import_command(
                 date_format="auto",
                 limit=10,
                 flip_signs=flip_signs,
+                debit_negative=debit_negative,
             )
         )
 
@@ -963,6 +969,7 @@ def import_command(
             preview_data = {
                 "file": str(csv_path),
                 "flip_signs": flip_signs,
+                "debit_negative": debit_negative,
                 "preview": [
                     {
                         "date": str(tx.transaction_date),
@@ -976,7 +983,10 @@ def import_command(
         else:
             console.print(f"\n[{theme.ui_header}]Import Preview[/{theme.ui_header}]\n")
             console.print(f"File: {csv_path}")
-            console.print(f"Flip signs: {flip_signs}\n")
+            console.print(f"Flip signs: {flip_signs}")
+            if debit_negative:
+                console.print(f"Debit negative: {debit_negative}")
+            console.print()
 
             for tx in preview_result.data[:10]:
                 amount_style = (
@@ -1025,6 +1035,7 @@ def import_command(
         "column_mapping": import_column_mapping,
         "date_format": "auto",
         "flip_signs": flip_signs,
+        "debit_negative": debit_negative,
     }
 
     if not json_output:

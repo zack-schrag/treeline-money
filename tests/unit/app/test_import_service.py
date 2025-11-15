@@ -512,6 +512,7 @@ async def test_preview_csv_import_success():
             date_format="auto",
             limit=5,
             flip_signs=False,
+            debit_negative=False,
         ):
             from treeline.domain import Ok
 
@@ -547,6 +548,7 @@ async def test_preview_csv_import_provider_failure():
             date_format="auto",
             limit=5,
             flip_signs=False,
+            debit_negative=False,
         ):
             from treeline.domain import Fail
 
