@@ -859,31 +859,11 @@ def import_command(
 ) -> None:
     """Import transactions from CSV file.
 
-    INTERACTIVE MODE (prompts for all options):
-      treeline import
+    Run 'tl import' with no arguments for interactive mode with auto-detection.
+    Or specify file and columns for scriptable mode.
 
-    SCRIPTABLE MODE (all options via flags):
-      treeline import file.csv --account-id XXX --date-column "Date" --amount-column "Amount"
-
-    Examples:
-      # Interactive mode with prompts
-      treeline import
-
-      # Preview import (no changes)
-      treeline import transactions.csv --account-id ABC123 --preview
-
-      # Full automated import
-      treeline import transactions.csv \\
-        --account-id ABC123 \\
-        --date-column "Date" \\
-        --amount-column "Amount" \\
-        --description-column "Description" \\
-        --flip-signs
-
-    Notes:
-      - Tested with a small number of bank CSV formats. May not work with all banks.
-      - If auto-detection fails, use --date-column, --amount-column flags explicitly
-      - Report unsupported formats: https://github.com/zack-schrag/treeline-money/issues
+    WARNING: Only tested with a small number of bank formats. May not work with all CSVs.
+    Report issues at: https://github.com/zack-schrag/treeline-money/issues
     """
     ensure_treeline_initialized()
     container = get_container()
