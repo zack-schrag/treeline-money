@@ -128,13 +128,33 @@ def handle_import_command(
         return
 
     column_mapping = detect_result.data
-    # Future: Could add interactive column mapping UI here to override auto-detection
+
+    # Show detected columns
+    console.print(f"\n[{theme.success}]Detected columns:[/{theme.success}]")
+    for field, column in column_mapping.items():
+        console.print(f"  {field}: {column}")
+
+    if not column_mapping.get("date") or (
+        not column_mapping.get("amount") and not column_mapping.get("debit")
+    ):
+        console.print(
+            f"\n[{theme.warning}]Warning: Required columns not detected![/{theme.warning}]"
+        )
+        console.print(
+            f"[{theme.muted}]For manual column mapping, use scriptable mode:[/{theme.muted}]"
+        )
+        console.print(
+            f'[{theme.muted}]  tl import {csv_path.name} --date-column "YourDateColumn" --amount-column "YourAmountColumn"[/{theme.muted}]\n'
+        )
+        return
 
     # 1d. Sign flipping (start with default, allow changing in preview loop)
     flip_signs = False
+    debit_negative = False
 
     # STEP 2: Interactive preview loop (CLI workflow)
 
+    show_initial_preview = True  # Track whether to show initial 5 or not
     while True:
         # Get preview from service
         console.print(f"\n[{theme.muted}]Generating preview...[/{theme.muted}]")
@@ -146,6 +166,7 @@ def handle_import_command(
                 date_format="auto",
                 limit=15,  # Get more for better preview
                 flip_signs=flip_signs,
+                debit_negative=debit_negative,
             )
         )
 
@@ -157,31 +178,49 @@ def handle_import_command(
 
         preview_txs = preview_result.data
 
-        # Display preview (CLI presentation)
-        console.print(
-            f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n"
-        )
-        display_preview_table(preview_txs[:5])
-        console.print(
-            f"\n[{theme.muted}]({len(preview_txs)} total transactions in file)[/{theme.muted}]"
-        )
-        console.print(f"[{theme.ui_header}]Preview Check[/{theme.ui_header}]")
-        console.print(
-            f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n"
-        )
+        # Check if we got any transactions
+        if len(preview_txs) == 0:
+            console.print(
+                f"\n[{theme.error}]No transactions found in CSV![/{theme.error}]"
+            )
+            console.print(f"[{theme.muted}]This could mean:[/{theme.muted}]")
+            console.print(f"  - The CSV has no data rows")
+            console.print(f"  - Date or amount parsing failed")
+            console.print(
+                f"\n[{theme.muted}]Try scriptable mode with explicit columns:[/{theme.muted}]"
+            )
+            console.print(
+                f'[{theme.muted}]  tl import {csv_path.name} --preview --date-column "YourDateColumn" --amount-column "YourAmountColumn"[/{theme.muted}]\n'
+            )
+            return
+
+        # Display preview (CLI presentation) - only show initial 5 on first iteration
+        if show_initial_preview:
+            console.print(
+                f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n"
+            )
+            display_preview_table(preview_txs[:5])
+            console.print(
+                f"\n[{theme.muted}]({len(preview_txs)} total transactions in file)[/{theme.muted}]"
+            )
+            console.print(f"[{theme.ui_header}]Preview Check[/{theme.ui_header}]")
+            console.print(
+                f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n"
+            )
 
         # Interactive menu (CLI workflow)
         console.print(f"[{theme.info}]What would you like to do?[/{theme.info}]")
         console.print("  [1] Proceed with import")
         console.print("  [2] View more transactions (next 10)")
         console.print("  [3] Flip all signs (if spending shows positive)")
-        console.print("  [4] Cancel import")
+        console.print("  [4] Negate debits (for unsigned debit/credit CSVs)")
+        console.print("  [5] Cancel import")
         console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
 
         try:
             choice = Prompt.ask(
                 f"\n[{theme.info}]Choice[/{theme.info}]",
-                choices=["1", "2", "3", "4"],
+                choices=["1", "2", "3", "4", "5"],
                 default="1",
             )
         except (KeyboardInterrupt, EOFError):
@@ -197,13 +236,25 @@ def handle_import_command(
             )
             display_preview_table(preview_txs[:15])
             console.print()
+            # Don't show initial preview again - user just saw extended preview
+            show_initial_preview = False
         elif choice == "3":
             # Flip signs and loop will re-preview
             flip_signs = not flip_signs
             console.print(
                 f"[{theme.muted}]Signs flipped, regenerating preview...[/{theme.muted}]"
             )
-        else:  # choice == "4"
+            # Show initial preview after flipping signs
+            show_initial_preview = True
+        elif choice == "4":
+            # Toggle debit negation
+            debit_negative = not debit_negative
+            console.print(
+                f"[{theme.muted}]Debit negation {'enabled' if debit_negative else 'disabled'}, regenerating preview...[/{theme.muted}]"
+            )
+            # Show initial preview after toggling
+            show_initial_preview = True
+        else:  # choice == "5"
             console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
             return
 
@@ -216,6 +267,7 @@ def handle_import_command(
         "column_mapping": column_mapping,  # Already detected
         "date_format": "auto",
         "flip_signs": flip_signs,
+        "debit_negative": debit_negative,
     }
 
     import_result = asyncio.run(
