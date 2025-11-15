@@ -53,7 +53,8 @@ class Container:
     def provider_registry(self) -> Dict[str, DataAggregationProvider]:
         """Get the provider registry.
 
-        In demo mode (TREELINE_DEMO_MODE=true), all providers return mock data.
+        In demo mode (TREELINE_DEMO_MODE=true), bank data providers return mock data.
+        CSV import always uses the real CSVProvider since it imports from actual files.
         """
         if "provider_registry" not in self._instances:
             demo_mode = os.getenv("TREELINE_DEMO_MODE", "").lower() in (
@@ -65,7 +66,7 @@ class Container:
 
             self._instances["provider_registry"] = {
                 "simplefin": demo_provider if demo_mode else SimpleFINProvider(),
-                "csv": demo_provider if demo_mode else CSVProvider(),
+                "csv": CSVProvider(),  # Always use real CSV provider, even in demo mode
             }
         return self._instances["provider_registry"]
 

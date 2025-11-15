@@ -229,25 +229,3 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
                 "demo": "true",
             }
         )
-
-    def detect_columns(self, file_path: str) -> Result[Dict[str, str]]:
-        """Demo provider does not support CSV column detection."""
-        return Fail("CSV column detection not supported by demo provider")
-
-    def should_negate_debits(
-        self, file_path: str, debit_col: str, credit_col: str
-    ) -> Result[bool]:
-        """Demo provider does not support debit convention detection."""
-        return Fail("Debit convention detection not supported by demo provider")
-
-    def preview_transactions(
-        self,
-        file_path: str,
-        column_mapping: Dict[str, str],
-        date_format: str = "auto",
-        limit: int = 5,
-        flip_signs: bool = False,
-        debit_negative: bool = False,
-    ) -> Result[List[Transaction]]:
-        """Demo provider does not support transaction preview."""
-        return Fail("Transaction preview not supported by demo provider")
