@@ -496,3 +496,252 @@ async def test_get_transactions_with_citi_credit_card_format():
         )  # Payment (credit, negative in CSV)
     finally:
         Path(csv_path).unlink()
+
+
+# NEW TESTS FOR IMPROVED COLUMN DETECTION
+
+
+def test_detect_columns_abbreviated_names():
+    """Test column detection with abbreviated names like Dt, Desc, Amt."""
+    provider = CSVProvider()
+
+    csv_content = """Dt,Desc,Amt
+2024-10-01,Coffee,-5.50
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Dt"
+        assert detected.get("description") == "Desc"
+        assert detected.get("amount") == "Amt"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_international_names():
+    """Test column detection with international names like Dr, Cr, Narration."""
+    provider = CSVProvider()
+
+    csv_content = """TxnDate,Narration,Dr,Cr
+2024-10-01,Coffee Shop,5.50,
+2024-10-02,Refund,,10.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "TxnDate"
+        assert detected.get("description") == "Narration"
+        assert detected.get("debit") == "Dr"
+        assert detected.get("credit") == "Cr"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_with_currency_suffix():
+    """Test column detection with currency suffix like 'Amount EUR'."""
+    provider = CSVProvider()
+
+    csv_content = """Date,Merchant,Amount EUR
+15/01/2024,Starbucks,-5.67
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Date"
+        assert detected.get("description") == "Merchant"
+        assert detected.get("amount") == "Amount EUR"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_with_extra_words():
+    """Test column detection with extra words like 'Transaction Amount'."""
+    provider = CSVProvider()
+
+    csv_content = """Transaction Date,Payee Name,Transaction Amount
+2024-10-01,Coffee Shop,-5.50
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Transaction Date"
+        assert detected.get("description") == "Payee Name"
+        assert detected.get("amount") == "Transaction Amount"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_withdrawal_deposit():
+    """Test column detection with Withdrawal/Deposit instead of Debit/Credit."""
+    provider = CSVProvider()
+
+    csv_content = """Date,Description,Withdrawal,Deposit
+2024-10-01,Coffee,5.50,
+2024-10-02,Paycheck,,2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Date"
+        assert detected.get("description") == "Description"
+        assert detected.get("debit") == "Withdrawal"
+        assert detected.get("credit") == "Deposit"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_detect_columns_with_fallback_description():
+    """Test description fallback when primary description column is missing."""
+    provider = CSVProvider()
+
+    csv_content = """Trans Date,Type,Ref,Amt
+2024-10-01,PURCHASE,1001,-5.50
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.detect_columns(csv_path)
+
+        assert result.success
+        detected = result.data
+        assert detected.get("date") == "Trans Date"
+        # Should find Type as description
+        assert detected.get("description") in ["Type", "Ref"]
+        assert detected.get("amount") == "Amt"
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_should_negate_debits():
+    """Test detection of unsigned debit/credit convention."""
+    provider = CSVProvider()
+
+    # Unsigned debit/credit: both columns have positive values
+    csv_content = """Date,Description,Debit,Credit
+2024-10-01,Coffee,5.50,
+2024-10-02,Grocery,45.00,
+2024-10-03,Paycheck,,2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.should_negate_debits(csv_path, "Debit", "Credit")
+
+        assert result.success
+        # Should suggest negating debits because all debits are positive
+        assert result.data is True
+    finally:
+        Path(csv_path).unlink()
+
+
+def test_should_not_negate_signed_debits():
+    """Test that signed debit/credit convention is not flagged."""
+    provider = CSVProvider()
+
+    # Signed debit/credit: debits are already negative
+    csv_content = """Date,Description,Debit,Credit
+2024-10-01,Coffee,-5.50,
+2024-10-02,Grocery,-45.00,
+2024-10-03,Paycheck,,2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = provider.should_negate_debits(csv_path, "Debit", "Credit")
+
+        assert result.success
+        # Should NOT suggest negating because debits are already negative
+        assert result.data is False
+    finally:
+        Path(csv_path).unlink()
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_with_debit_negative_flag():
+    """Test using debit_negative flag to negate unsigned debit values."""
+    provider = CSVProvider()
+
+    # Unsigned debit/credit format
+    csv_content = """Date,Description,Debit,Credit
+2024-10-01,Coffee,5.50,
+2024-10-02,Grocery,45.00,
+2024-10-03,Paycheck,,2500.00
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    try:
+        result = await provider.get_transactions(
+            start_date=datetime.min,
+            end_date=datetime.max,
+            provider_account_ids=[],
+            provider_settings={
+                "file_path": csv_path,
+                "column_mapping": {
+                    "date": "Date",
+                    "description": "Description",
+                    "debit": "Debit",
+                    "credit": "Credit",
+                },
+                "debit_negative": True,  # New flag
+            },
+        )
+
+        assert result.success
+        transactions = result.data
+        assert len(transactions) == 3
+
+        # Debits should be negated
+        assert transactions[0].amount == Decimal("-5.50")  # Coffee (was 5.50)
+        assert transactions[1].amount == Decimal("-45.00")  # Grocery (was 45.00)
+
+        # Credits remain positive
+        assert transactions[2].amount == Decimal("2500.00")  # Paycheck
+    finally:
+        Path(csv_path).unlink()

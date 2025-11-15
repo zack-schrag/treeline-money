@@ -926,6 +926,7 @@ class ImportService:
         date_format: str = "auto",
         limit: int = 5,
         flip_signs: bool = False,
+        debit_negative: bool = False,
     ) -> Result[List[Transaction]]:
         """
         Preview transactions from CSV file before importing.
@@ -936,6 +937,7 @@ class ImportService:
             date_format: Date format string or "auto"
             limit: Maximum number of transactions to preview
             flip_signs: Whether to flip signs (for credit card statements)
+            debit_negative: Whether to negate debit amounts (for unsigned debit/credit CSVs)
 
         Returns:
             Result with list of preview Transaction objects
@@ -947,5 +949,5 @@ class ImportService:
 
         # Call provider-specific preview method
         return provider.preview_transactions(
-            file_path, column_mapping, date_format, limit, flip_signs
+            file_path, column_mapping, date_format, limit, flip_signs, debit_negative
         )
