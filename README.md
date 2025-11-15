@@ -93,6 +93,30 @@ tl backfill tags --dry-run --verbose
 ```
 This will show the tags that would be applied, but makes no edits to the database. Remove the the `--dry-run` once you're confident in the logic.
 
+## CSV Import
+
+Import transactions from your bank's CSV exports:
+
+```bash
+# Interactive mode - auto-detects columns
+tl import
+
+# Scriptable mode - specify columns explicitly
+tl import transactions.csv \
+  --account-id YOUR_ACCOUNT_ID \
+  --date-column "Date" \
+  --amount-column "Amount" \
+  --description-column "Description"
+```
+
+### Format Support
+
+CSV import has been tested with a couple of large US banks for checking, savings, and credit card accounts. The auto-detection handles many common variations (abbreviated column names, debit/credit columns, currency symbols, etc.).
+
+> **⚠️ Limited testing**: This feature has only been tested with a small number of formats. If your bank's CSV doesn't work, please [file an issue](https://github.com/zack-schrag/treeline-money/issues) or submit a PR! Include a sample (sanitized) CSV so we can add support.
+
+> **⚠️ Multi-account CSVs**: If your CSV contains transactions from multiple accounts, you'll need to filter it to one account before importing.
+
 ## Database Schema
 
 Query these tables with standard SQL:

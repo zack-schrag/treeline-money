@@ -879,6 +879,11 @@ def import_command(
         --amount-column "Amount" \\
         --description-column "Description" \\
         --flip-signs
+
+    Notes:
+      - Tested with a small number of bank CSV formats. May not work with all banks.
+      - If auto-detection fails, use --date-column, --amount-column flags explicitly
+      - Report unsupported formats: https://github.com/zack-schrag/treeline-money/issues
     """
     ensure_treeline_initialized()
     container = get_container()
