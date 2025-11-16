@@ -30,7 +30,7 @@ async def test_get_accounts_success(account_service, mock_repository):
             id=uuid4(),
             name="Checking",
             nickname=None,
-            tags=("checking",),
+            account_type="checking",
             currency="USD",
             external_ids={},
             institution_name="Test Bank",

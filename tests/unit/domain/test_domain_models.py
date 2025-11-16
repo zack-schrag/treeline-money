@@ -26,11 +26,7 @@ def test_account_fields_align_with_schema() -> None:
         id=uuid4(),
         name=" Checking ",
         nickname=" Main ",
-        tags=[
-            "checking",
-            " savings ",
-            "checking",
-        ],  # Test normalization & deduplication
+        account_type="checking",
         currency="usd",
         external_ids={"simplefin": "abc"},
         institution_name=" Treeline Bank ",
@@ -42,7 +38,6 @@ def test_account_fields_align_with_schema() -> None:
 
     assert account.name == "Checking"
     assert account.nickname == "Main"
-    assert account.tags == ("checking", "savings")  # Deduplicated and normalized
     assert account.currency == "USD"
     assert dict(account.external_ids) == {"simplefin": "abc"}
     assert account.institution_name == "Treeline Bank"

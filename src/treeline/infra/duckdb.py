@@ -191,7 +191,7 @@ class DuckDBRepository(Repository):
             conn.execute(
                 """
                 INSERT INTO sys_accounts (
-                    account_id, name, nickname, tags, currency,
+                    account_id, name, nickname, account_type, currency,
                     external_ids, institution_name, institution_url, institution_domain,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -200,7 +200,7 @@ class DuckDBRepository(Repository):
                     str(account.id),
                     account.name,
                     account.nickname,
-                    list(account.tags),
+                    account.account_type,
                     account.currency,
                     json.dumps(dict(account.external_ids)),
                     account.institution_name,
@@ -283,14 +283,14 @@ class DuckDBRepository(Repository):
                 conn.execute(
                     """
                     INSERT INTO sys_accounts (
-                        account_id, name, nickname, tags, currency,
+                        account_id, name, nickname, account_type, currency,
                         external_ids, institution_name, institution_url, institution_domain,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (account_id) DO UPDATE SET
                         name = excluded.name,
                         nickname = excluded.nickname,
-                        tags = excluded.tags,
+                        account_type = excluded.account_type,
                         currency = excluded.currency,
                         external_ids = excluded.external_ids,
                         institution_name = excluded.institution_name,
@@ -302,7 +302,7 @@ class DuckDBRepository(Repository):
                         str(account.id),
                         account.name,
                         account.nickname,
-                        list(account.tags),
+                        account.account_type,
                         account.currency,
                         json.dumps(dict(account.external_ids)),
                         account.institution_name,
@@ -339,7 +339,7 @@ class DuckDBRepository(Repository):
                         description = excluded.description,
                         transaction_date = excluded.transaction_date,
                         posted_date = excluded.posted_date,
-                        tags = excluded.tags,
+                        account_type = excluded.account_type,
                         updated_at = excluded.updated_at
                     """,
                     [
@@ -397,7 +397,7 @@ class DuckDBRepository(Repository):
             conn.execute(
                 """
                 UPDATE accounts SET
-                    name = ?, nickname = ?, tags = ?, currency = ?,
+                    name = ?, nickname = ?, account_type = ?, currency = ?,
                     external_ids = ?, institution_name = ?, institution_url = ?,
                     institution_domain = ?, updated_at = ?
                 WHERE account_id = ?
@@ -405,7 +405,7 @@ class DuckDBRepository(Repository):
                 [
                     account.name,
                     account.nickname,
-                    list(account.tags),
+                    account.account_type,
                     account.currency,
                     json.dumps(dict(account.external_ids)),
                     account.institution_name,
@@ -436,7 +436,7 @@ class DuckDBRepository(Repository):
                     id=UUID(row_dict["account_id"]),
                     name=row_dict["name"],
                     nickname=row_dict["nickname"],
-                    tags=tuple(row_dict["tags"]) if row_dict["tags"] else (),
+                    account_type=row_dict["account_type"],
                     currency=row_dict["currency"],
                     external_ids=MappingProxyType(
                         json.loads(row_dict["external_ids"])
