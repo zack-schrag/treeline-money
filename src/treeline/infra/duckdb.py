@@ -55,22 +55,108 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to create database directory: {str(e)}")
 
+    def _ensure_migrations_table(self) -> None:
+        """Ensure the migrations tracking table exists."""
+        conn = self._get_connection()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sys_migrations (
+                version VARCHAR PRIMARY KEY,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                description VARCHAR
+            )
+        """)
+        conn.close()
+
+    def _get_applied_migrations(self) -> list[str]:
+        """Get list of migration versions that have been applied.
+
+        Returns:
+            List of migration version strings, sorted alphabetically
+        """
+        self._ensure_migrations_table()
+        conn = self._get_connection()
+        try:
+            result = conn.execute(
+                "SELECT version FROM sys_migrations ORDER BY version"
+            ).fetchall()
+            return [row[0] for row in result]
+        finally:
+            conn.close()
+
+    def _record_migration(self, version: str, description: str) -> None:
+        """Record that a migration has been applied.
+
+        Args:
+            version: Migration version (e.g., "001")
+            description: Human-readable description of the migration
+        """
+        conn = self._get_connection()
+        try:
+            now = datetime.now(timezone.utc)
+            conn.execute(
+                "INSERT INTO sys_migrations (version, applied_at, description) VALUES (?, ?, ?)",
+                [version, now, description],
+            )
+        finally:
+            conn.close()
+
+    def _get_pending_migrations(self, migrations_dir: Path) -> list[Path]:
+        """Get list of migration files that haven't been applied yet.
+
+        Args:
+            migrations_dir: Directory containing migration SQL files
+
+        Returns:
+            List of Path objects for pending migrations, in alphabetical order
+        """
+        applied = self._get_applied_migrations()
+        all_migrations = sorted(migrations_dir.glob("*.sql"))
+
+        pending = []
+        for migration_file in all_migrations:
+            # Extract version from filename (e.g., "001" from "001_initial_schema.sql")
+            version = migration_file.stem.split("_")[0]
+            if version not in applied:
+                pending.append(migration_file)
+
+        return pending
+
     async def ensure_schema_upgraded(self) -> Result:
-        """Ensure database schema is initialized with all migrations."""
+        """Ensure database schema is initialized with all migrations.
+
+        Only runs migrations that haven't been applied yet, tracking which
+        migrations have been run in the sys_migrations table.
+        """
         try:
             # Create database if it doesn't exist
             conn = duckdb.connect(str(self.db_path))
-
-            # Run all migrations in order
-            migrations_dir = Path(__file__).parent / "migrations"
-            migration_files = sorted(migrations_dir.glob("*.sql"))
-
-            for migration_file in migration_files:
-                with open(migration_file, "r") as f:
-                    migration_sql = f.read()
-                conn.execute(migration_sql)
-
             conn.close()
+
+            # Ensure migrations table exists
+            self._ensure_migrations_table()
+
+            # Get pending migrations
+            migrations_dir = Path(__file__).parent / "migrations"
+            pending_migrations = self._get_pending_migrations(migrations_dir)
+
+            # Run pending migrations in order
+            for migration_file in pending_migrations:
+                # Extract version and description from filename
+                version = migration_file.stem.split("_")[0]
+                description = "_".join(migration_file.stem.split("_")[1:])
+
+                # Run the migration
+                conn = self._get_connection()
+                try:
+                    with open(migration_file, "r") as f:
+                        migration_sql = f.read()
+                    conn.execute(migration_sql)
+                finally:
+                    conn.close()
+
+                # Record that migration was applied
+                self._record_migration(version, description)
+
             return Ok()
         except Exception as e:
             return Fail(f"Failed to initialize database: {str(e)}")
