@@ -197,10 +197,12 @@ tl query "SELECT transaction_date, description, amount FROM transactions WHERE t
 tl query "SELECT * FROM transactions" --format csv > all_transactions.csv
 ```
 
-## What can you do with Treeline?
-Some ideas to get you started:
-- Build an interactive dashboard with Marimo or Streamlit (or whatever your favorite tool is)
-- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands. 
+## Examples & Ideas
+
+See [examples/](./examples/) for starter projects including an interactive dashboard, markdown report generator, and subscription finder.
+
+Other ideas to get you started:
+- Have Claude Code analyze your data with natural language by letting it run Treeline CLI commands.
   - *Note: by default Claude won't know the DB schema. Point it to this README and it should be able to explore your data and analyze it using the commands.*
 - Automatically parse bank statements, format as CSV, then import into Treeline
 - Train an ML model on your data to tag transactions, then use the ML model in a automatic tagger (see `tl new tagger --help`)
