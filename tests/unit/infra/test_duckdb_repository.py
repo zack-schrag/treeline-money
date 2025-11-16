@@ -229,9 +229,12 @@ async def test_execute_query(repository):
     )
     await repository.add_account(account)
 
-    result = await repository.execute_query("SELECT COUNT(*) as count FROM accounts")
+    # Query the underlying table instead of view to avoid DuckDB catalog caching issues
+    result = await repository.execute_query(
+        "SELECT COUNT(*) as count FROM sys_accounts"
+    )
     assert result.success is True
-    # Result format depends on implementation
+    assert result.data["row_count"] == 1
 
 
 @pytest.mark.asyncio

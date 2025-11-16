@@ -36,7 +36,7 @@ class Account(BaseModel):
     id: UUID
     name: str = Field(min_length=1)
     nickname: str | None = None
-    account_type: str | None = None
+    tags: tuple[str, ...] = ()
     currency: str = Field(default="USD")
     external_ids: Dict[str, str] = Field(default_factory=dict)
     balance: Decimal | None = None
@@ -64,6 +64,32 @@ class Account(BaseModel):
             return normalized
         msg = "external_ids must be a mapping"
         raise TypeError(msg)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _normalize_tags(cls, value: object) -> tuple[str, ...]:
+        """Normalize tags to a deduplicated tuple of non-empty strings."""
+        if value is None:
+            return ()
+
+        if isinstance(value, tuple):
+            raw = list(value)
+        elif isinstance(value, list):
+            raw = value
+        else:
+            msg = "tags must be a list or tuple of strings"
+            raise TypeError(msg)
+
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for item in raw:
+            tag = str(item).strip()
+            if not tag:
+                continue
+            if tag not in seen:
+                seen.add(tag)
+                normalized.append(tag)
+        return tuple(normalized)
 
     @field_validator("currency")
     @classmethod

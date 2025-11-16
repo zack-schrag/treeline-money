@@ -150,7 +150,29 @@ class DuckDBRepository(Repository):
                 try:
                     with open(migration_file, "r") as f:
                         migration_sql = f.read()
-                    conn.execute(migration_sql)
+
+                    # Split SQL into individual statements and execute them separately
+                    # This helps with DDL statements that affect views
+                    statements = [
+                        stmt.strip()
+                        for stmt in migration_sql.split(";")
+                        if stmt.strip()
+                    ]
+
+                    for idx, statement in enumerate(statements):
+                        # Skip empty statements and comment-only statements
+                        if statement and not all(
+                            line.strip().startswith("--") or not line.strip()
+                            for line in statement.split("\n")
+                        ):
+                            # Close and reopen connection between DROP VIEW and CREATE VIEW
+                            # to ensure DuckDB updates its catalog
+                            if "DROP VIEW" in statement.upper():
+                                conn.execute(statement)
+                                conn.close()
+                                conn = self._get_connection()
+                            else:
+                                conn.execute(statement)
                 finally:
                     conn.close()
 
@@ -169,7 +191,7 @@ class DuckDBRepository(Repository):
             conn.execute(
                 """
                 INSERT INTO sys_accounts (
-                    account_id, name, nickname, account_type, currency,
+                    account_id, name, nickname, tags, currency,
                     external_ids, institution_name, institution_url, institution_domain,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -178,7 +200,7 @@ class DuckDBRepository(Repository):
                     str(account.id),
                     account.name,
                     account.nickname,
-                    account.account_type,
+                    list(account.tags),
                     account.currency,
                     json.dumps(dict(account.external_ids)),
                     account.institution_name,
@@ -261,14 +283,14 @@ class DuckDBRepository(Repository):
                 conn.execute(
                     """
                     INSERT INTO sys_accounts (
-                        account_id, name, nickname, account_type, currency,
+                        account_id, name, nickname, tags, currency,
                         external_ids, institution_name, institution_url, institution_domain,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (account_id) DO UPDATE SET
                         name = excluded.name,
                         nickname = excluded.nickname,
-                        account_type = excluded.account_type,
+                        tags = excluded.tags,
                         currency = excluded.currency,
                         external_ids = excluded.external_ids,
                         institution_name = excluded.institution_name,
@@ -280,7 +302,7 @@ class DuckDBRepository(Repository):
                         str(account.id),
                         account.name,
                         account.nickname,
-                        account.account_type,
+                        list(account.tags),
                         account.currency,
                         json.dumps(dict(account.external_ids)),
                         account.institution_name,
@@ -375,7 +397,7 @@ class DuckDBRepository(Repository):
             conn.execute(
                 """
                 UPDATE accounts SET
-                    name = ?, nickname = ?, account_type = ?, currency = ?,
+                    name = ?, nickname = ?, tags = ?, currency = ?,
                     external_ids = ?, institution_name = ?, institution_url = ?,
                     institution_domain = ?, updated_at = ?
                 WHERE account_id = ?
@@ -383,7 +405,7 @@ class DuckDBRepository(Repository):
                 [
                     account.name,
                     account.nickname,
-                    account.account_type,
+                    list(account.tags),
                     account.currency,
                     json.dumps(dict(account.external_ids)),
                     account.institution_name,
@@ -414,7 +436,7 @@ class DuckDBRepository(Repository):
                     id=UUID(row_dict["account_id"]),
                     name=row_dict["name"],
                     nickname=row_dict["nickname"],
-                    account_type=row_dict["account_type"],
+                    tags=tuple(row_dict["tags"]) if row_dict["tags"] else (),
                     currency=row_dict["currency"],
                     external_ids=MappingProxyType(
                         json.loads(row_dict["external_ids"])
@@ -454,7 +476,7 @@ class DuckDBRepository(Repository):
                 id=UUID(row_dict["account_id"]),
                 name=row_dict["name"],
                 nickname=row_dict["nickname"],
-                account_type=row_dict["account_type"],
+                tags=tuple(row_dict["tags"]) if row_dict["tags"] else (),
                 currency=row_dict["currency"],
                 external_ids=MappingProxyType(
                     json.loads(row_dict["external_ids"])
