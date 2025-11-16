@@ -8,6 +8,8 @@ Treeline gives you complete control over your financial data. Built for power us
 
 > **⚠️ Early Stage Software**: Treeline is in active development. Expect potential breaking changes in future releases. Always back up your data.
 
+> **⚠️ Limited Testing**: Treeline has been tested primarily on macOS with USD currency and a small number of US banks (for CSV imports). In theory, it should work with other currencies, banks, and operating systems, but these configurations haven't been tested. If you encounter issues, please [file an issue](https://github.com/zack-schrag/treeline-money/issues) or submit a PR!
+
 If you've ever:
 - Spent hours building a custom spreadsheet that could rival Mint
 - Been frustrated with the lack of customization from existing finance tools
@@ -51,6 +53,12 @@ See [docs/demo_mode.md](./docs/demo_mode.md) for details.
 
 ### Real Setup
 
+Choose your data source:
+
+#### Option 1: SimpleFIN Integration
+
+SimpleFIN is a third-party bank aggregation service ($1.50/month) that connects to your bank accounts. Once set up, you can pull all your latest transactions with a single command instead of manually downloading CSVs. [Get a setup token here](https://beta-bridge.simplefin.org/simplefin).
+
 ```bash
 # 1. Install
 pip install treeline-money
@@ -59,12 +67,42 @@ pip install treeline-money
 tl setup simplefin
 
 # 3. Sync your data
-tl sync
+tl sync  # fetches new transactions from all connected accounts
 
 # 4. Start exploring
 tl status
 tl query "SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 10"
 ```
+
+#### Option 2: Manual Import (CSV)
+
+Import transactions from your bank's CSV exports - completely free.
+
+```bash
+# 1. Install
+pip install treeline-money
+
+# 2. Import your CSV
+tl import transactions.csv
+
+# 3. Start exploring
+tl status
+tl query "SELECT * FROM transactions ORDER BY transaction_date DESC LIMIT 10"
+```
+
+The interactive import mode will auto-detect columns. You can also specify columns explicitly:
+
+```bash
+tl import transactions.csv \
+  --account-id YOUR_ACCOUNT_ID \
+  --date-column "Date" \
+  --amount-column "Amount" \
+  --description-column "Description"
+```
+
+> **⚠️ CSV Format Support**: CSV import has been tested with a couple of large US banks. The auto-detection handles many common variations (abbreviated column names, debit/credit columns, currency symbols, etc.). If your bank's CSV doesn't work, please [file an issue](https://github.com/zack-schrag/treeline-money/issues) or submit a PR!
+
+> **⚠️ Multi-account CSVs**: If your CSV contains transactions from multiple accounts, you'll need to filter it to one account before importing.
 
 ### Tagging transactions
 
@@ -92,30 +130,6 @@ This will create a new file in `~/.treeline/taggers/large_purchases.py`. Fill ou
 tl backfill tags --dry-run --verbose
 ```
 This will show the tags that would be applied, but makes no edits to the database. Remove the the `--dry-run` once you're confident in the logic.
-
-## CSV Import
-
-Import transactions from your bank's CSV exports:
-
-```bash
-# Interactive mode - auto-detects columns
-tl import
-
-# Scriptable mode - specify columns explicitly
-tl import transactions.csv \
-  --account-id YOUR_ACCOUNT_ID \
-  --date-column "Date" \
-  --amount-column "Amount" \
-  --description-column "Description"
-```
-
-### Format Support
-
-CSV import has been tested with a couple of large US banks for checking, savings, and credit card accounts. The auto-detection handles many common variations (abbreviated column names, debit/credit columns, currency symbols, etc.).
-
-> **⚠️ Limited testing**: This feature has only been tested with a small number of formats. If your bank's CSV doesn't work, please [file an issue](https://github.com/zack-schrag/treeline-money/issues) or submit a PR! Include a sample (sanitized) CSV so we can add support.
-
-> **⚠️ Multi-account CSVs**: If your CSV contains transactions from multiple accounts, you'll need to filter it to one account before importing.
 
 ## Database Schema
 
