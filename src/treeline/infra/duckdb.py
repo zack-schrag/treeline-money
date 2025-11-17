@@ -61,14 +61,44 @@ class DuckDBRepository(Repository):
             # Create database if it doesn't exist
             conn = duckdb.connect(str(self.db_path))
 
-            # Run all migrations in order
             migrations_dir = Path(__file__).parent / "migrations"
+
+            # Check if sys_migrations table exists
+            tables_result = conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_name = 'sys_migrations'"
+            ).fetchall()
+
+            # Bootstrap: if sys_migrations doesn't exist, run 000_migrations.sql first
+            if not tables_result:
+                bootstrap_migration = migrations_dir / "000_migrations.sql"
+                if bootstrap_migration.exists():
+                    with open(bootstrap_migration, "r") as f:
+                        migration_sql = f.read()
+                    conn.execute(migration_sql)
+
+            # Run all migrations that haven't been applied yet
             migration_files = sorted(migrations_dir.glob("*.sql"))
 
             for migration_file in migration_files:
-                with open(migration_file, "r") as f:
-                    migration_sql = f.read()
-                conn.execute(migration_sql)
+                migration_name = migration_file.name
+
+                # Check if migration has already been applied
+                result = conn.execute(
+                    "SELECT migration_name FROM sys_migrations WHERE migration_name = ?",
+                    [migration_name],
+                ).fetchall()
+
+                if not result:
+                    # Migration hasn't been applied yet, run it
+                    with open(migration_file, "r") as f:
+                        migration_sql = f.read()
+                    conn.execute(migration_sql)
+
+                    # Record that this migration has been applied
+                    conn.execute(
+                        "INSERT INTO sys_migrations (migration_name) VALUES (?)",
+                        [migration_name],
+                    )
 
             conn.close()
             return Ok()
