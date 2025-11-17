@@ -99,6 +99,7 @@ class SyncService:
 
         # Map discovered accounts to existing accounts by external ID
         updated_accounts = []
+        new_accounts = []  # Track newly discovered accounts
         for discovered_account in discovered_accounts:
             matched = False
             for existing_account in existing_accounts:
@@ -117,7 +118,9 @@ class SyncService:
                     break
 
             if not matched:
+                # This is a new account
                 updated_accounts.append(discovered_account)
+                new_accounts.append(discovered_account)
 
         discovered_accounts = updated_accounts
 
@@ -171,6 +174,7 @@ class SyncService:
             data={
                 "discovered_accounts": discovered_accounts,
                 "ingested_accounts": ingested_result.data,
+                "new_accounts": new_accounts,  # Accounts that didn't exist before
             },
         )
 
@@ -443,7 +447,7 @@ class SyncService:
             dry_run: If True, don't actually save changes to the database
             verbose: If True, include verbose tagging logs
 
-        Returns a summary of sync results for each integration.
+        Returns a summary of sync results for each integration, including new accounts.
         """
         # Get integrations
         integrations_result = await self.get_integrations()
@@ -456,6 +460,7 @@ class SyncService:
             return Result(success=False, error="No integrations configured")
 
         sync_results = []
+        all_new_accounts = []  # Track all new accounts across integrations
 
         for integration in integrations:
             integration_name = integration["integrationName"]
@@ -479,6 +484,11 @@ class SyncService:
                     continue
 
                 num_accounts = len(accounts_result.data.get("ingested_accounts", []))
+                new_accounts = accounts_result.data.get("new_accounts", [])
+                # Collect new accounts that don't have account_type set
+                for account in new_accounts:
+                    if account.account_type is None:
+                        all_new_accounts.append(account)
             else:
                 num_accounts = 0  # Don't sync accounts in dry-run
 
@@ -542,7 +552,13 @@ class SyncService:
                 }
             )
 
-        return Result(success=True, data={"results": sync_results})
+        return Result(
+            success=True,
+            data={
+                "results": sync_results,
+                "new_accounts_without_type": all_new_accounts,  # Accounts needing type
+            },
+        )
 
 
 class IntegrationService:
@@ -578,6 +594,82 @@ class AccountService:
     async def get_accounts(self) -> Result[List[Account]]:
         """Get all accounts."""
         return await self.repository.get_accounts()
+
+    async def create_account(
+        self,
+        name: str,
+        account_type: str,
+        institution: str | None = None,
+        currency: str = "USD",
+        balance: Decimal | None = None,
+    ) -> Result[Account]:
+        """Create a new account.
+
+        Args:
+            name: Account name
+            account_type: Account type (no validation - accepts any string)
+            institution: Optional institution name
+            currency: Currency code (default: USD)
+            balance: Optional account balance
+
+        Returns:
+            Result containing the created Account
+        """
+        # Create new account with generated UUID and timestamps
+        now = datetime.now(timezone.utc)
+        account = Account(
+            id=uuid4(),
+            name=name,
+            account_type=account_type,
+            institution_name=institution,
+            currency=currency,
+            balance=balance,
+            external_ids={},
+            created_at=now,
+            updated_at=now,
+        )
+
+        # Add to repository
+        add_result = await self.repository.add_account(account)
+        if not add_result.success:
+            return add_result
+
+        # Return the created account
+        return Result(success=True, data=account)
+
+    async def update_account_type(
+        self, account_id: UUID, account_type: str
+    ) -> Result[Account]:
+        """Update the account type for an existing account.
+
+        Args:
+            account_id: UUID of account to update
+            account_type: New account type (no validation - accepts any string)
+
+        Returns:
+            Result containing the updated Account
+        """
+        # Get existing account
+        get_result = await self.repository.get_account_by_id(account_id)
+        if not get_result.success:
+            return get_result
+
+        existing_account = get_result.data
+
+        # Create updated account with new account_type
+        # Note: Account is frozen (immutable), so we use model_copy
+        now = datetime.now(timezone.utc)
+        updated_account = existing_account.model_copy(
+            update={"account_type": account_type, "updated_at": now}
+        )
+
+        # Update in repository
+        update_result = await self.repository.update_account_by_id(updated_account)
+        if not update_result.success:
+            return update_result
+
+        # Return the updated account
+        return Result(success=True, data=updated_account)
 
 
 class StatusService:
