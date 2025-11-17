@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -175,7 +175,7 @@ async def test_sync_accounts_maps_external_ids_to_existing_accounts():
     mock_repository.get_balance_snapshots.return_value = Ok([])
 
     provider_registry = {"plaid": mock_provider}
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_accounts("plaid", {})
 
     assert result.success is True
@@ -250,7 +250,7 @@ async def test_sync_transactions_deduplicates_by_external_id():
     )
 
     provider_registry = {"plaid": mock_provider}
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_transactions("plaid", provider_options={})
 
     assert result.success is True
@@ -278,6 +278,7 @@ async def test_sync_accounts_creates_balance_snapshots():
     """Test that balance snapshots are created for discovered accounts."""
     mock_provider = MockDataProvider()
     mock_repository = MockRepository()
+    mock_account_service = Mock()
 
     account_id = uuid4()
 
@@ -285,6 +286,7 @@ async def test_sync_accounts_creates_balance_snapshots():
     account = Account(
         id=account_id,
         name="Savings",
+        balance=Decimal("1500.00"),  # Account has a balance
         external_ids=MappingProxyType({"plaid": "sav123"}),
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -293,15 +295,22 @@ async def test_sync_accounts_creates_balance_snapshots():
     mock_repository.get_accounts.return_value = Ok([])
     mock_provider.get_accounts.return_value = Ok([account])
     mock_repository.bulk_upsert_accounts.return_value = Ok([account])
-    mock_repository.get_balance_snapshots.return_value = Ok([])  # No existing snapshots
+
+    # Mock add_balance_snapshot to track calls
+    mock_account_service.add_balance_snapshot = AsyncMock()
 
     provider_registry = {"plaid": mock_provider}
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, mock_account_service)
     result = await service.sync_accounts("plaid", {})
 
     assert result.success is True
-    # Since the test account doesn't have a balance field, bulk_add_balances shouldn't be called
-    # (This test would need to be updated when we add balance to Account model)
+
+    # Verify add_balance_snapshot was called for account with balance
+    mock_account_service.add_balance_snapshot.assert_called_once_with(
+        account_id=account_id,
+        balance=Decimal("1500.00"),
+        snapshot_date=None,  # Defaults to today
+    )
 
 
 @pytest.mark.asyncio
@@ -311,7 +320,7 @@ async def test_sync_balances_deprecated():
     mock_repository = MockRepository()
 
     provider_registry = {"plaid": mock_provider}
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_balances("plaid", {})
 
     assert result.success is False

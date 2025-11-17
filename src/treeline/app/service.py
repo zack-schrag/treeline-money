@@ -19,9 +19,11 @@ class SyncService:
         self,
         provider_registry: Dict[str, DataAggregationProvider],
         repository: Repository,
+        account_service: "AccountService",
     ):
         self.provider_registry = provider_registry
         self.repository = repository
+        self.account_service = account_service
 
     def _get_provider(self, integration_name: str) -> DataAggregationProvider | None:
         """Get the provider for a given integration name."""
@@ -131,43 +133,17 @@ class SyncService:
         if not ingested_result.success:
             return ingested_result
 
-        # Create balance snapshots for accounts with valid data, but only if no balance exists for today
-        today = date.today().isoformat()  # YYYY-MM-DD format
-        balance_snapshots = []
-
+        # Create balance snapshots for accounts with balances
+        # Use AccountService to leverage deduplication logic
         for account in discovered_accounts:
             if account.id and account.balance is not None:
-                # Check if a balance snapshot already exists for this account today
-                existing_snapshots_result = await self.repository.get_balance_snapshots(
-                    account_id=account.id, date=today
+                # Call AccountService to add balance snapshot (handles deduplication)
+                # Continue on failure - don't halt sync for balance snapshot issues
+                await self.account_service.add_balance_snapshot(
+                    account_id=account.id,
+                    balance=account.balance,
+                    snapshot_date=None,  # Defaults to today
                 )
-
-                if not existing_snapshots_result.success:
-                    # If query failed, skip to avoid duplicates
-                    continue
-
-                existing_snapshots = existing_snapshots_result.data or []
-
-                # Only add if no snapshot exists with the same balance for today
-                has_same_balance = any(
-                    abs(snapshot.balance - account.balance) < Decimal("0.01")
-                    for snapshot in existing_snapshots
-                )
-
-                if not has_same_balance:
-                    balance_snapshots.append(
-                        BalanceSnapshot(
-                            id=uuid4(),
-                            account_id=account.id,
-                            balance=account.balance,
-                            snapshot_time=datetime.now(timezone.utc),
-                            created_at=datetime.now(timezone.utc),
-                            updated_at=datetime.now(timezone.utc),
-                        )
-                    )
-
-        if balance_snapshots:
-            await self.repository.bulk_add_balances(balance_snapshots)
 
         return Result(
             success=True,
@@ -670,6 +646,78 @@ class AccountService:
 
         # Return the updated account
         return Result(success=True, data=updated_account)
+
+    async def add_balance_snapshot(
+        self,
+        account_id: UUID,
+        balance: Decimal,
+        snapshot_date: date | None = None,
+    ) -> Result[BalanceSnapshot]:
+        """Add a balance snapshot for an account.
+
+        Args:
+            account_id: UUID of account
+            balance: Account balance
+            snapshot_date: Date for the snapshot (defaults to today)
+
+        Returns:
+            Result containing the created BalanceSnapshot or error if duplicate
+        """
+        # Verify account exists
+        account_result = await self.repository.get_account_by_id(account_id)
+        if not account_result.success:
+            return account_result
+
+        # Default to today if no date provided
+        if snapshot_date is None:
+            snapshot_date = date.today()
+
+        # Convert date to midnight in local time (naive datetime)
+        # This matches SimpleFin sync behavior and ensures DATE() queries work correctly
+        snapshot_time = datetime.combine(snapshot_date, datetime.min.time())
+
+        # Check for existing snapshots on this date
+        date_str = snapshot_date.isoformat()
+        existing_result = await self.repository.get_balance_snapshots(
+            account_id=account_id, date=date_str
+        )
+
+        if not existing_result.success:
+            # If query failed, skip to avoid duplicates
+            return Result(success=False, error="Failed to check for existing snapshots")
+
+        existing_snapshots = existing_result.data or []
+
+        # Check if a snapshot with the same balance already exists
+        has_same_balance = any(
+            abs(snapshot.balance - balance) < Decimal("0.01")
+            for snapshot in existing_snapshots
+        )
+
+        if has_same_balance:
+            return Result(
+                success=False,
+                error=f"Balance snapshot already exists for {snapshot_date} with same balance",
+            )
+
+        # Create the balance snapshot
+        now = datetime.now(timezone.utc)
+        balance_snapshot = BalanceSnapshot(
+            id=uuid4(),
+            account_id=account_id,
+            balance=balance,
+            snapshot_time=snapshot_time,
+            created_at=now,
+            updated_at=now,
+        )
+
+        # Add to repository
+        add_result = await self.repository.add_balance(balance_snapshot)
+        if not add_result.success:
+            return add_result
+
+        # Return the created snapshot
+        return Result(success=True, data=balance_snapshot)
 
 
 class StatusService:

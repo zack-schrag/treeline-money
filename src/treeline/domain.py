@@ -244,14 +244,9 @@ class BalanceSnapshot(BaseModel):
     id: UUID
     account_id: UUID
     balance: Decimal
-    snapshot_time: datetime
-    created_at: datetime
-    updated_at: datetime
-
-    @field_validator("snapshot_time")
-    @classmethod
-    def _require_timezone(cls, value: datetime) -> datetime:
-        return _ensure_tzinfo(value)
+    snapshot_time: datetime  # Naive datetime (local time)
+    created_at: datetime  # Timezone-aware (UTC)
+    updated_at: datetime  # Timezone-aware (UTC)
 
     @field_validator("created_at")
     @classmethod

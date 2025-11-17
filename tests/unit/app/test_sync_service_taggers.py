@@ -4,6 +4,7 @@ import pytest
 from datetime import datetime, timezone, date
 from decimal import Decimal
 from uuid import uuid4
+from unittest.mock import Mock
 
 from treeline.app.service import SyncService
 from treeline.domain import Transaction, Account, Result
@@ -77,7 +78,7 @@ async def test_sync_service_applies_taggers(mock_repository, mock_provider):
 
     # Create service with mock provider
     provider_registry = {"test": mock_provider}
-    sync_service = SyncService(provider_registry, mock_repository)
+    sync_service = SyncService(provider_registry, mock_repository, Mock())
 
     # Sync transactions - taggers are already in the registry from decorator
     result = await sync_service.sync_transactions(
@@ -126,7 +127,7 @@ async def test_sync_service_handles_tagger_errors(mock_repository, mock_provider
 
     # Create service
     provider_registry = {"test": mock_provider}
-    sync_service = SyncService(provider_registry, mock_repository)
+    sync_service = SyncService(provider_registry, mock_repository, Mock())
 
     # Sync should still succeed despite broken tagger
     result = await sync_service.sync_transactions(
@@ -150,7 +151,7 @@ async def test_sync_service_no_taggers(mock_repository, mock_provider):
     """Test that SyncService works fine with no taggers (loads from filesystem which will be empty)."""
     # Create service
     provider_registry = {"test": mock_provider}
-    sync_service = SyncService(provider_registry, mock_repository)
+    sync_service = SyncService(provider_registry, mock_repository, Mock())
 
     # Sync transactions - this will load from ~/.treeline/taggers which doesn't exist
     result = await sync_service.sync_transactions(

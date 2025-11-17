@@ -1165,24 +1165,46 @@ def import_command(
 @app.command(name="new")
 def new_command(
     resource_type: str = typer.Argument(
-        ..., help="Type of resource to create (e.g., 'tagger')"
+        ..., help="Type of resource to create (e.g., 'tagger', 'balance')"
     ),
-    name: str = typer.Argument(..., help="Name for the new resource"),
+    name: str = typer.Argument(
+        None, help="Name for the new resource (required for tagger)"
+    ),
+    # Balance-specific options
+    account_id: str = typer.Option(
+        None, "--account-id", help="Account ID (UUID) for balance snapshot"
+    ),
+    balance: str = typer.Option(None, "--balance", help="Account balance amount"),
+    date: str = typer.Option(
+        None, "--date", help="Snapshot date (YYYY-MM-DD, defaults to today)"
+    ),
 ) -> None:
     """Create a new resource from a template.
 
     Examples:
       # Create a new tagger
-      treeline new tagger groceries
+      tl new tagger groceries
 
-      # Create a tagger for work expenses
-      treeline new tagger work_expenses
+      # Add a balance snapshot (interactive)
+      tl new balance
+
+      # Add a balance snapshot (scriptable)
+      tl new balance --account-id <uuid> --balance 1234.56
+      tl new balance --account-id <uuid> --balance 1234.56 --date 2025-11-15
     """
     if resource_type == "tagger":
+        if not name:
+            display_error("Name is required for tagger")
+            console.print(f"[{theme.muted}]Usage: tl new tagger <name>[/{theme.muted}]")
+            raise typer.Exit(1)
         _create_tagger(name)
+    elif resource_type == "balance":
+        _create_balance_snapshot(account_id, balance, date)
     else:
         display_error(f"Unknown resource type: {resource_type}")
-        console.print(f"[{theme.muted}]Available types: tagger[/{theme.muted}]")
+        console.print(
+            f"[{theme.muted}]Available types: tagger, balance[/{theme.muted}]"
+        )
         raise typer.Exit(1)
 
 
@@ -1261,6 +1283,144 @@ def tag_{name}(description, amount, transaction_date, account_id, **kwargs):
     console.print(
         f"\n[{theme.muted}]Edit this file to add your tagging logic, then run 'treeline sync --dry-run' or 'treeline backfill tags --dry-run' [/{theme.muted}]\n"
     )
+
+
+def _create_balance_snapshot(
+    account_id_str: str | None,
+    balance_str: str | None,
+    date_str: str | None,
+) -> None:
+    """Create a balance snapshot for an account.
+
+    Supports both interactive and scriptable modes:
+    - Interactive: No arguments provided, prompts for all inputs
+    - Scriptable: All required arguments provided via flags
+    """
+    from datetime import date
+    from decimal import Decimal
+    from uuid import UUID
+
+    # Initialize container and services
+    container = get_container()
+    account_service = container.account_service()
+
+    # Determine mode: scriptable vs interactive
+    is_scriptable = account_id_str is not None and balance_str is not None
+
+    if is_scriptable:
+        # SCRIPTABLE MODE
+        # Validate and parse account_id
+        try:
+            account_id = UUID(account_id_str)
+        except ValueError:
+            display_error(f"Invalid account ID: {account_id_str}")
+            console.print(
+                f"[{theme.muted}]Account ID must be a valid UUID[/{theme.muted}]\n"
+            )
+            raise typer.Exit(1)
+
+        # Validate and parse balance
+        try:
+            balance = Decimal(balance_str)
+        except Exception:
+            display_error(f"Invalid balance amount: {balance_str}")
+            console.print(
+                f"[{theme.muted}]Balance must be a valid number[/{theme.muted}]\n"
+            )
+            raise typer.Exit(1)
+
+        # Parse optional date
+        snapshot_date = None
+        if date_str:
+            try:
+                snapshot_date = date.fromisoformat(date_str)
+            except ValueError:
+                display_error(f"Invalid date format: {date_str}")
+                console.print(
+                    f"[{theme.muted}]Date must be in YYYY-MM-DD format[/{theme.muted}]\n"
+                )
+                raise typer.Exit(1)
+
+    else:
+        # INTERACTIVE MODE
+        console.print(
+            f"\n[{theme.ui_header}]Add Balance Snapshot[/{theme.ui_header}]\n"
+        )
+
+        # Get all accounts
+        accounts_result = asyncio.run(account_service.get_accounts())
+        if not accounts_result.success:
+            display_error(f"Failed to fetch accounts: {accounts_result.error}")
+            raise typer.Exit(1)
+
+        accounts = accounts_result.data or []
+
+        if not accounts:
+            display_error("No accounts found. Please create an account first.")
+            console.print(
+                f"[{theme.muted}]Use 'tl import' or 'tl sync' to add accounts[/{theme.muted}]\n"
+            )
+            raise typer.Exit(1)
+
+        # Import and use the account selection helper from CSV import
+        from treeline.commands.import_csv import prompt_account_selection
+
+        # Prompt for account selection
+        account_id = prompt_account_selection(accounts)
+
+        if not account_id or account_id == "CREATE_NEW":
+            console.print(f"[{theme.warning}]Cancelled[/{theme.warning}]\n")
+            raise typer.Exit(0)
+
+        # Prompt for balance
+        try:
+            balance_input = Prompt.ask(
+                f"\n[{theme.info}]Enter balance amount[/{theme.info}]"
+            )
+            balance = Decimal(balance_input)
+        except (KeyboardInterrupt, EOFError):
+            console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]\n")
+            raise typer.Exit(0)
+        except Exception:
+            display_error(f"Invalid balance amount: {balance_input}")
+            raise typer.Exit(1)
+
+        # Prompt for optional date
+        date_input = Prompt.ask(
+            f"\n[{theme.info}]Enter snapshot date (YYYY-MM-DD)[/{theme.info}]",
+            default="",
+        )
+
+        snapshot_date = None
+        if date_input:
+            try:
+                snapshot_date = date.fromisoformat(date_input)
+            except ValueError:
+                display_error(f"Invalid date format: {date_input}")
+                console.print(
+                    f"[{theme.muted}]Using today's date instead[/{theme.muted}]"
+                )
+                snapshot_date = None
+
+    # Add the balance snapshot via service
+    result = asyncio.run(
+        account_service.add_balance_snapshot(
+            account_id=account_id,
+            balance=balance,
+            snapshot_date=snapshot_date,
+        )
+    )
+
+    if not result.success:
+        display_error(f"Failed to add balance snapshot: {result.error}")
+        raise typer.Exit(1)
+
+    # Success!
+    snapshot = result.data
+    console.print(f"\n[{theme.success}]✓ Added balance snapshot[/{theme.success}]")
+    console.print(f"  Account ID: {snapshot.account_id}")
+    console.print(f"  Balance: {snapshot.balance}")
+    console.print(f"  Date: {snapshot.snapshot_time.date()}\n")
 
 
 @app.command(name="list")

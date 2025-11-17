@@ -401,8 +401,22 @@ def prompt_account_selection(accounts: List[Account]) -> Optional[UUID]:
         Account UUID if selected, None if cancelled, or "CREATE_NEW" sentinel if user wants to create new account
     """
     console.print(f"\n[{theme.info}]Select account to import into:[/{theme.info}]")
-    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
+    console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]\n")
 
+    # If no accounts exist, skip straight to creating one
+    if not accounts:
+        console.print(
+            f"[{theme.muted}]No accounts found. Let's create one.[/{theme.muted}]"
+        )
+        try:
+            Prompt.ask(
+                f"\n[{theme.info}]Press Enter to continue[/{theme.info}]", default=""
+            )
+            return "CREATE_NEW"
+        except (KeyboardInterrupt, EOFError):
+            return None
+
+    # Show existing accounts with numbers
     for i, account in enumerate(accounts, 1):
         institution = (
             f" - {account.institution_name}" if account.institution_name else ""
@@ -412,19 +426,19 @@ def prompt_account_selection(accounts: List[Account]) -> Optional[UUID]:
         )
         console.print(f"  [{i}] {account.name}{institution}{account_type_display}")
 
-    # Add "create new" option
-    console.print(f"  [n] Create new account")
+    # Add "create new" option at the bottom
+    console.print(f"  [c] Create new account")
 
     try:
         account_choice = Prompt.ask(
-            f"\n[{theme.info}]Account number or 'n' for new[/{theme.info}]",
-            default="1" if accounts else "n",
+            f"\n[{theme.info}]Choose account (1-{len(accounts)} or 'c' to create)[/{theme.info}]",
+            default="1",
         )
     except (KeyboardInterrupt, EOFError):
         return None
 
     # Check if user wants to create new account
-    if account_choice.lower() == "n":
+    if account_choice.lower() == "c":
         return "CREATE_NEW"  # Sentinel value
 
     try:
