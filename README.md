@@ -104,6 +104,26 @@ tl import transactions.csv \
 
 > **⚠️ Multi-account CSVs**: If your CSV contains transactions from multiple accounts, you'll need to filter it to one account before importing.
 
+### Tracking Account Balances
+
+SimpleFIN automatically tracks account balances on every sync. For CSV imports, you can manually record balance snapshots:
+
+```bash
+# Interactive mode - select account and enter balance
+tl new balance
+
+# Scriptable mode - record balance for specific date
+tl new balance --account-id <uuid> --balance 1234.56 --date 2025-11-17
+
+# Record current balance (defaults to today)
+tl new balance --account-id <uuid> --balance 1234.56
+```
+
+Balance snapshots enable tracking your account balance over time. Query them with:
+```bash
+tl query "SELECT account_name, snapshot_time, balance FROM balance_snapshots ORDER BY snapshot_time DESC"
+```
+
 ### Tagging transactions
 
 ![Tag Demo](./demo-tag.gif)
