@@ -288,7 +288,7 @@ class DuckDBRepository(Repository):
 
             conn.execute(
                 """
-                UPDATE accounts SET
+                UPDATE sys_accounts SET
                     name = ?, nickname = ?, account_type = ?, currency = ?,
                     external_ids = ?, institution_name = ?, institution_url = ?,
                     institution_domain = ?, updated_at = ?
@@ -378,8 +378,8 @@ class DuckDBRepository(Repository):
                 institution_name=row_dict["institution_name"],
                 institution_url=row_dict["institution_url"],
                 institution_domain=row_dict["institution_domain"],
-                created_at=row_dict["created_at"],
-                updated_at=row_dict["updated_at"],
+                created_at=self._ensure_timezone(row_dict["created_at"]),
+                updated_at=self._ensure_timezone(row_dict["updated_at"]),
             )
 
             conn.close()

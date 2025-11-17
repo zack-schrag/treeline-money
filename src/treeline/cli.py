@@ -766,6 +766,98 @@ def query_command(
         display_query_result(columns, rows)
 
 
+ACCOUNT_TYPES = ["depository", "credit", "investment", "loan", "other"]
+
+
+def prompt_account_types_for_new_accounts(new_accounts: List) -> None:
+    """Prompt user to set account types for newly discovered accounts.
+
+    Args:
+        new_accounts: List of Account objects without account_type set
+    """
+    if not new_accounts:
+        return
+
+    # Ask if user wants to set types now
+    console.print(
+        f"\n[{theme.info}]New accounts detected without types. Set types now?[/{theme.info}]"
+    )
+    console.print(f"[{theme.muted}](Press Ctrl+C to skip)[/{theme.muted}]")
+
+    try:
+        set_types = Confirm.ask("Continue", default=False)
+    except (KeyboardInterrupt, EOFError):
+        console.print(
+            f"\n[{theme.muted}]Skipped setting account types[/{theme.muted}]\n"
+        )
+        return
+
+    if not set_types:
+        console.print(
+            f"\n[{theme.muted}]Skipped setting account types[/{theme.muted}]\n"
+        )
+        return
+
+    # Get account service
+    container = get_container()
+    account_service = container.account_service()
+
+    # Prompt for each account
+    for account in new_accounts:
+        console.print(f"\n[{theme.info}]Account: {account.name}[/{theme.info}]")
+        if account.institution_name:
+            console.print(
+                f"[{theme.muted}]Institution: {account.institution_name}[/{theme.muted}]"
+            )
+
+        # Show account type options
+        console.print(f"[{theme.info}]Type:[/{theme.info}]")
+        for i, acc_type in enumerate(ACCOUNT_TYPES, 1):
+            console.print(f"  [{i}] {acc_type}")
+
+        try:
+            type_choice = Prompt.ask(
+                f"[{theme.info}]Choose type (1-{len(ACCOUNT_TYPES)}) or press Enter to skip[/{theme.info}]",
+                default="",
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print(
+                f"\n[{theme.muted}]Skipped remaining accounts[/{theme.muted}]\n"
+            )
+            return
+
+        # Skip if user pressed Enter
+        if not type_choice.strip():
+            console.print(f"[{theme.muted}]⊘ Skipped[/{theme.muted}]")
+            continue
+
+        # Validate and set account type
+        try:
+            type_idx = int(type_choice) - 1
+            if 0 <= type_idx < len(ACCOUNT_TYPES):
+                account_type = ACCOUNT_TYPES[type_idx]
+
+                # Update via service
+                update_result = asyncio.run(
+                    account_service.update_account_type(account.id, account_type)
+                )
+
+                if update_result.success:
+                    console.print(
+                        f"[{theme.success}]✓ Set to '{account_type}'[/{theme.success}]"
+                    )
+                else:
+                    console.print(
+                        f"[{theme.error}]Error: {update_result.error}[/{theme.error}]"
+                    )
+            else:
+                console.print(f"[{theme.error}]Invalid choice[/{theme.error}]")
+        except ValueError:
+            console.print(f"[{theme.error}]Invalid choice[/{theme.error}]")
+
+    console.print()  # Empty line at end
+
+
 @app.command(name="sync")
 def sync_command(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
@@ -821,6 +913,12 @@ def sync_command(
         output_json(result.data)
     else:
         display_sync_result(result.data, dry_run=dry_run, verbose=verbose)
+
+        # Prompt for account types on new accounts (only if not dry-run and not json output)
+        if not dry_run:
+            new_accounts = result.data.get("new_accounts_without_type", [])
+            if new_accounts:
+                prompt_account_types_for_new_accounts(new_accounts)
 
 
 @app.command(name="import")

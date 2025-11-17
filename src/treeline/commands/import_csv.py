@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 from uuid import UUID
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from rich.console import Console
 from rich.prompt import Prompt
@@ -104,16 +104,49 @@ def handle_import_command(
     console.print(f"\n[{theme.muted}]Fetching accounts...[/{theme.muted}]")
     accounts_result = asyncio.run(account_service.get_accounts())
 
-    if not accounts_result.success or not accounts_result.data:
+    if not accounts_result.success:
         console.print(
-            f"[{theme.error}]No accounts found. Please sync with SimpleFIN first.[/{theme.error}]\n"
+            f"[{theme.error}]Error fetching accounts: {accounts_result.error}[/{theme.error}]\n"
         )
         return
 
-    account_id = prompt_account_selection(accounts_result.data)
+    existing_accounts = accounts_result.data or []
+
+    # Prompt for account selection (allows creating new account)
+    account_id = prompt_account_selection(existing_accounts)
+
     if not account_id:
         console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
         return
+
+    # Handle account creation
+    if account_id == "CREATE_NEW":
+        account_details = prompt_create_account()
+        if not account_details:
+            console.print(f"[{theme.warning}]Import cancelled[/{theme.warning}]\n")
+            return
+
+        # Create account via service
+        console.print(f"\n[{theme.muted}]Creating account...[/{theme.muted}]")
+        create_result = asyncio.run(
+            account_service.create_account(
+                name=account_details["name"],
+                account_type=account_details["account_type"],
+                institution=account_details.get("institution"),
+                currency=account_details["currency"],
+            )
+        )
+
+        if not create_result.success:
+            console.print(
+                f"[{theme.error}]Error creating account: {create_result.error}[/{theme.error}]\n"
+            )
+            return
+
+        account_id = create_result.data.id
+        console.print(
+            f"[{theme.success}]✓ Created account '{account_details['name']}' ({account_details['account_type']})[/{theme.success}]"
+        )
 
     # 1c. Column mapping - auto-detect (CLI responsibility to collect params)
     console.print(f"\n[{theme.muted}]Detecting CSV columns...[/{theme.muted}]")
@@ -297,8 +330,76 @@ def handle_import_command(
 # Helper functions (CLI presentation logic)
 
 
+ACCOUNT_TYPES = ["depository", "credit", "investment", "loan", "other"]
+
+
+def prompt_create_account() -> Optional[Dict[str, Any]]:
+    """Prompt user to create a new account.
+
+    Returns:
+        Dict with account details, or None if cancelled
+    """
+    console.print(f"\n[{theme.info}]Create new account:[/{theme.info}]")
+
+    try:
+        # Account name (required)
+        account_name = Prompt.ask(f"[{theme.info}]Account name[/{theme.info}]")
+        if not account_name.strip():
+            console.print(
+                f"[{theme.error}]Account name cannot be empty[/{theme.error}]"
+            )
+            return None
+
+        # Institution (optional)
+        institution = Prompt.ask(
+            f"[{theme.info}]Institution (optional, press Enter to skip)[/{theme.info}]",
+            default="",
+        )
+
+        # Account type (guided selection)
+        console.print(f"\n[{theme.info}]Account type:[/{theme.info}]")
+        for i, acc_type in enumerate(ACCOUNT_TYPES, 1):
+            console.print(f"  [{i}] {acc_type}")
+
+        type_choice = Prompt.ask(
+            f"[{theme.info}]Choose account type (1-{len(ACCOUNT_TYPES)})[/{theme.info}]",
+            default="1",
+        )
+
+        try:
+            type_idx = int(type_choice) - 1
+            if 0 <= type_idx < len(ACCOUNT_TYPES):
+                account_type = ACCOUNT_TYPES[type_idx]
+            else:
+                console.print(f"[{theme.error}]Invalid account type[/{theme.error}]")
+                return None
+        except ValueError:
+            console.print(f"[{theme.error}]Invalid account type[/{theme.error}]")
+            return None
+
+        # Currency (default USD)
+        currency = Prompt.ask(
+            f"[{theme.info}]Currency[/{theme.info}]", default="USD"
+        ).upper()
+
+        return {
+            "name": account_name.strip(),
+            "institution": institution.strip() if institution.strip() else None,
+            "account_type": account_type,
+            "currency": currency,
+        }
+
+    except (KeyboardInterrupt, EOFError):
+        console.print(f"\n[{theme.warning}]Cancelled[/{theme.warning}]")
+        return None
+
+
 def prompt_account_selection(accounts: List[Account]) -> Optional[UUID]:
-    """Display accounts and get user selection."""
+    """Display accounts and get user selection.
+
+    Returns:
+        Account UUID if selected, None if cancelled, or "CREATE_NEW" sentinel if user wants to create new account
+    """
     console.print(f"\n[{theme.info}]Select account to import into:[/{theme.info}]")
     console.print(f"[{theme.muted}](Press Ctrl+C to cancel)[/{theme.muted}]")
 
@@ -306,14 +407,25 @@ def prompt_account_selection(accounts: List[Account]) -> Optional[UUID]:
         institution = (
             f" - {account.institution_name}" if account.institution_name else ""
         )
-        console.print(f"  [{i}] {account.name}{institution}")
+        account_type_display = (
+            f" ({account.account_type})" if account.account_type else ""
+        )
+        console.print(f"  [{i}] {account.name}{institution}{account_type_display}")
+
+    # Add "create new" option
+    console.print(f"  [n] Create new account")
 
     try:
         account_choice = Prompt.ask(
-            f"\n[{theme.info}]Account number[/{theme.info}]", default="1"
+            f"\n[{theme.info}]Account number or 'n' for new[/{theme.info}]",
+            default="1" if accounts else "n",
         )
     except (KeyboardInterrupt, EOFError):
         return None
+
+    # Check if user wants to create new account
+    if account_choice.lower() == "n":
+        return "CREATE_NEW"  # Sentinel value
 
     try:
         account_idx = int(account_choice) - 1
