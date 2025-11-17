@@ -101,26 +101,32 @@ def test_transaction_normalizes_amount_and_tags() -> None:
 
 
 def test_balance_snapshot_requires_timezone_aware_datetime() -> None:
+    """Test that created_at/updated_at require timezone but snapshot_time is naive (local)."""
     account_id = uuid4()
+
+    # snapshot_time should be naive (local time), created_at/updated_at should be timezone-aware
     snapshot = BalanceSnapshot(
         id=uuid4(),
         account_id=account_id,
-        snapshot_time=_tz_now(),
+        snapshot_time=datetime.now(),  # Naive = local time
         balance="1000.50",
         created_at=_tz_now(),
         updated_at=_tz_now(),
     )
 
     assert snapshot.balance == Decimal("1000.50")
-    assert snapshot.snapshot_time.tzinfo == timezone.utc
+    assert snapshot.snapshot_time.tzinfo is None  # Naive datetime
+    assert snapshot.created_at.tzinfo == timezone.utc
+    assert snapshot.updated_at.tzinfo == timezone.utc
 
+    # created_at/updated_at must still be timezone-aware
     with pytest.raises(ValidationError):
         BalanceSnapshot(
             id=uuid4(),
             account_id=account_id,
             snapshot_time=datetime.now(),
             balance="1000.50",
-            created_at=_tz_now(),
+            created_at=datetime.now(),  # Missing timezone - should fail
             updated_at=_tz_now(),
         )
 

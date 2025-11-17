@@ -74,7 +74,7 @@ class Container:
         """Get the sync service instance."""
         if "sync_service" not in self._instances:
             self._instances["sync_service"] = SyncService(
-                self.provider_registry(), self.repository()
+                self.provider_registry(), self.repository(), self.account_service()
             )
         return self._instances["sync_service"]
 

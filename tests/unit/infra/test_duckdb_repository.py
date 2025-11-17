@@ -185,7 +185,7 @@ async def test_add_balance_snapshot(repository):
         id=uuid4(),
         account_id=account.id,
         balance=Decimal("1000.00"),
-        snapshot_time=datetime.now(timezone.utc),
+        snapshot_time=datetime.now(),  # Naive = local time
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

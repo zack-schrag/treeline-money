@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from types import MappingProxyType
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -195,7 +195,7 @@ async def test_sync_service_uses_correct_provider_for_integration():
     mock_repository.bulk_upsert_accounts.return_value = Ok([account])
 
     # Create service with provider registry
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_accounts("plaid", {})
 
     assert result.success is True
@@ -214,7 +214,7 @@ async def test_sync_service_returns_error_for_unknown_integration():
         "plaid": mock_plaid_provider,
     }
 
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_accounts("unknown_provider", {})
 
     assert result.success is False
@@ -246,7 +246,7 @@ async def test_sync_service_uses_simplefin_for_simplefin_integration():
     mock_simplefin_provider.get_accounts.return_value = Ok([account])
     mock_repository.bulk_upsert_accounts.return_value = Ok([account])
 
-    service = SyncService(provider_registry, mock_repository)
+    service = SyncService(provider_registry, mock_repository, Mock())
     result = await service.sync_accounts("simplefin", {})
 
     assert result.success is True
