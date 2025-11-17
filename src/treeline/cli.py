@@ -867,6 +867,11 @@ def sync_command(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Show detailed tagging information"
     ),
+    skip_account_type_prompt: bool = typer.Option(
+        False,
+        "--skip-account-type-prompt",
+        help="Skip interactive account type prompts",
+    ),
 ) -> None:
     """Synchronize data from connected integrations.
 
@@ -879,6 +884,9 @@ def sync_command(
 
       # See detailed tagging info during real sync
       treeline sync --verbose
+
+      # Scriptable sync without prompts
+      treeline sync --skip-account-type-prompt
     """
     ensure_treeline_initialized()
 
@@ -914,8 +922,8 @@ def sync_command(
     else:
         display_sync_result(result.data, dry_run=dry_run, verbose=verbose)
 
-        # Prompt for account types on new accounts (only if not dry-run and not json output)
-        if not dry_run:
+        # Prompt for account types on new accounts (only if not dry-run, not json output, and not skipped)
+        if not dry_run and not skip_account_type_prompt:
             new_accounts = result.data.get("new_accounts_without_type", [])
             if new_accounts:
                 prompt_account_types_for_new_accounts(new_accounts)
