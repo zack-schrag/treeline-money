@@ -97,13 +97,7 @@ jobs:
         run: uv pip install pyinstaller
 
       - name: Build binary
-        run: |
-          uv run pyinstaller \
-            --onefile \
-            --name tl \
-            --hidden-import=treeline \
-            --collect-all treeline \
-            src/treeline/cli.py
+        run: uv run pyinstaller --onefile --name tl --hidden-import=treeline --collect-all treeline src/treeline/cli.py
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
