@@ -86,9 +86,16 @@ if [ "$UPDATED_VERSION" != "$VERSION_NUMBER" ]; then
 fi
 echo -e "${GREEN}✓ Updated version to ${VERSION_NUMBER}${NC}"
 
+# Update uv.lock to match new version
+echo -e "${YELLOW}Updating uv.lock...${NC}"
+cd cli
+uv lock
+cd ..
+echo -e "${GREEN}✓ Updated uv.lock${NC}"
+
 # Commit version bump
 echo -e "${YELLOW}Committing version bump...${NC}"
-git add cli/pyproject.toml
+git add cli/pyproject.toml cli/uv.lock
 git commit -m "Bump version to ${VERSION}"
 echo -e "${GREEN}✓ Committed version bump${NC}"
 
