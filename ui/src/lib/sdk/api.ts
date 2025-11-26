@@ -39,3 +39,25 @@ export async function getStatus(): Promise<StatusResponse> {
     integrations: response.integrations || []
   };
 }
+
+export interface QueryResult {
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+}
+
+/**
+ * Execute a SQL query against the DuckDB database
+ */
+export async function executeQuery(query: string): Promise<QueryResult> {
+  const jsonString = await invoke<string>("execute_query", { query });
+
+  // Parse JSON string from Rust backend
+  const response = JSON.parse(jsonString);
+
+  return {
+    columns: response.columns || [],
+    rows: response.rows || [],
+    row_count: response.row_count || 0,
+  };
+}

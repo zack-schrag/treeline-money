@@ -12,9 +12,10 @@ import type { Plugin, PluginContext } from "../sdk";
 
 // Import core plugins
 import { plugin as statusPlugin } from "./status";
+import { plugin as queryPlugin } from "./query";
 
 // List of core plugins (built into the app)
-const corePlugins: Plugin[] = [statusPlugin];
+const corePlugins: Plugin[] = [statusPlugin, queryPlugin];
 
 interface ExternalPluginInfo {
   manifest: {

@@ -23,8 +23,8 @@ export type {
 export { registry } from "./registry";
 
 // API
-export { getStatus } from "./api";
-export type { StatusResponse } from "./api";
+export { getStatus, executeQuery } from "./api";
+export type { StatusResponse, QueryResult } from "./api";
 
 // Theme
 export { themeManager, themes } from "./theme";
