@@ -1,26 +1,52 @@
+# Project Structure
+
+This is a monorepo with three main components:
+
+- **core/** - Rust library with shared business logic (future: PyO3 bindings for CLI)
+- **cli/** - Python CLI application (Typer)
+- **ui/** - Tauri desktop application (Rust + Svelte)
+
 # Code Style
-- Use ruff for code formatting, and run `uvx ruff format` after file modifications
+
+## Python (cli/)
+- Use ruff for code formatting: `uvx ruff format cli/`
 - ALWAYS use Python type hints
 
+## Rust (core/, ui/src-tauri/)
+- Use `cargo fmt` for formatting
+- Use `cargo clippy` for linting
+
 # Implementation Guidelines
-- ALWAYS use Test Driven Development unless explicitly told otherwise. All new features should begin with **simple** unit tests that verify the logic and are **failing**. Only then should you begin implementation.
-- ALWAYS follow Hexagonal architecture principles. All business logic should be completely independent of underlying technology choices. For example, there should NEVER be code written in the service layer that has specific knowledge of DuckDB or Supabase. ALWAYS review [architecture.md](./docs/internal/architecture.md) for more details about Hexagonal.
-- ALWAYS run unit tests (see below) before doing a git commit, unless explicity asked not to.
+- ALWAYS use Test Driven Development unless explicitly told otherwise
+- ALWAYS follow Hexagonal architecture principles
+- ALWAYS run unit tests before doing a git commit, unless explicitly asked not to
 
 # CLI Architecture Rules
-- The CLI (`src/treeline/cli.py`) MUST be a thin presentation layer
-- The CLI MUST ONLY interact with services from `src/treeline/app/service.py`
+- The CLI (`cli/src/treeline/cli.py`) MUST be a thin presentation layer
+- The CLI MUST ONLY interact with services from `cli/src/treeline/app/service.py`
 - The CLI MUST NEVER directly call repositories, providers, or any other abstractions
-- The CLI MUST NEVER perform direct file I/O operations (use storage abstractions via container)
 - All business logic MUST live in the service layer, NOT in the CLI
-- The CLI should only:
-  1. Parse user input
-  2. Call the appropriate service method
-  3. Display the results to the user
-- ALL domain models (Account, Transaction, ChartConfig, etc.) MUST be defined in `src/treeline/domain.py`
+- ALL domain models MUST be defined in `cli/src/treeline/domain.py`
 
 # Testing Instructions
-## Unit Tests
-These have mocked dependencies and verify core logic. For example, a unit test to verify transaction deduplication works during synchronization, with data provider mocked.
 
-Run unit tests: `uv run pytest tests/unit`
+## Python Unit Tests
+Run from the cli/ directory:
+```bash
+cd cli && uv run pytest tests/unit
+```
+
+## Rust Tests
+```bash
+cargo test -p treeline-core
+```
+
+# Running the CLI
+```bash
+cd cli && uv run tl --help
+```
+
+# Running the UI (Tauri)
+```bash
+cd ui && npm run tauri:dev
+```

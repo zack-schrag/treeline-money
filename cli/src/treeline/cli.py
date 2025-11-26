@@ -419,6 +419,10 @@ def setup_simplefin(token: str | None = None) -> None:
 tag_app = typer.Typer(help="Transaction tagging commands")
 app.add_typer(tag_app, name="tag")
 
+# Plugin command group
+plugin_app = typer.Typer(help="Plugin management commands")
+app.add_typer(plugin_app, name="plugin")
+
 
 @tag_app.callback(invoke_without_command=True)
 def tag_callback(
@@ -1699,6 +1703,187 @@ def _backfill_balances(
         console.print(
             f"\n[{theme.warning}]DRY RUN - No changes were saved[/{theme.warning}]"
         )
+
+
+@plugin_app.command(name="new")
+def plugin_new_command(
+    name: str = typer.Argument(..., help="Plugin name"),
+    directory: str = typer.Option(
+        None, "--directory", "-d", help="Directory to create plugin in (defaults to current directory)"
+    ),
+) -> None:
+    """Create a new plugin from template.
+
+    Examples:
+      # Create plugin in current directory
+      tl plugin new my-plugin
+
+      # Create plugin in specific directory
+      tl plugin new my-plugin --directory ~/my-plugins
+    """
+    container = get_container()
+    plugin_service = container.plugin_service()
+
+    target_dir = Path(directory).expanduser() if directory else None
+
+    result = plugin_service.create_plugin(name, target_dir)
+
+    if not result.success:
+        display_error(result.error)
+        raise typer.Exit(1)
+
+    plugin_dir = result.data["plugin_dir"]
+    console.print(f"[{theme.success}]✓ Created plugin: {name}[/{theme.success}]")
+    console.print(f"\nPlugin directory: {plugin_dir}")
+    console.print(f"\n[{theme.info}]Next steps:[/{theme.info}]")
+    console.print(f"  1. cd {plugin_dir}")
+    console.print(f"  2. npm install")
+    console.print(f"  3. Edit src/index.ts and src/*View.svelte")
+    console.print(f"  4. npm run build")
+    console.print(f"  5. tl plugin install {plugin_dir}\n")
+
+
+@plugin_app.command(name="install")
+def plugin_install_command(
+    source: str = typer.Argument(..., help="Local directory path or GitHub URL"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    force_build: bool = typer.Option(
+        False, "--rebuild", help="Force rebuild even if dist/index.js exists"
+    ),
+) -> None:
+    """Install a plugin from local directory or GitHub.
+
+    The install command will:
+    - Detect if the plugin needs to be built (checks for dist/index.js)
+    - Automatically run npm install && npm run build if needed
+    - Copy manifest.json and dist/index.js to ~/.treeline/plugins/
+    - Validate the plugin can be loaded
+
+    Examples:
+      # Install from local directory (auto-builds if needed)
+      tl plugin install ~/my-plugin
+
+      # Install from GitHub
+      tl plugin install https://github.com/user/my-plugin
+
+      # Force rebuild
+      tl plugin install ~/my-plugin --rebuild
+
+      # Scriptable mode with JSON output
+      tl plugin install ~/my-plugin --json
+    """
+    container = get_container()
+    plugin_service = container.plugin_service()
+
+    # Show progress
+    if not json_output:
+        with console.status(f"[{theme.status_loading}]Installing plugin from {source}..."):
+            result = plugin_service.install_plugin(source, force_build=force_build)
+    else:
+        result = plugin_service.install_plugin(source, force_build=force_build)
+
+    if not result.success:
+        if json_output:
+            output_json({"success": False, "error": result.error})
+        else:
+            display_error(result.error)
+        raise typer.Exit(1)
+
+    if json_output:
+        output_json({
+            "success": True,
+            **result.data
+        })
+    else:
+        console.print(f"\n[{theme.success}]✓ Installed plugin: {result.data['plugin_name']}[/{theme.success}]")
+        console.print(f"  Plugin ID: {result.data['plugin_id']}")
+        console.print(f"  Version: {result.data['version']}")
+        console.print(f"  Location: {result.data['install_dir']}")
+        if result.data.get('built'):
+            console.print(f"  [{theme.muted}](Built from source)[/{theme.muted}]")
+        console.print(f"\n[{theme.info}]Restart the Treeline UI to load the plugin[/{theme.info}]\n")
+
+
+@plugin_app.command(name="uninstall")
+def plugin_uninstall_command(
+    plugin_id: str = typer.Argument(..., help="Plugin ID to uninstall"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Uninstall a plugin.
+
+    Examples:
+      # Uninstall a plugin
+      tl plugin uninstall my-plugin
+
+      # Scriptable mode with JSON output
+      tl plugin uninstall my-plugin --json
+    """
+    container = get_container()
+    plugin_service = container.plugin_service()
+
+    result = plugin_service.uninstall_plugin(plugin_id)
+
+    if not result.success:
+        if json_output:
+            output_json({"success": False, "error": result.error})
+        else:
+            display_error(result.error)
+        raise typer.Exit(1)
+
+    if json_output:
+        output_json({
+            "success": True,
+            **result.data
+        })
+    else:
+        console.print(f"[{theme.success}]✓ Uninstalled plugin: {result.data['plugin_name']}[/{theme.success}]\n")
+
+
+@plugin_app.command(name="list")
+def plugin_list_command(
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """List installed plugins.
+
+    Examples:
+      # List all plugins
+      tl plugin list
+
+      # Output as JSON
+      tl plugin list --json
+    """
+    container = get_container()
+    plugin_service = container.plugin_service()
+
+    result = plugin_service.list_plugins()
+
+    if not result.success:
+        if json_output:
+            output_json({"success": False, "error": result.error})
+        else:
+            display_error(result.error)
+        raise typer.Exit(1)
+
+    plugins = result.data
+
+    if json_output:
+        output_json({"success": True, "plugins": plugins})
+    else:
+        if not plugins:
+            console.print(f"\n[{theme.muted}]No plugins installed[/{theme.muted}]")
+            console.print(f"[{theme.muted}]Use 'tl plugin new <name>' to create a plugin[/{theme.muted}]\n")
+            return
+
+        console.print(f"\n[{theme.ui_header}]Installed Plugins[/{theme.ui_header}]\n")
+
+        for plugin in plugins:
+            console.print(f"[{theme.emphasis}]{plugin['name']}[/{theme.emphasis}] ({plugin['id']})")
+            console.print(f"  Version: {plugin['version']}")
+            if plugin.get('description'):
+                console.print(f"  [{theme.muted}]{plugin['description']}[/{theme.muted}]")
+            if plugin.get('author'):
+                console.print(f"  [{theme.muted}]by {plugin['author']}[/{theme.muted}]")
+            console.print()
 
 
 if __name__ == "__main__":

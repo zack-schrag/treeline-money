@@ -20,6 +20,7 @@ from treeline.app.service import (
     TaggingService,
 )
 from treeline.app.backfill_service import BackfillService
+from treeline.app.plugin_service import PluginService
 from treeline.infra.tag_suggesters import (
     FrequencyTagSuggester,
     CombinedTagSuggester,
@@ -150,3 +151,10 @@ class Container:
         if "backfill_service" not in self._instances:
             self._instances["backfill_service"] = BackfillService(self.repository())
         return self._instances["backfill_service"]
+
+    def plugin_service(self) -> PluginService:
+        """Get the plugin service instance."""
+        if "plugin_service" not in self._instances:
+            plugins_dir = Path(self.treeline_dir) / "plugins"
+            self._instances["plugin_service"] = PluginService(plugins_dir)
+        return self._instances["plugin_service"]
