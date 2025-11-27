@@ -97,22 +97,33 @@
   }
 
   function handleSearchInput() {
-    // Debounced live search
+    // Debounced live search - longer delay so typing feels instant
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer);
     }
     searchDebounceTimer = setTimeout(() => {
       loadTransactions();
-    }, 150);
+    }, 400);
+  }
+
+  function handleSearchKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      // Immediately execute search
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+      }
+      loadTransactions();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      exitSearch();
+    }
+    // Let all other keys flow through naturally
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    // Search mode - only handle escape, let typing flow through
+    // Search mode - handled separately
     if (isSearching) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        exitSearch();
-      }
       return;
     }
 
@@ -746,9 +757,10 @@
           class="command-input"
           bind:value={searchQuery}
           oninput={handleSearchInput}
-          placeholder="search description... (live)"
+          onkeydown={handleSearchKeyDown}
+          placeholder="type to search (Enter for instant)"
         />
-        <span class="command-hint">Esc to exit</span>
+        <span class="command-hint">Enter to search, Esc to exit</span>
       </div>
     {:else if isCustomTagging}
       <div class="command-input-row">
