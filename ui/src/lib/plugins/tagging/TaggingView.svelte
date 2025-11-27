@@ -45,6 +45,24 @@
   // Stats
   let taggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
 
+  // Autocomplete for custom tag input
+  let tagAutocomplete = $derived.by(() => {
+    if (!customTagInput || currentSuggestions.length === 0) return "";
+
+    // Get the partial tag being typed (after last comma)
+    const parts = customTagInput.split(",");
+    const partial = parts[parts.length - 1].trim().toLowerCase();
+    if (!partial) return "";
+
+    // Find first matching suggestion
+    for (const s of currentSuggestions) {
+      if (s.tag.toLowerCase().startsWith(partial) && s.tag.toLowerCase() !== partial) {
+        return s.tag.slice(partial.length);
+      }
+    }
+    return "";
+  });
+
   async function loadTransactions() {
     isLoading = true;
     error = null;
@@ -65,7 +83,13 @@
         query += " WHERE tags = []";
       } else if (searchQuery.trim()) {
         const escapedSearch = searchQuery.trim().replace(/'/g, "''");
-        query += ` WHERE description ILIKE '%${escapedSearch}%'`;
+        // Search across description, account_name, amount (as string), and tags
+        query += ` WHERE (
+          description ILIKE '%${escapedSearch}%'
+          OR account_name ILIKE '%${escapedSearch}%'
+          OR CAST(amount AS VARCHAR) LIKE '%${escapedSearch}%'
+          OR array_to_string(tags, ',') ILIKE '%${escapedSearch}%'
+        )`;
       }
 
       query += " ORDER BY transaction_date DESC LIMIT 500";
@@ -109,11 +133,12 @@
   function handleSearchKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
-      // Immediately execute search
+      // Immediately execute search and exit search mode
       if (searchDebounceTimer) {
         clearTimeout(searchDebounceTimer);
       }
       loadTransactions();
+      exitSearch();
     } else if (e.key === "Escape") {
       e.preventDefault();
       exitSearch();
@@ -253,13 +278,9 @@
 
     if (e.key === "Tab") {
       e.preventDefault();
-      // Autocomplete from suggestions
-      const input = customTagInput.toLowerCase().trim();
-      if (input) {
-        const match = currentSuggestions.find(s => s.tag.toLowerCase().startsWith(input));
-        if (match) {
-          customTagInput = match.tag;
-        }
+      // Apply autocomplete suggestion
+      if (tagAutocomplete) {
+        customTagInput += tagAutocomplete;
       }
       return;
     }
@@ -647,9 +668,9 @@
     <span><kbd>t</kbd> edit tags</span>
     <span><kbd>c</kbd> clear</span>
     <span><kbd>a</kbd> bulk tag</span>
-    <span><kbd>space</kbd> select</span>
     <span><kbd>/</kbd> search</span>
-    <span><kbd>u</kbd> toggle filter</span>
+    <span><kbd>u</kbd> filter</span>
+    <span><kbd>R</kbd> reset</span>
     <span><kbd>n</kbd> next untagged</span>
   </div>
 
@@ -682,17 +703,10 @@
             role="button"
             tabindex="-1"
           >
-            <div class="row-select">
-              {#if selectedIndices.has(index)}
-                <span class="checkmark">+</span>
-              {:else}
-                <span class="dot">-</span>
-              {/if}
-            </div>
             <div class="row-date">{txn.transaction_date}</div>
             <div class="row-account">{txn.account_name || ''}</div>
             <div class="row-desc">{txn.description}</div>
-            <div class="row-amount" class:negative={txn.amount < 0}>
+            <div class="row-amount" class:negative={txn.amount < 0} class:positive={txn.amount >= 0}>
               {txn.amount < 0 ? '-' : ''}${Math.abs(txn.amount).toFixed(2)}
             </div>
             <div class="row-tags">
@@ -765,14 +779,19 @@
     {:else if isCustomTagging}
       <div class="command-input-row">
         <span class="command-prefix">tags ({getTargetCount()}):</span>
-        <input
-          bind:this={customTagInputEl}
-          type="text"
-          class="command-input"
-          bind:value={customTagInput}
-          placeholder="enter tags (comma-separated)"
-        />
-        <span class="command-hint">Enter to apply, Tab to complete, Esc to cancel</span>
+        <div class="input-with-autocomplete">
+          <input
+            bind:this={customTagInputEl}
+            type="text"
+            class="command-input"
+            bind:value={customTagInput}
+            placeholder="enter tags (comma-separated)"
+          />
+          {#if tagAutocomplete}
+            <span class="autocomplete-ghost">{customTagInput}<span class="autocomplete-hint">{tagAutocomplete}</span></span>
+          {/if}
+        </div>
+        <span class="command-hint">Tab to complete, Enter to apply</span>
       </div>
     {:else if isBulkTagging}
       <div class="command-input-row">
@@ -1043,21 +1062,6 @@
     background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.25);
   }
 
-  .row-select {
-    width: 16px;
-    text-align: center;
-    flex-shrink: 0;
-  }
-
-  .checkmark {
-    color: var(--accent-primary);
-    font-weight: bold;
-  }
-
-  .dot {
-    color: var(--text-muted);
-  }
-
   .row-date {
     width: 90px;
     flex-shrink: 0;
@@ -1087,7 +1091,10 @@
     width: 90px;
     text-align: right;
     flex-shrink: 0;
-    color: var(--text-secondary);
+  }
+
+  .row-amount.positive {
+    color: var(--accent-success, #22c55e);
   }
 
   .row-amount.negative {
@@ -1159,6 +1166,34 @@
 
   .command-input::placeholder {
     color: var(--text-muted);
+  }
+
+  .input-with-autocomplete {
+    flex: 1;
+    position: relative;
+  }
+
+  .input-with-autocomplete .command-input {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+    width: 100%;
+  }
+
+  .autocomplete-ghost {
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    pointer-events: none;
+    color: transparent;
+    white-space: pre;
+  }
+
+  .autocomplete-hint {
+    color: var(--text-muted);
+    opacity: 0.6;
   }
 
   .command-hint {
