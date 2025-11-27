@@ -15,8 +15,8 @@
   let selectedIndices = $state<Set<number>>(new Set());
   let cursorIndex = $state(0);
 
-  // Filter state
-  let filterMode = $state<"all" | "untagged">("untagged");
+  // Filter state - default to "all"
+  let filterMode = $state<"all" | "untagged">("all");
   let searchQuery = $state("");
   let isSearching = $state(false);
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,8 +25,13 @@
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
 
+  // Bulk tag mode
+  let isBulkTagging = $state(false);
+  let bulkTagInput = $state("");
+
   // Element refs
   let customTagInputEl: HTMLInputElement | null = null;
+  let bulkTagInputEl: HTMLInputElement | null = null;
   let searchInputEl: HTMLInputElement | null = null;
   let containerEl: HTMLDivElement | null = null;
 
@@ -36,6 +41,9 @@
     if (!txn) return [];
     return suggestions.get(txn.transaction_id) || [];
   });
+
+  // Stats
+  let taggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
 
   async function loadTransactions() {
     isLoading = true;
@@ -114,6 +122,12 @@
       return;
     }
 
+    // Bulk tag input mode
+    if (isBulkTagging) {
+      handleBulkTagKeyDown(e);
+      return;
+    }
+
     // Number keys 1-9 to apply suggested tags
     if (e.key >= "1" && e.key <= "9") {
       const tagIndex = parseInt(e.key) - 1;
@@ -148,6 +162,10 @@
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
           selectAll();
+        } else {
+          // Bulk tag mode
+          e.preventDefault();
+          startBulkTagging();
         }
         break;
       case "A":
@@ -159,24 +177,25 @@
         deselectAll();
         break;
       case "t":
+      case "Enter":
         e.preventDefault();
         startCustomTagging();
+        break;
+      case "c":
+        e.preventDefault();
+        clearTagsFromCurrent();
         break;
       case "r":
         e.preventDefault();
         removeTagsFromCurrent();
         break;
+      case "R":
+        e.preventDefault();
+        resetFilters();
+        break;
       case "u":
         e.preventDefault();
-        filterMode = "untagged";
-        searchQuery = "";
-        loadTransactions();
-        break;
-      case "*":
-        e.preventDefault();
-        filterMode = "all";
-        searchQuery = "";
-        loadTransactions();
+        toggleFilterMode();
         break;
       case "/":
         e.preventDefault();
@@ -195,6 +214,14 @@
       case "n":
         e.preventDefault();
         skipToNextUntagged();
+        break;
+      case "[":
+        e.preventDefault();
+        pageUp();
+        break;
+      case "]":
+        e.preventDefault();
+        pageDown();
         break;
     }
   }
@@ -227,9 +254,36 @@
     }
   }
 
+  function handleBulkTagKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancelBulkTagging();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      applyBulkTag();
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      // Autocomplete from suggestions
+      const input = bulkTagInput.toLowerCase().trim();
+      if (input) {
+        const match = currentSuggestions.find(s => s.tag.toLowerCase().startsWith(input));
+        if (match) {
+          bulkTagInput = match.tag;
+        }
+      }
+      return;
+    }
+  }
+
   function startSearch() {
     isSearching = true;
-    filterMode = "all";
     setTimeout(() => searchInputEl?.focus(), 10);
   }
 
@@ -243,7 +297,18 @@
 
   function clearSearch() {
     searchQuery = "";
-    filterMode = "untagged";
+    loadTransactions();
+    containerEl?.focus();
+  }
+
+  function toggleFilterMode() {
+    filterMode = filterMode === "all" ? "untagged" : "all";
+    loadTransactions();
+  }
+
+  function resetFilters() {
+    searchQuery = "";
+    filterMode = "all";
     loadTransactions();
   }
 
@@ -253,6 +318,16 @@
       cursorIndex = newIndex;
       scrollToCursor();
     }
+  }
+
+  function pageUp() {
+    cursorIndex = Math.max(0, cursorIndex - 20);
+    scrollToCursor();
+  }
+
+  function pageDown() {
+    cursorIndex = Math.min(transactions.length - 1, cursorIndex + 20);
+    scrollToCursor();
   }
 
   function skipToNextUntagged() {
@@ -279,6 +354,11 @@
         element.scrollIntoView({ block: "nearest", behavior: "auto" });
       }
     }, 0);
+  }
+
+  function handleRowClick(index: number) {
+    cursorIndex = index;
+    containerEl?.focus();
   }
 
   function toggleSelection() {
@@ -311,38 +391,75 @@
     return Array.from(selectedIndices).map(i => transactions[i]).filter(Boolean);
   }
 
+  function getSelectedIndicesArray(): number[] {
+    if (selectedIndices.size === 0) {
+      return [cursorIndex];
+    }
+    return Array.from(selectedIndices);
+  }
+
+  // Optimistic update: apply tag locally then persist in background
   async function applyTagToCurrentOrSelected(tag: string) {
-    const selected = getSelectedTransactions();
-    if (selected.length === 0) return;
+    const indices = getSelectedIndicesArray();
+    if (indices.length === 0) return;
 
+    // Optimistic update - update local state immediately
+    for (const idx of indices) {
+      const txn = transactions[idx];
+      if (!txn) continue;
+      const currentTags = txn.tags || [];
+      if (currentTags.includes(tag)) continue;
+
+      // Update in place
+      transactions[idx] = {
+        ...txn,
+        tags: [...currentTags, tag]
+      };
+    }
+
+    // Force reactivity
+    transactions = [...transactions];
+
+    // Move cursor to next untagged if in untagged mode, otherwise just next
+    const nextIndex = cursorIndex + 1;
+    if (nextIndex < transactions.length) {
+      cursorIndex = nextIndex;
+      scrollToCursor();
+    }
+
+    deselectAll();
+
+    // Persist in background (fire and forget)
+    persistTagChanges(indices.map(i => transactions[i]));
+  }
+
+  async function persistTagChanges(txns: Transaction[]) {
     try {
-      // Update each transaction's tags via SQL
-      for (const txn of selected) {
-        const currentTags = txn.tags || [];
-        if (currentTags.includes(tag)) continue;
-
-        const newTags = [...currentTags, tag];
-        const tagsJson = JSON.stringify(newTags);
+      for (const txn of txns) {
+        const tagsJson = JSON.stringify(txn.tags);
         const escapedId = txn.transaction_id.replace(/'/g, "''");
-
         await executeQuery(
           `UPDATE sys_transactions SET tags = '${tagsJson}' WHERE transaction_id = '${escapedId}'`,
           { readonly: false }
         );
       }
-
-      deselectAll();
-      await loadTransactions();
     } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to apply tag";
-      console.error("Failed to apply tag:", e);
+      console.error("Failed to persist tags:", e);
+      // Could show a toast/notification here
+      error = "Failed to save - changes may be lost";
     }
   }
 
   function startCustomTagging() {
     if (transactions.length === 0) return;
     isCustomTagging = true;
-    customTagInput = "";
+    // Pre-populate with existing tags
+    const txn = transactions[cursorIndex];
+    if (txn && txn.tags.length > 0) {
+      customTagInput = txn.tags.join(", ");
+    } else {
+      customTagInput = "";
+    }
     setTimeout(() => customTagInputEl?.focus(), 10);
   }
 
@@ -353,38 +470,118 @@
   }
 
   async function applyCustomTag() {
-    const tag = customTagInput.trim();
-    if (!tag) {
+    const tags = customTagInput.split(",").map(t => t.trim()).filter(t => t);
+    if (tags.length === 0) {
       cancelCustomTagging();
       return;
     }
 
+    const indices = getSelectedIndicesArray();
+
+    // Optimistic update
+    for (const idx of indices) {
+      const txn = transactions[idx];
+      if (!txn) continue;
+
+      // Merge tags (dedupe)
+      const currentTags = txn.tags || [];
+      const mergedTags = [...new Set([...currentTags, ...tags])];
+
+      transactions[idx] = {
+        ...txn,
+        tags: mergedTags
+      };
+    }
+
+    transactions = [...transactions];
+
+    // Move to next
+    const nextIndex = cursorIndex + 1;
+    if (nextIndex < transactions.length) {
+      cursorIndex = nextIndex;
+      scrollToCursor();
+    }
+
+    deselectAll();
     cancelCustomTagging();
-    await applyTagToCurrentOrSelected(tag);
+
+    // Persist in background
+    persistTagChanges(indices.map(i => transactions[i]));
   }
 
-  async function removeTagsFromCurrent() {
-    const selected = getSelectedTransactions();
-    if (selected.length === 0) return;
+  function startBulkTagging() {
+    if (transactions.length === 0) return;
+    isBulkTagging = true;
+    bulkTagInput = "";
+    setTimeout(() => bulkTagInputEl?.focus(), 10);
+  }
 
-    const tagsToRemove = [...new Set(selected.flatMap(t => t.tags || []))];
-    if (tagsToRemove.length === 0) return;
+  function cancelBulkTagging() {
+    isBulkTagging = false;
+    bulkTagInput = "";
+    containerEl?.focus();
+  }
 
-    try {
-      for (const txn of selected) {
-        const escapedId = txn.transaction_id.replace(/'/g, "''");
-        await executeQuery(
-          `UPDATE sys_transactions SET tags = '[]' WHERE transaction_id = '${escapedId}'`,
-          { readonly: false }
-        );
-      }
-
-      deselectAll();
-      await loadTransactions();
-    } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to remove tags";
-      console.error("Failed to remove tags:", e);
+  async function applyBulkTag() {
+    const tags = bulkTagInput.split(",").map(t => t.trim()).filter(t => t);
+    if (tags.length === 0) {
+      cancelBulkTagging();
+      return;
     }
+
+    // Apply to ALL visible transactions
+    for (let i = 0; i < transactions.length; i++) {
+      const txn = transactions[i];
+      const currentTags = txn.tags || [];
+      const mergedTags = [...new Set([...currentTags, ...tags])];
+
+      transactions[i] = {
+        ...txn,
+        tags: mergedTags
+      };
+    }
+
+    transactions = [...transactions];
+    cancelBulkTagging();
+
+    // Persist all in background
+    persistTagChanges(transactions);
+  }
+
+  // Clear all tags (set to empty)
+  async function clearTagsFromCurrent() {
+    const indices = getSelectedIndicesArray();
+    if (indices.length === 0) return;
+
+    // Optimistic update
+    for (const idx of indices) {
+      const txn = transactions[idx];
+      if (!txn || txn.tags.length === 0) continue;
+
+      transactions[idx] = {
+        ...txn,
+        tags: []
+      };
+    }
+
+    transactions = [...transactions];
+
+    // Move to next
+    const nextIndex = cursorIndex + 1;
+    if (nextIndex < transactions.length) {
+      cursorIndex = nextIndex;
+      scrollToCursor();
+    }
+
+    deselectAll();
+
+    // Persist in background
+    persistTagChanges(indices.map(i => transactions[i]));
+  }
+
+  // Remove tags (same as clear for now)
+  async function removeTagsFromCurrent() {
+    await clearTagsFromCurrent();
   }
 
   onMount(() => {
@@ -415,7 +612,7 @@
           <span class="search-term">"{searchQuery}"</span>
           <button class="clear-search" onclick={clearSearch}>x</button>
         {:else if filterMode === "untagged"}
-          <span class="mode">Untagged</span>
+          <span class="mode untagged-mode">Untagged</span>
         {:else}
           <span class="mode">All</span>
         {/if}
@@ -423,8 +620,9 @@
     </div>
     <div class="stats">
       <span>{transactions.length} transactions</span>
+      <span class="tagged-count">| {taggedCount} tagged</span>
       {#if selectedIndices.size > 0}
-        <span class="selected-count">* {selectedIndices.size} selected</span>
+        <span class="selected-count">| {selectedIndices.size} selected</span>
       {/if}
     </div>
   </div>
@@ -432,12 +630,13 @@
   <!-- Help bar -->
   <div class="help-bar">
     <span><kbd>j</kbd><kbd>k</kbd> nav</span>
-    <span><kbd>1-9</kbd> apply tag</span>
-    <span><kbd>t</kbd> custom tag</span>
+    <span><kbd>1-9</kbd> quick tag</span>
+    <span><kbd>t</kbd> edit tags</span>
+    <span><kbd>c</kbd> clear</span>
+    <span><kbd>a</kbd> bulk tag</span>
     <span><kbd>space</kbd> select</span>
-    <span><kbd>r</kbd> remove</span>
     <span><kbd>/</kbd> search</span>
-    <span><kbd>u</kbd> untagged</span>
+    <span><kbd>u</kbd> toggle filter</span>
     <span><kbd>n</kbd> next untagged</span>
   </div>
 
@@ -466,6 +665,9 @@
             class:cursor={cursorIndex === index}
             class:selected={selectedIndices.has(index)}
             data-index={index}
+            onclick={() => handleRowClick(index)}
+            role="button"
+            tabindex="-1"
           >
             <div class="row-select">
               {#if selectedIndices.has(index)}
@@ -483,9 +685,12 @@
               {#if txn.tags.length === 0}
                 <span class="no-tags">--</span>
               {:else}
-                {#each txn.tags as tag}
+                {#each txn.tags.slice(0, 3) as tag}
                   <span class="tag">{tag}</span>
                 {/each}
+                {#if txn.tags.length > 3}
+                  <span class="tag-more">+{txn.tags.length - 3}</span>
+                {/if}
               {/if}
             </div>
           </div>
@@ -528,7 +733,7 @@
   </div>
 
   <!-- Command bar (bottom) -->
-  <div class="command-bar" class:active={isSearching || isCustomTagging}>
+  <div class="command-bar" class:active={isSearching || isCustomTagging || isBulkTagging}>
     {#if isSearching}
       <div class="command-input-row">
         <span class="command-prefix">/</span>
@@ -544,19 +749,31 @@
       </div>
     {:else if isCustomTagging}
       <div class="command-input-row">
-        <span class="command-prefix">tag ({getTargetCount()}):</span>
+        <span class="command-prefix">tags ({getTargetCount()}):</span>
         <input
           bind:this={customTagInputEl}
           type="text"
           class="command-input"
           bind:value={customTagInput}
-          placeholder="enter tag name"
+          placeholder="enter tags (comma-separated)"
         />
         <span class="command-hint">Enter to apply, Tab to complete, Esc to cancel</span>
       </div>
+    {:else if isBulkTagging}
+      <div class="command-input-row">
+        <span class="command-prefix">bulk tag ({transactions.length}):</span>
+        <input
+          bind:this={bulkTagInputEl}
+          type="text"
+          class="command-input"
+          bind:value={bulkTagInput}
+          placeholder="apply to ALL visible transactions"
+        />
+        <span class="command-hint">Enter to apply, Esc to cancel</span>
+      </div>
     {:else}
       <div class="command-hint-row">
-        <kbd>1-9</kbd> apply tag | <kbd>t</kbd> custom | <kbd>/</kbd> search
+        <kbd>1-9</kbd> quick tag | <kbd>t</kbd> edit | <kbd>c</kbd> clear | <kbd>a</kbd> bulk | <kbd>/</kbd> search | <kbd>u</kbd> filter
       </div>
     {/if}
   </div>
@@ -609,6 +826,10 @@
     background: var(--accent-warning, #f59e0b);
   }
 
+  .mode.untagged-mode {
+    background: var(--accent-danger, #ef4444);
+  }
+
   .search-term {
     font-size: 11px;
     color: var(--text-muted);
@@ -632,6 +853,10 @@
     font-size: 12px;
     color: var(--text-muted);
     margin-top: 4px;
+  }
+
+  .tagged-count {
+    color: var(--text-muted);
   }
 
   .selected-count {
@@ -782,6 +1007,11 @@
     padding: 6px var(--spacing-lg);
     border-bottom: 1px solid var(--border-primary);
     gap: var(--spacing-md);
+    cursor: pointer;
+  }
+
+  .row:hover {
+    background: var(--bg-secondary);
   }
 
   .row.cursor {
@@ -858,6 +1088,14 @@
     border-radius: 3px;
     font-size: 10px;
     font-weight: 600;
+  }
+
+  .tag-more {
+    padding: 1px 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-radius: 3px;
+    font-size: 10px;
   }
 
   .command-bar {
