@@ -18,9 +18,8 @@
   // Filter state - default to "all"
   let filterMode = $state<"all" | "untagged">("all");
   let searchQuery = $state("");
-  let committedSearchQuery = $state(""); // The search that's actually applied
   let isSearching = $state(false);
-  let isLoadingSuggestions = $state(false);
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Custom tag input mode (for typing a new tag)
   let isCustomTagging = $state(false);
@@ -62,10 +61,10 @@
         FROM transactions
       `;
 
-      if (filterMode === "untagged" && !committedSearchQuery.trim()) {
+      if (filterMode === "untagged" && !searchQuery.trim()) {
         query += " WHERE tags = []";
-      } else if (committedSearchQuery.trim()) {
-        const escapedSearch = committedSearchQuery.trim().replace(/'/g, "''");
+      } else if (searchQuery.trim()) {
+        const escapedSearch = searchQuery.trim().replace(/'/g, "''");
         query += ` WHERE description ILIKE '%${escapedSearch}%'`;
       }
 
@@ -87,64 +86,33 @@
         cursorIndex = Math.max(0, transactions.length - 1);
       }
 
-      isLoading = false;
-
-      // Compute suggestions in batches AFTER showing transactions
-      loadSuggestionsInBatches();
+      // Compute suggestions for all loaded transactions
+      suggestions = await suggester.suggestBatch(transactions, 9);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load transactions";
       console.error("Failed to load transactions:", e);
+    } finally {
       isLoading = false;
     }
   }
 
-  async function loadSuggestionsInBatches() {
-    if (transactions.length === 0) return;
-
-    isLoadingSuggestions = true;
-    const batchSize = 50;
-    const newSuggestions = new Map<string, TagSuggestion[]>();
-
-    // Process in batches to avoid blocking
-    for (let i = 0; i < transactions.length; i += batchSize) {
-      const batch = transactions.slice(i, i + batchSize);
-      const batchSuggestions = await suggester.suggestBatch(batch, 9);
-
-      // Merge into main map
-      for (const [id, suggs] of batchSuggestions) {
-        newSuggestions.set(id, suggs);
-      }
-
-      // Update incrementally so suggestions appear as they load
-      suggestions = new Map(newSuggestions);
-
-      // Small yield to keep UI responsive
-      await new Promise(r => setTimeout(r, 0));
+  function handleSearchInput() {
+    // Debounced live search
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
     }
-
-    isLoadingSuggestions = false;
-  }
-
-  function commitSearch() {
-    committedSearchQuery = searchQuery;
-    loadTransactions();
-  }
-
-  function handleSearchKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      exitSearch();
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      commitSearch();
-      exitSearch();
-    }
-    // Let all other keys flow through naturally - no interference with typing
+    searchDebounceTimer = setTimeout(() => {
+      loadTransactions();
+    }, 150);
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    // Search mode - handled by search input directly
+    // Search mode - only handle escape, let typing flow through
     if (isSearching) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        exitSearch();
+      }
       return;
     }
 
@@ -316,18 +284,19 @@
 
   function startSearch() {
     isSearching = true;
-    searchQuery = committedSearchQuery; // Start with current search
     setTimeout(() => searchInputEl?.focus(), 10);
   }
 
   function exitSearch() {
     isSearching = false;
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+    }
     containerEl?.focus();
   }
 
   function clearSearch() {
     searchQuery = "";
-    committedSearchQuery = "";
     loadTransactions();
     containerEl?.focus();
   }
@@ -339,7 +308,6 @@
 
   function resetFilters() {
     searchQuery = "";
-    committedSearchQuery = "";
     filterMode = "all";
     loadTransactions();
   }
@@ -639,9 +607,9 @@
     <div class="title-row">
       <h1 class="title">Tag Transactions</h1>
       <div class="mode-indicator">
-        {#if committedSearchQuery}
+        {#if searchQuery}
           <span class="mode search-mode">Search</span>
-          <span class="search-term">"{committedSearchQuery}"</span>
+          <span class="search-term">"{searchQuery}"</span>
           <button class="clear-search" onclick={clearSearch}>x</button>
         {:else if filterMode === "untagged"}
           <span class="mode untagged-mode">Untagged</span>
@@ -709,7 +677,6 @@
               {/if}
             </div>
             <div class="row-date">{txn.transaction_date}</div>
-            <div class="row-account">{txn.account_name || ''}</div>
             <div class="row-desc">{txn.description}</div>
             <div class="row-amount" class:negative={txn.amount < 0}>
               {txn.amount < 0 ? '-' : ''}${Math.abs(txn.amount).toFixed(2)}
@@ -734,9 +701,9 @@
     <!-- Sidebar: suggested tags (always visible) -->
     <div class="sidebar">
       <div class="sidebar-section">
-        <div class="sidebar-title">Quick Tags {#if isLoadingSuggestions}<span class="loading-hint">(loading...)</span>{/if}</div>
+        <div class="sidebar-title">Quick Tags</div>
         {#if currentSuggestions.length === 0}
-          <div class="sidebar-empty">{isLoadingSuggestions ? 'Loading...' : 'No suggestions'}</div>
+          <div class="sidebar-empty">No suggestions</div>
         {:else}
           <div class="tag-suggestions">
             {#each currentSuggestions as suggestion, i}
@@ -775,10 +742,10 @@
           type="text"
           class="command-input"
           bind:value={searchQuery}
-          onkeydown={handleSearchKeyDown}
-          placeholder="type search, Enter to apply"
+          oninput={handleSearchInput}
+          placeholder="search description... (live)"
         />
-        <span class="command-hint">Enter to search, Esc to cancel</span>
+        <span class="command-hint">Esc to exit</span>
       </div>
     {:else if isCustomTagging}
       <div class="command-input-row">
@@ -961,12 +928,6 @@
     margin-bottom: var(--spacing-sm);
   }
 
-  .loading-hint {
-    font-weight: 400;
-    text-transform: none;
-    font-style: italic;
-  }
-
   .sidebar-empty {
     font-size: 12px;
     color: var(--text-muted);
@@ -1087,16 +1048,6 @@
     flex-shrink: 0;
     color: var(--text-muted);
     font-size: 12px;
-  }
-
-  .row-account {
-    width: 100px;
-    flex-shrink: 0;
-    color: var(--text-muted);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   .row-desc {
