@@ -24,7 +24,7 @@ export { registry } from "./registry";
 
 // API
 export { getStatus, executeQuery } from "./api";
-export type { StatusResponse, QueryResult } from "./api";
+export type { StatusResponse, QueryResult, ExecuteQueryOptions } from "./api";
 
 // Theme
 export { themeManager, themes } from "./theme";

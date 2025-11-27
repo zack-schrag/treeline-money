@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
-#[cfg(debug_assertions)]
 use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,17 +53,21 @@ fn get_db_path() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-fn execute_query(query: String) -> Result<String, String> {
+fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String> {
     // Get database path
     let db_path = get_db_path()?;
 
-    // Open read-only connection
-    let config = duckdb::Config::default()
-        .access_mode(duckdb::AccessMode::ReadOnly)
-        .map_err(|e| format!("Failed to configure database: {}", e))?;
-
-    let conn = Connection::open_with_flags(&db_path, config)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+    // Open connection with appropriate access mode
+    let readonly = readonly.unwrap_or(true);
+    let conn = if readonly {
+        let config = duckdb::Config::default()
+            .access_mode(duckdb::AccessMode::ReadOnly)
+            .map_err(|e| format!("Failed to configure database: {}", e))?;
+        Connection::open_with_flags(&db_path, config)
+    } else {
+        Connection::open(&db_path)
+    }
+    .map_err(|e| format!("Failed to open database: {}", e))?;
 
     // Execute query and get arrow result
     let mut stmt = conn

@@ -12,7 +12,7 @@ This is a monorepo with three main components:
 - Use ruff for code formatting: `uvx ruff format cli/`
 - ALWAYS use Python type hints
 
-## Rust (core/, ui/src-tauri/)
+## Rust (ui/src-tauri/)
 - Use `cargo fmt` for formatting
 - Use `cargo clippy` for linting
 
@@ -34,11 +34,6 @@ This is a monorepo with three main components:
 Run from the cli/ directory:
 ```bash
 cd cli && uv run pytest tests/unit
-```
-
-## Rust Tests
-```bash
-cargo test -p treeline-core
 ```
 
 # Running the CLI

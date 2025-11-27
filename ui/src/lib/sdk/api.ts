@@ -46,11 +46,18 @@ export interface QueryResult {
   row_count: number;
 }
 
+export interface ExecuteQueryOptions {
+  readonly?: boolean;
+}
+
 /**
  * Execute a SQL query against the DuckDB database
+ * @param query SQL query string
+ * @param options.readonly If true (default), opens read-only connection. Set to false for writes.
  */
-export async function executeQuery(query: string): Promise<QueryResult> {
-  const jsonString = await invoke<string>("execute_query", { query });
+export async function executeQuery(query: string, options: ExecuteQueryOptions = {}): Promise<QueryResult> {
+  const { readonly = true } = options;
+  const jsonString = await invoke<string>("execute_query", { query, readonly });
 
   // Parse JSON string from Rust backend
   const response = JSON.parse(jsonString);
