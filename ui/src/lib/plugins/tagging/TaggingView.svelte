@@ -45,19 +45,22 @@
   // Stats
   let taggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
 
+  // All known tags for autocomplete
+  let allTags = $state<string[]>([]);
+
   // Autocomplete for custom tag input
   let tagAutocomplete = $derived.by(() => {
-    if (!customTagInput || currentSuggestions.length === 0) return "";
+    if (!customTagInput || allTags.length === 0) return "";
 
     // Get the partial tag being typed (after last comma)
     const parts = customTagInput.split(",");
     const partial = parts[parts.length - 1].trim().toLowerCase();
     if (!partial) return "";
 
-    // Find first matching suggestion
-    for (const s of currentSuggestions) {
-      if (s.tag.toLowerCase().startsWith(partial) && s.tag.toLowerCase() !== partial) {
-        return s.tag.slice(partial.length);
+    // Find first matching tag from all known tags
+    for (const tag of allTags) {
+      if (tag.toLowerCase().startsWith(partial) && tag.toLowerCase() !== partial) {
+        return tag.slice(partial.length);
       }
     }
     return "";
@@ -213,7 +216,6 @@
         deselectAll();
         break;
       case "t":
-      case "Enter":
         e.preventDefault();
         startCustomTagging();
         break;
@@ -222,10 +224,6 @@
         clearTagsFromCurrent();
         break;
       case "r":
-        e.preventDefault();
-        removeTagsFromCurrent();
-        break;
-      case "R":
         e.preventDefault();
         resetFilters();
         break;
@@ -616,9 +614,14 @@
     await clearTagsFromCurrent();
   }
 
+  function formatAmount(amount: number): string {
+    return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   onMount(async () => {
     // Preload tag data in parallel with loading transactions
-    suggester.loadTagData();
+    await suggester.loadTagData();
+    allTags = suggester.getAllTags();
     await loadTransactions();
     containerEl?.focus();
   });
@@ -670,7 +673,7 @@
     <span><kbd>a</kbd> bulk tag</span>
     <span><kbd>/</kbd> search</span>
     <span><kbd>u</kbd> filter</span>
-    <span><kbd>R</kbd> reset</span>
+    <span><kbd>r</kbd> reset</span>
     <span><kbd>n</kbd> next untagged</span>
   </div>
 
@@ -707,7 +710,7 @@
             <div class="row-account">{txn.account_name || ''}</div>
             <div class="row-desc">{txn.description}</div>
             <div class="row-amount" class:negative={txn.amount < 0} class:positive={txn.amount >= 0}>
-              {txn.amount < 0 ? '-' : ''}${Math.abs(txn.amount).toFixed(2)}
+              {txn.amount < 0 ? '-' : ''}${formatAmount(txn.amount)}
             </div>
             <div class="row-tags">
               {#if txn.tags.length === 0}

@@ -46,6 +46,17 @@ export class FrequencyBasedSuggester implements TagSuggester {
     await this.loadTagData();
   }
 
+  /**
+   * Get all known tags sorted by frequency (most frequent first).
+   * Returns empty array if tag data hasn't been loaded yet.
+   */
+  getAllTags(): string[] {
+    if (!this.tagData) return [];
+    return Array.from(this.tagData.globalFrequencies.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag]) => tag);
+  }
+
   private async fetchTagData(): Promise<TagData> {
     const globalFrequencies = new Map<string, number>();
     const merchantTagFrequencies = new Map<string, Map<string, number>>();
