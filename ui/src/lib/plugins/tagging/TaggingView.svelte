@@ -9,7 +9,10 @@
   let transactions = $state<Transaction[]>([]);
   let suggestions = $state<Map<string, TagSuggestion[]>>(new Map());
   let isLoading = $state(true);
+  let isLoadingMore = $state(false);
   let error = $state<string | null>(null);
+  let hasMore = $state(true);
+  const PAGE_SIZE = 200;
 
   // Selection state
   let selectedIndices = $state<Set<number>>(new Set());
@@ -66,52 +69,66 @@
     return "";
   });
 
+  function buildQuery(offset: number = 0): string {
+    let query = `
+      SELECT
+        transaction_id,
+        transaction_date,
+        description,
+        amount,
+        tags,
+        account_name
+      FROM transactions
+    `;
+
+    if (filterMode === "untagged" && !searchQuery.trim()) {
+      query += " WHERE tags = []";
+    } else if (searchQuery.trim()) {
+      const escapedSearch = searchQuery.trim().replace(/'/g, "''");
+      // Search across description, account_name, amount (as string), and tags
+      query += ` WHERE (
+        description ILIKE '%${escapedSearch}%'
+        OR account_name ILIKE '%${escapedSearch}%'
+        OR CAST(amount AS VARCHAR) LIKE '%${escapedSearch}%'
+        OR array_to_string(tags, ',') ILIKE '%${escapedSearch}%'
+      )`;
+    }
+
+    query += ` ORDER BY transaction_date DESC LIMIT ${PAGE_SIZE + 1} OFFSET ${offset}`;
+    return query;
+  }
+
+  function parseRows(rows: unknown[][]): Transaction[] {
+    return rows.map(row => ({
+      transaction_id: row[0] as string,
+      transaction_date: row[1] as string,
+      description: row[2] as string,
+      amount: row[3] as number,
+      tags: (row[4] as string[]) || [],
+      account_name: row[5] as string,
+    }));
+  }
+
   async function loadTransactions() {
     isLoading = true;
     error = null;
+    hasMore = true;
 
     try {
-      let query = `
-        SELECT
-          transaction_id,
-          transaction_date,
-          description,
-          amount,
-          tags,
-          account_name
-        FROM transactions
-      `;
+      const result = await executeQuery(buildQuery(0));
+      const rows = parseRows(result.rows);
 
-      if (filterMode === "untagged" && !searchQuery.trim()) {
-        query += " WHERE tags = []";
-      } else if (searchQuery.trim()) {
-        const escapedSearch = searchQuery.trim().replace(/'/g, "''");
-        // Search across description, account_name, amount (as string), and tags
-        query += ` WHERE (
-          description ILIKE '%${escapedSearch}%'
-          OR account_name ILIKE '%${escapedSearch}%'
-          OR CAST(amount AS VARCHAR) LIKE '%${escapedSearch}%'
-          OR array_to_string(tags, ',') ILIKE '%${escapedSearch}%'
-        )`;
+      // Check if there are more results
+      if (rows.length > PAGE_SIZE) {
+        transactions = rows.slice(0, PAGE_SIZE);
+        hasMore = true;
+      } else {
+        transactions = rows;
+        hasMore = false;
       }
 
-      query += " ORDER BY transaction_date DESC LIMIT 500";
-
-      const result = await executeQuery(query);
-
-      transactions = result.rows.map(row => ({
-        transaction_id: row[0] as string,
-        transaction_date: row[1] as string,
-        description: row[2] as string,
-        amount: row[3] as number,
-        tags: (row[4] as string[]) || [],
-        account_name: row[5] as string,
-      }));
-
-      // Reset cursor if out of bounds
-      if (cursorIndex >= transactions.length) {
-        cursorIndex = Math.max(0, transactions.length - 1);
-      }
+      // Reset cursor
+      cursorIndex = 0;
 
       // Compute suggestions for all loaded transactions
       suggestions = await suggester.suggestBatch(transactions, 9);
@@ -120,6 +137,34 @@
       console.error("Failed to load transactions:", e);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function loadMoreTransactions() {
+    if (!hasMore || isLoadingMore) return;
+
+    isLoadingMore = true;
+
+    try {
+      const result = await executeQuery(buildQuery(transactions.length));
+      const rows = parseRows(result.rows);
+
+      if (rows.length > PAGE_SIZE) {
+        transactions = [...transactions, ...rows.slice(0, PAGE_SIZE)];
+        hasMore = true;
+      } else {
+        transactions = [...transactions, ...rows];
+        hasMore = false;
+      }
+
+      // Compute suggestions for new transactions
+      const newSuggestions = await suggester.suggestBatch(rows.slice(0, PAGE_SIZE), 9);
+      suggestions = new Map([...suggestions, ...newSuggestions]);
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to load more";
+      console.error("Failed to load more transactions:", e);
+    } finally {
+      isLoadingMore = false;
     }
   }
 
@@ -347,6 +392,11 @@
     if (newIndex >= 0 && newIndex < transactions.length) {
       cursorIndex = newIndex;
       scrollToCursor();
+
+      // Auto-load more when near the end (within 20 items)
+      if (hasMore && !isLoadingMore && cursorIndex >= transactions.length - 20) {
+        loadMoreTransactions();
+      }
     }
   }
 
@@ -358,6 +408,11 @@
   function pageDown() {
     cursorIndex = Math.min(transactions.length - 1, cursorIndex + 20);
     scrollToCursor();
+
+    // Auto-load more when near the end
+    if (hasMore && !isLoadingMore && cursorIndex >= transactions.length - 20) {
+      loadMoreTransactions();
+    }
   }
 
   function skipToNextUntagged() {
@@ -656,10 +711,13 @@
       </div>
     </div>
     <div class="stats">
-      <span>{transactions.length} transactions</span>
+      <span>{transactions.length}{hasMore ? '+' : ''} transactions</span>
       <span class="tagged-count">| {taggedCount} tagged</span>
       {#if selectedIndices.size > 0}
         <span class="selected-count">| {selectedIndices.size} selected</span>
+      {/if}
+      {#if isLoadingMore}
+        <span class="loading-more">| loading...</span>
       {/if}
     </div>
   </div>
@@ -782,19 +840,17 @@
     {:else if isCustomTagging}
       <div class="command-input-row">
         <span class="command-prefix">tags ({getTargetCount()}):</span>
-        <div class="input-with-autocomplete">
-          <input
-            bind:this={customTagInputEl}
-            type="text"
-            class="command-input"
-            bind:value={customTagInput}
-            placeholder="enter tags (comma-separated)"
-          />
-          {#if tagAutocomplete}
-            <span class="autocomplete-ghost">{customTagInput}<span class="autocomplete-hint">{tagAutocomplete}</span></span>
-          {/if}
-        </div>
-        <span class="command-hint">Tab to complete, Enter to apply</span>
+        <input
+          bind:this={customTagInputEl}
+          type="text"
+          class="command-input"
+          bind:value={customTagInput}
+          placeholder="enter tags (comma-separated)"
+        />
+        {#if tagAutocomplete}
+          <span class="autocomplete-hint">{tagAutocomplete}</span>
+        {/if}
+        <span class="command-hint">Tab to complete</span>
       </div>
     {:else if isBulkTagging}
       <div class="command-input-row">
@@ -890,6 +946,11 @@
     font-size: 12px;
     color: var(--text-muted);
     margin-top: 4px;
+  }
+
+  .loading-more {
+    color: var(--accent-primary);
+    font-style: italic;
   }
 
   .tagged-count {
@@ -1171,32 +1232,12 @@
     color: var(--text-muted);
   }
 
-  .input-with-autocomplete {
-    flex: 1;
-    position: relative;
-  }
-
-  .input-with-autocomplete .command-input {
-    position: relative;
-    z-index: 1;
-    background: transparent;
-    width: 100%;
-  }
-
-  .autocomplete-ghost {
-    position: absolute;
-    top: 0;
-    left: 0;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    pointer-events: none;
-    color: transparent;
-    white-space: pre;
-  }
-
   .autocomplete-hint {
     color: var(--text-muted);
-    opacity: 0.6;
+    opacity: 0.5;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    margin-left: -2px;
   }
 
   .command-hint {
