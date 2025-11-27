@@ -446,6 +446,16 @@
     containerEl?.focus();
   }
 
+  function handleListScroll(e: Event) {
+    const target = e.target as HTMLElement;
+    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+
+    // Load more when within 100px of the bottom
+    if (scrollBottom < 100 && hasMore && !isLoadingMore) {
+      loadMoreTransactions();
+    }
+  }
+
   function toggleSelection() {
     toggleSelectionNoMove();
     moveCursor(1);
@@ -742,7 +752,7 @@
   <!-- Main content area: list + sidebar -->
   <div class="main-content">
     <!-- Transaction list -->
-    <div class="list-container">
+    <div class="list-container" onscroll={handleListScroll}>
       {#if isLoading}
         <div class="empty-state">Loading...</div>
       {:else if transactions.length === 0}
@@ -784,6 +794,14 @@
             </div>
           </div>
         {/each}
+        {#if isLoadingMore}
+          <div class="loading-spinner">
+            <span class="spinner"></span>
+            <span>Loading more...</span>
+          </div>
+        {:else if hasMore}
+          <div class="load-more-hint">Scroll for more</div>
+        {/if}
       {/if}
     </div>
 
@@ -840,16 +858,15 @@
     {:else if isCustomTagging}
       <div class="command-input-row">
         <span class="command-prefix">tags ({getTargetCount()}):</span>
-        <input
-          bind:this={customTagInputEl}
-          type="text"
-          class="command-input"
-          bind:value={customTagInput}
-          placeholder="enter tags (comma-separated)"
-        />
-        {#if tagAutocomplete}
-          <span class="autocomplete-hint">{tagAutocomplete}</span>
-        {/if}
+        <span class="input-wrapper">
+          <input
+            bind:this={customTagInputEl}
+            type="text"
+            class="command-input"
+            bind:value={customTagInput}
+            placeholder="enter tags (comma-separated)"
+          />{#if tagAutocomplete}<span class="autocomplete-hint" style="left: {customTagInput.length}ch">{tagAutocomplete}</span>{/if}
+        </span>
         <span class="command-hint">Tab to complete</span>
       </div>
     {:else if isBulkTagging}
@@ -1232,12 +1249,33 @@
     color: var(--text-muted);
   }
 
+  .input-wrapper {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .input-wrapper .command-input {
+    width: 100%;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    line-height: 1;
+  }
+
   .autocomplete-hint {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
     color: var(--text-muted);
-    opacity: 0.5;
+    opacity: 0.6;
     font-family: var(--font-mono);
     font-size: 13px;
-    margin-left: -2px;
+    pointer-events: none;
+    white-space: nowrap;
   }
 
   .command-hint {
@@ -1259,5 +1297,37 @@
     border-radius: 3px;
     font-family: var(--font-mono);
     font-size: 10px;
+  }
+
+  .loading-spinner {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-primary);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .load-more-hint {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+    opacity: 0.7;
   }
 </style>
