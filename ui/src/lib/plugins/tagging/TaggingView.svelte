@@ -584,8 +584,10 @@
     await clearTagsFromCurrent();
   }
 
-  onMount(() => {
-    loadTransactions();
+  onMount(async () => {
+    // Preload tag data in parallel with loading transactions
+    suggester.loadTagData();
+    await loadTransactions();
     containerEl?.focus();
   });
 
@@ -677,6 +679,7 @@
               {/if}
             </div>
             <div class="row-date">{txn.transaction_date}</div>
+            <div class="row-account">{txn.account_name || ''}</div>
             <div class="row-desc">{txn.description}</div>
             <div class="row-amount" class:negative={txn.amount < 0}>
               {txn.amount < 0 ? '-' : ''}${Math.abs(txn.amount).toFixed(2)}
@@ -1048,6 +1051,16 @@
     flex-shrink: 0;
     color: var(--text-muted);
     font-size: 12px;
+  }
+
+  .row-account {
+    width: 100px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .row-desc {
