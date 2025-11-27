@@ -45,8 +45,52 @@
     return suggestions.get(txn.transaction_id) || [];
   });
 
-  // Stats
-  let taggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
+  // Stats for visible transactions
+  let visibleTaggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
+
+  // Global stats (all transactions in database)
+  let globalStats = $state({ total: 0, tagged: 0 });
+  let globalUntaggedCount = $derived(globalStats.total - globalStats.tagged);
+  let progressPercent = $derived(globalStats.total > 0 ? Math.floor((globalStats.tagged / globalStats.total) * 100) : 0);
+  let isAllTagged = $derived(globalStats.total > 0 && globalStats.tagged === globalStats.total);
+
+  // Celebration state
+  let showCelebration = $state(false);
+  let prevIsAllTagged = false;
+
+  // Watch for 100% completion (all transactions tagged)
+  $effect(() => {
+    if (isAllTagged && !prevIsAllTagged && !isLoading) {
+      triggerCelebration();
+    }
+    prevIsAllTagged = isAllTagged;
+  });
+
+  function triggerCelebration() {
+    showCelebration = true;
+    setTimeout(() => {
+      showCelebration = false;
+    }, 3000);
+  }
+
+  async function loadGlobalStats() {
+    try {
+      const result = await executeQuery(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE len(tags) > 0) as tagged
+        FROM transactions
+      `);
+      if (result.rows.length > 0) {
+        globalStats = {
+          total: result.rows[0][0] as number,
+          tagged: result.rows[0][1] as number
+        };
+      }
+    } catch (e) {
+      console.error("Failed to load global stats:", e);
+    }
+  }
 
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
@@ -528,7 +572,7 @@
     persistTagChanges(indices.map(i => transactions[i]));
   }
 
-  async function persistTagChanges(txns: Transaction[]) {
+  async function persistTagChanges(txns: Transaction[], tagAdded: boolean = true) {
     try {
       for (const txn of txns) {
         const tagsJson = JSON.stringify(txn.tags);
@@ -538,6 +582,8 @@
           { readonly: false }
         );
       }
+      // Refresh global stats after persisting
+      await loadGlobalStats();
     } catch (e) {
       console.error("Failed to persist tags:", e);
       // Could show a toast/notification here
@@ -687,6 +733,7 @@
     // Preload tag data in parallel with loading transactions
     await suggester.loadTagData();
     allTags = suggester.getAllTags();
+    await loadGlobalStats();
     await loadTransactions();
     containerEl?.focus();
   });
@@ -704,10 +751,38 @@
   tabindex="0"
   onkeydown={handleKeyDown}
 >
+  <!-- Confetti celebration -->
+  {#if showCelebration}
+    <div class="confetti-container">
+      {#each Array(50) as _, i}
+        <div class="confetti" style="--delay: {Math.random() * 3}s; --x: {Math.random() * 100}vw; --rotation: {Math.random() * 360}deg; --color: {['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'][i % 6]}"></div>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Header -->
   <div class="header">
     <div class="title-row">
       <h1 class="title">Tag Transactions</h1>
+
+      <!-- Progress Ring -->
+      {#if globalStats.total > 0}
+        <div class="progress-ring-container" class:complete={isAllTagged}>
+          <svg class="progress-ring" viewBox="0 0 36 36">
+            <path
+              class="progress-ring-bg"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+            <path
+              class="progress-ring-fill"
+              stroke-dasharray="{progressPercent}, 100"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+          </svg>
+          <span class="progress-text">{progressPercent}%</span>
+        </div>
+      {/if}
+
       <div class="mode-indicator">
         {#if searchQuery}
           <span class="mode search-mode">Search</span>
@@ -721,8 +796,11 @@
       </div>
     </div>
     <div class="stats">
-      <span>{transactions.length}{hasMore ? '+' : ''} transactions</span>
-      <span class="tagged-count">| {taggedCount} tagged</span>
+      <span>Viewing {transactions.length}{hasMore ? '+' : ''}</span>
+      <span class="tagged-count">| {globalStats.tagged}/{globalStats.total} tagged</span>
+      {#if globalUntaggedCount > 0}
+        <span class="untagged-count">| {globalUntaggedCount} left</span>
+      {/if}
       {#if selectedIndices.size > 0}
         <span class="selected-count">| {selectedIndices.size} selected</span>
       {/if}
@@ -1329,5 +1407,110 @@
     color: var(--text-muted);
     font-size: 11px;
     opacity: 0.7;
+  }
+
+  /* Progress Ring */
+  .progress-ring-container {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .progress-ring-container.complete {
+    animation: pulse-complete 0.5s ease-out;
+  }
+
+  @keyframes pulse-complete {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+
+  .progress-ring {
+    width: 36px;
+    height: 36px;
+    transform: rotate(-90deg);
+  }
+
+  .progress-ring-bg {
+    fill: none;
+    stroke: var(--border-primary);
+    stroke-width: 3;
+  }
+
+  .progress-ring-fill {
+    fill: none;
+    stroke: var(--accent-primary);
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke-dasharray 0.3s ease;
+  }
+
+  .progress-ring-container.complete .progress-ring-fill {
+    stroke: var(--accent-success, #22c55e);
+  }
+
+  .progress-text {
+    position: absolute;
+    font-size: 8px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+  }
+
+  .untagged-count {
+    color: var(--accent-warning, #f59e0b);
+  }
+
+  /* Confetti */
+  .confetti-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+    overflow: hidden;
+  }
+
+  .confetti {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--color);
+    top: -10px;
+    left: var(--x);
+    opacity: 0;
+    transform: rotate(var(--rotation));
+    animation: confetti-fall 3s ease-out var(--delay) forwards;
+  }
+
+  .confetti:nth-child(odd) {
+    width: 8px;
+    height: 12px;
+    border-radius: 2px;
+  }
+
+  .confetti:nth-child(even) {
+    width: 12px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  @keyframes confetti-fall {
+    0% {
+      opacity: 1;
+      top: -10px;
+      transform: rotate(var(--rotation)) translateX(0);
+    }
+    100% {
+      opacity: 0;
+      top: 100vh;
+      transform: rotate(calc(var(--rotation) + 720deg)) translateX(calc(var(--x) * 0.2 - 10vw));
+    }
   }
 </style>
