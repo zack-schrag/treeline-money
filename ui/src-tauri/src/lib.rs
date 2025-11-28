@@ -313,6 +313,15 @@ fn write_plugin_config(plugin_id: String, filename: String, content: String) -> 
     }
 
     let config_path = plugin_dir.join(&filename);
+
+    // Create parent directories if filename contains subdirectories (e.g., "months/2025-12.json")
+    if let Some(parent) = config_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+        }
+    }
+
     fs::write(&config_path, content)
         .map_err(|e| format!("Failed to write config: {}", e))
 }

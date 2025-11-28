@@ -5,7 +5,8 @@
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
-  const CONFIG_FILE = "budget_config.json";
+  const CONFIG_FILE = "budget_config.json"; // template
+  const MONTHS_DIR = "months"; // monthly overrides
 
   // State
   let categories = $state<BudgetCategory[]>([]);
@@ -16,6 +17,7 @@
   // Month selection
   let availableMonths = $state<string[]>([]);
   let selectedMonth = $state<string>("");
+  let isCustomMonth = $state(false); // true if this month has its own budget config
 
   // Account filtering
   let allAccounts = $state<string[]>([]);
@@ -126,8 +128,26 @@
     return config;
   }
 
-  async function loadConfig(): Promise<BudgetConfig> {
+  async function loadConfig(month?: string): Promise<BudgetConfig> {
+    const targetMonth = month || selectedMonth;
+
+    // Try month-specific config first
+    if (targetMonth) {
+      try {
+        const monthFile = `${MONTHS_DIR}/${targetMonth}.json`;
+        const content = await invoke<string>("read_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile });
+        if (content && content !== "null") {
+          isCustomMonth = true;
+          return JSON.parse(content);
+        }
+      } catch (e) {
+        // Month-specific file doesn't exist, fall through to template
+      }
+    }
+
+    // Fall back to template
     try {
+      isCustomMonth = false;
       const content = await invoke<string>("read_plugin_config", { pluginId: PLUGIN_ID, filename: CONFIG_FILE });
       if (content === "null" || !content) return { income: {}, expenses: {}, savings: {} };
       return JSON.parse(content);
@@ -138,12 +158,47 @@
   }
 
   async function saveConfig(config: BudgetConfig): Promise<void> {
+    // Always save to month-specific file
+    if (!selectedMonth) return;
+    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
+    await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile, content: JSON.stringify(config, null, 2) });
+    isCustomMonth = true;
+  }
+
+  async function saveAsTemplate(config: BudgetConfig): Promise<void> {
+    // Save current config as the template for future months
     await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: CONFIG_FILE, content: JSON.stringify(config, null, 2) });
+  }
+
+  async function resetToTemplate(): Promise<void> {
+    // Delete month-specific config to revert to template
+    if (!selectedMonth) return;
+    try {
+      const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
+      // Write empty/null to effectively delete (or we could add a delete command)
+      await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile, content: "null" });
+      isCustomMonth = false;
+      await loadCategories();
+      await calculateActuals();
+    } catch (e) {
+      console.error("Failed to reset to template:", e);
+    }
   }
 
   async function loadAvailableMonths() {
     const result = await executeQuery(`SELECT DISTINCT strftime('%Y-%m', transaction_date) as month FROM transactions ORDER BY month DESC`);
-    availableMonths = result.rows.map(r => r[0] as string);
+    const transactionMonths = result.rows.map(r => r[0] as string);
+
+    // Always include current month and next month for planning
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+
+    // Combine and dedupe, keeping DESC order
+    const allMonths = new Set([nextMonthStr, currentMonth, ...transactionMonths]);
+    availableMonths = Array.from(allMonths).sort().reverse();
+
     if (availableMonths.length > 0 && !selectedMonth) selectedMonth = availableMonths[0];
   }
 
@@ -369,7 +424,10 @@
   }
 
   $effect(() => {
-    if (selectedMonth && categories.length > 0) calculateActuals();
+    if (selectedMonth) {
+      // Reload config for the new month (may have month-specific budget)
+      loadCategories().then(() => calculateActuals());
+    }
   });
 
   onMount(() => {
@@ -384,10 +442,24 @@
       <h1 class="title">Budget</h1>
       <div class="month-nav">
         <button class="nav-btn" onclick={() => cycleMonth(1)} disabled={availableMonths.indexOf(selectedMonth) === availableMonths.length - 1}>←</button>
-        <span class="current-month">{selectedMonth || "—"}</span>
+        <span class="current-month">
+          {selectedMonth || "—"}
+          {#if isCustomMonth}<span class="custom-badge" title="Custom budget for this month">*</span>{/if}
+        </span>
         <button class="nav-btn" onclick={() => cycleMonth(-1)} disabled={availableMonths.indexOf(selectedMonth) === 0}>→</button>
       </div>
     </div>
+    {#if isCustomMonth}
+      <div class="template-actions">
+        <span class="template-hint">Custom budget</span>
+        <button class="template-btn" onclick={resetToTemplate}>Reset to template</button>
+        <button class="template-btn" onclick={() => saveAsTemplate(categoriesToConfig(categories))}>Set as default</button>
+      </div>
+    {:else}
+      <div class="template-actions">
+        <span class="template-hint">Using template</span>
+      </div>
+    {/if}
   </div>
 
   <!-- Help bar -->
@@ -623,6 +695,38 @@
     color: var(--text-primary);
     min-width: 80px;
     text-align: center;
+  }
+
+  .custom-badge {
+    color: var(--accent-warning, #f59e0b);
+    margin-left: 2px;
+  }
+
+  .template-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: 6px;
+    font-size: 11px;
+  }
+
+  .template-hint {
+    color: var(--text-muted);
+  }
+
+  .template-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .template-btn:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
   }
 
   .help-bar {
