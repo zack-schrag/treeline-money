@@ -1,8 +1,7 @@
 # Project Structure
 
-This is a monorepo with three main components:
+This is a monorepo with two main components:
 
-- **core/** - Rust library with shared business logic (future: PyO3 bindings for CLI)
 - **cli/** - Python CLI application (Typer)
 - **ui/** - Tauri desktop application (Rust + Svelte)
 
@@ -16,7 +15,7 @@ This is a monorepo with three main components:
 - Use `cargo fmt` for formatting
 - Use `cargo clippy` for linting
 
-# Implementation Guidelines
+# CLI Implementation Guidelines
 - ALWAYS use Test Driven Development unless explicitly told otherwise
 - ALWAYS follow Hexagonal architecture principles
 - ALWAYS run unit tests before doing a git commit, unless explicitly asked not to
