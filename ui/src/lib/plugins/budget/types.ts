@@ -27,9 +27,9 @@ export interface BudgetActual {
 
 export interface MonthSummary {
   month: string;
-  totalIncome: number;
-  totalExpenses: number;
-  totalSavings: number;
+  income: number;
+  expenses: number;
+  savings: number;
   net: number;
 }
 
@@ -37,4 +37,15 @@ export interface BudgetConfig {
   income: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
   expenses: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
   savings: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
+  // Optional: filter to only include certain accounts
+  selectedAccounts?: string[];
+}
+
+export interface Transaction {
+  transaction_id: string;
+  transaction_date: string;
+  description: string;
+  amount: number;
+  tags: string[];
+  account_name: string;
 }

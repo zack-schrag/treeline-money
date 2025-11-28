@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery } from "../../sdk";
-  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig } from "./types";
+  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, MonthSummary, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
   const CONFIG_FILE = "budget_config.json";
@@ -10,12 +10,23 @@
   // State
   let categories = $state<BudgetCategory[]>([]);
   let actuals = $state<BudgetActual[]>([]);
+  let compareActuals = $state<BudgetActual[]>([]);
   let isLoading = $state(true);
   let error = $state<string | null>(null);
 
   // Month selection
   let availableMonths = $state<string[]>([]);
   let selectedMonth = $state<string>("");
+  let compareMonth = $state<string>("");
+  let isCompareMode = $state(false);
+
+  // Account filtering
+  let allAccounts = $state<string[]>([]);
+  let selectedAccounts = $state<string[]>([]);
+  let showAccountFilter = $state(false);
+
+  // Trend data for hero chart
+  let monthTrends = $state<MonthSummary[]>([]);
 
   // Editor state
   let isEditing = $state(false);
@@ -28,6 +39,12 @@
     require_all: false,
     amount_sign: null as AmountSign | null,
   });
+
+  // Transaction drill-down
+  let showTransactions = $state(false);
+  let drillDownCategory = $state<BudgetActual | null>(null);
+  let drillDownTransactions = $state<Transaction[]>([]);
+  let drillDownLoading = $state(false);
 
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
@@ -50,10 +67,46 @@
 
   let netAmount = $derived(incomeSummary.actual - expenseSummary.actual - savingsSummary.actual);
 
+  // Compare summaries
+  let compareIncomeSummary = $derived({
+    expected: compareActuals.filter(a => a.type === "income").reduce((sum, a) => sum + a.expected, 0),
+    actual: compareActuals.filter(a => a.type === "income").reduce((sum, a) => sum + a.actual, 0),
+  });
+
+  let compareExpenseSummary = $derived({
+    expected: compareActuals.filter(a => a.type === "expense").reduce((sum, a) => sum + a.expected, 0),
+    actual: compareActuals.filter(a => a.type === "expense").reduce((sum, a) => sum + a.actual, 0),
+  });
+
+  let compareSavingsSummary = $derived({
+    expected: compareActuals.filter(a => a.type === "savings").reduce((sum, a) => sum + a.expected, 0),
+    actual: compareActuals.filter(a => a.type === "savings").reduce((sum, a) => sum + a.actual, 0),
+  });
+
+  let compareNetAmount = $derived(compareIncomeSummary.actual - compareExpenseSummary.actual - compareSavingsSummary.actual);
+
   // Group actuals by type
   let incomeActuals = $derived(actuals.filter(a => a.type === "income"));
   let expenseActuals = $derived(actuals.filter(a => a.type === "expense"));
   let savingsActuals = $derived(actuals.filter(a => a.type === "savings"));
+
+  // Chart dimensions
+  const CHART_HEIGHT = 160;
+  const CHART_PADDING = 40;
+
+  // Compute chart data
+  let chartData = $derived.by(() => {
+    if (monthTrends.length === 0) return null;
+
+    const maxValue = Math.max(
+      ...monthTrends.flatMap(m => [m.income, m.expenses, m.savings])
+    ) * 1.1;
+
+    const barWidth = Math.min(60, (800 - CHART_PADDING * 2) / monthTrends.length / 3 - 4);
+    const groupWidth = barWidth * 3 + 12;
+
+    return { maxValue, barWidth, groupWidth };
+  });
 
   // Convert BudgetConfig JSON to flat category array
   function configToCategories(config: BudgetConfig): BudgetCategory[] {
@@ -104,6 +157,7 @@
       income: {},
       expenses: {},
       savings: {},
+      selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined,
     };
 
     for (const cat of cats) {
@@ -163,6 +217,19 @@
     if (availableMonths.length > 0 && !selectedMonth) {
       selectedMonth = availableMonths[0];
     }
+    if (availableMonths.length > 1 && !compareMonth) {
+      compareMonth = availableMonths[1];
+    }
+  }
+
+  async function loadAllAccounts() {
+    const result = await executeQuery(`
+      SELECT DISTINCT account_name
+      FROM transactions
+      WHERE account_name IS NOT NULL AND account_name != ''
+      ORDER BY account_name
+    `);
+    allAccounts = result.rows.map(r => r[0] as string);
   }
 
   async function loadAllTags() {
@@ -178,34 +245,38 @@
   async function loadCategories() {
     const config = await loadConfig();
     categories = configToCategories(config);
+    if (config.selectedAccounts && config.selectedAccounts.length > 0) {
+      selectedAccounts = config.selectedAccounts;
+    }
   }
 
-  async function calculateActuals() {
-    if (!selectedMonth || categories.length === 0) {
-      actuals = [];
-      return;
+  function buildAccountFilter(): string {
+    if (selectedAccounts.length === 0) return "";
+    const escaped = selectedAccounts.map(a => `'${a.replace(/'/g, "''")}'`);
+    return `AND account_name IN (${escaped.join(", ")})`;
+  }
+
+  async function calculateActualsForMonth(month: string): Promise<BudgetActual[]> {
+    if (!month || categories.length === 0) {
+      return [];
     }
 
+    const accountFilter = buildAccountFilter();
     const newActuals: BudgetActual[] = [];
 
     for (const cat of categories) {
-      // Determine the default amount sign based on type
       const defaultSign = cat.type === "income" ? "positive" : "negative";
       const effectiveSign = cat.amount_sign || defaultSign;
 
-      // Build the tag matching condition
       let tagCondition: string;
       if (cat.require_all) {
-        // AND logic: all tags must be present
         const tagChecks = cat.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`);
         tagCondition = tagChecks.join(" AND ");
       } else {
-        // OR logic: any tag matches
         const escapedTags = cat.tags.map(t => `'${t.replace(/'/g, "''")}'`);
         tagCondition = `list_has_any(tags, [${escapedTags.join(", ")}])`;
       }
 
-      // Build amount sign condition
       let amountCondition = "";
       if (effectiveSign === "positive") {
         amountCondition = "AND amount > 0";
@@ -216,18 +287,16 @@
       const query = `
         SELECT COALESCE(SUM(ABS(amount)), 0) as total
         FROM transactions
-        WHERE strftime('%Y-%m', transaction_date) = '${selectedMonth}'
+        WHERE strftime('%Y-%m', transaction_date) = '${month}'
           AND ${tagCondition}
           ${amountCondition}
+          ${accountFilter}
       `;
 
       try {
         const result = await executeQuery(query);
         const actual = result.rows[0]?.[0] as number || 0;
 
-        // Calculate variance
-        // For income: positive variance = earned more than expected
-        // For expenses/savings: positive variance = under budget
         const variance = cat.type === "income"
           ? actual - cat.expected
           : cat.expected - actual;
@@ -250,7 +319,84 @@
       }
     }
 
-    actuals = newActuals;
+    return newActuals;
+  }
+
+  async function calculateActuals() {
+    actuals = await calculateActualsForMonth(selectedMonth);
+    if (isCompareMode && compareMonth) {
+      compareActuals = await calculateActualsForMonth(compareMonth);
+    }
+  }
+
+  async function loadMonthTrends() {
+    if (categories.length === 0) {
+      monthTrends = [];
+      return;
+    }
+
+    const accountFilter = buildAccountFilter();
+    const trends: MonthSummary[] = [];
+
+    // Get last 6 months
+    const months = availableMonths.slice(0, 6).reverse();
+
+    for (const month of months) {
+      let income = 0;
+      let expenses = 0;
+      let savings = 0;
+
+      for (const cat of categories) {
+        const defaultSign = cat.type === "income" ? "positive" : "negative";
+        const effectiveSign = cat.amount_sign || defaultSign;
+
+        let tagCondition: string;
+        if (cat.require_all) {
+          const tagChecks = cat.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`);
+          tagCondition = tagChecks.join(" AND ");
+        } else {
+          const escapedTags = cat.tags.map(t => `'${t.replace(/'/g, "''")}'`);
+          tagCondition = `list_has_any(tags, [${escapedTags.join(", ")}])`;
+        }
+
+        let amountCondition = "";
+        if (effectiveSign === "positive") {
+          amountCondition = "AND amount > 0";
+        } else if (effectiveSign === "negative") {
+          amountCondition = "AND amount < 0";
+        }
+
+        const query = `
+          SELECT COALESCE(SUM(ABS(amount)), 0) as total
+          FROM transactions
+          WHERE strftime('%Y-%m', transaction_date) = '${month}'
+            AND ${tagCondition}
+            ${amountCondition}
+            ${accountFilter}
+        `;
+
+        try {
+          const result = await executeQuery(query);
+          const actual = result.rows[0]?.[0] as number || 0;
+
+          if (cat.type === "income") income += actual;
+          else if (cat.type === "expense") expenses += actual;
+          else if (cat.type === "savings") savings += actual;
+        } catch (e) {
+          console.error(`Failed to load trend for ${cat.category} in ${month}:`, e);
+        }
+      }
+
+      trends.push({
+        month,
+        income,
+        expenses,
+        savings,
+        net: income - expenses - savings,
+      });
+    }
+
+    monthTrends = trends;
   }
 
   async function loadAll() {
@@ -262,14 +408,81 @@
         loadAvailableMonths(),
         loadCategories(),
         loadAllTags(),
+        loadAllAccounts(),
       ]);
       await calculateActuals();
+      await loadMonthTrends();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load budget data";
       console.error("Failed to load budget:", e);
     } finally {
       isLoading = false;
     }
+  }
+
+  async function loadTransactionsForCategory(cat: BudgetActual) {
+    drillDownCategory = cat;
+    drillDownLoading = true;
+    showTransactions = true;
+
+    const category = categories.find(c => c.id === cat.id);
+    if (!category) {
+      drillDownLoading = false;
+      return;
+    }
+
+    const accountFilter = buildAccountFilter();
+    const defaultSign = category.type === "income" ? "positive" : "negative";
+    const effectiveSign = category.amount_sign || defaultSign;
+
+    let tagCondition: string;
+    if (category.require_all) {
+      const tagChecks = category.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`);
+      tagCondition = tagChecks.join(" AND ");
+    } else {
+      const escapedTags = category.tags.map(t => `'${t.replace(/'/g, "''")}'`);
+      tagCondition = `list_has_any(tags, [${escapedTags.join(", ")}])`;
+    }
+
+    let amountCondition = "";
+    if (effectiveSign === "positive") {
+      amountCondition = "AND amount > 0";
+    } else if (effectiveSign === "negative") {
+      amountCondition = "AND amount < 0";
+    }
+
+    const query = `
+      SELECT transaction_id, transaction_date, description, amount, tags, account_name
+      FROM transactions
+      WHERE strftime('%Y-%m', transaction_date) = '${selectedMonth}'
+        AND ${tagCondition}
+        ${amountCondition}
+        ${accountFilter}
+      ORDER BY transaction_date DESC
+    `;
+
+    try {
+      const result = await executeQuery(query);
+      drillDownTransactions = result.rows.map(row => ({
+        transaction_id: row[0] as string,
+        transaction_date: row[1] as string,
+        description: row[2] as string,
+        amount: row[3] as number,
+        tags: (row[4] as string[]) || [],
+        account_name: row[5] as string,
+      }));
+    } catch (e) {
+      console.error("Failed to load transactions:", e);
+      drillDownTransactions = [];
+    } finally {
+      drillDownLoading = false;
+    }
+  }
+
+  function closeDrillDown() {
+    showTransactions = false;
+    drillDownCategory = null;
+    drillDownTransactions = [];
   }
 
   function startAddCategory(type: BudgetType) {
@@ -324,21 +537,19 @@
         amount_sign: editorForm.amount_sign,
       };
 
-      // Remove old category if editing (in case name changed)
       let updatedCategories = categories.filter(c =>
         editingCategory ? c.id !== editingCategory.id : true
       );
 
-      // Add new/updated category
       updatedCategories.push(newCategory);
 
-      // Save to config file
       const config = categoriesToConfig(updatedCategories);
       await saveConfig(config);
 
       cancelEdit();
       await loadCategories();
       await calculateActuals();
+      await loadMonthTrends();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to save category";
       console.error("Failed to save category:", e);
@@ -355,10 +566,35 @@
 
       await loadCategories();
       await calculateActuals();
+      await loadMonthTrends();
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to delete category";
       console.error("Failed to delete category:", e);
     }
+  }
+
+  async function toggleAccount(account: string) {
+    if (selectedAccounts.includes(account)) {
+      selectedAccounts = selectedAccounts.filter(a => a !== account);
+    } else {
+      selectedAccounts = [...selectedAccounts, account];
+    }
+
+    // Save to config
+    const config = categoriesToConfig(categories);
+    await saveConfig(config);
+
+    // Recalculate
+    await calculateActuals();
+    await loadMonthTrends();
+  }
+
+  async function selectAllAccounts() {
+    selectedAccounts = [];
+    const config = categoriesToConfig(categories);
+    await saveConfig(config);
+    await calculateActuals();
+    await loadMonthTrends();
   }
 
   function formatCurrency(amount: number): string {
@@ -370,21 +606,41 @@
     });
   }
 
+  function formatCurrencyShort(amount: number): string {
+    if (amount >= 1000) {
+      return `$${(amount / 1000).toFixed(1)}k`;
+    }
+    return `$${amount.toFixed(0)}`;
+  }
+
   function getProgressColor(actual: BudgetActual): string {
     if (actual.type === "income") {
       return actual.percentUsed >= 100 ? "var(--accent-success, #22c55e)" : "var(--accent-primary)";
     } else {
-      // Expenses/savings: under budget is good
       if (actual.percentUsed > 100) return "var(--accent-danger, #ef4444)";
       if (actual.percentUsed > 90) return "var(--accent-warning, #f59e0b)";
       return "var(--accent-success, #22c55e)";
     }
   }
 
+  function getBarHeight(value: number, maxValue: number): number {
+    if (maxValue === 0) return 0;
+    return (value / maxValue) * (CHART_HEIGHT - 30);
+  }
+
   // Recalculate when month changes
   $effect(() => {
     if (selectedMonth && categories.length > 0) {
       calculateActuals();
+    }
+  });
+
+  // Recalculate compare when compare month changes
+  $effect(() => {
+    if (isCompareMode && compareMonth && categories.length > 0) {
+      calculateActualsForMonth(compareMonth).then(result => {
+        compareActuals = result;
+      });
     }
   });
 
@@ -398,14 +654,58 @@
   <div class="header">
     <div class="title-row">
       <h1 class="title">Budget</h1>
-      {#if availableMonths.length > 0}
-        <select class="month-selector" bind:value={selectedMonth}>
-          {#each availableMonths as month}
-            <option value={month}>{month}</option>
-          {/each}
-        </select>
-      {/if}
+      <div class="header-controls">
+        {#if availableMonths.length > 0}
+          <select class="month-selector" bind:value={selectedMonth}>
+            {#each availableMonths as month}
+              <option value={month}>{month}</option>
+            {/each}
+          </select>
+
+          <label class="compare-toggle">
+            <input type="checkbox" bind:checked={isCompareMode} />
+            Compare
+          </label>
+
+          {#if isCompareMode}
+            <span class="compare-vs">vs</span>
+            <select class="month-selector" bind:value={compareMonth}>
+              {#each availableMonths.filter(m => m !== selectedMonth) as month}
+                <option value={month}>{month}</option>
+              {/each}
+            </select>
+          {/if}
+        {/if}
+
+        <button class="filter-btn" onclick={() => showAccountFilter = !showAccountFilter}>
+          {selectedAccounts.length > 0 ? `${selectedAccounts.length} accounts` : "All accounts"}
+        </button>
+      </div>
     </div>
+
+    <!-- Account Filter Dropdown -->
+    {#if showAccountFilter}
+      <div class="account-filter">
+        <div class="filter-header">
+          <span>Filter by Account</span>
+          <button class="text-btn" onclick={selectAllAccounts}>
+            {selectedAccounts.length > 0 ? "Clear filter" : "All selected"}
+          </button>
+        </div>
+        <div class="account-list">
+          {#each allAccounts as account}
+            <label class="account-option">
+              <input
+                type="checkbox"
+                checked={selectedAccounts.length === 0 || selectedAccounts.includes(account)}
+                onchange={() => toggleAccount(account)}
+              />
+              {account}
+            </label>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </div>
 
   {#if error}
@@ -415,27 +715,109 @@
   {#if isLoading}
     <div class="loading">Loading budget...</div>
   {:else}
+    <!-- Hero Chart -->
+    {#if monthTrends.length > 0 && chartData}
+      <div class="hero-chart">
+        <div class="chart-title">Monthly Trends</div>
+        <div class="chart-container">
+          <svg class="chart" viewBox="0 0 800 {CHART_HEIGHT}" preserveAspectRatio="xMidYMid meet">
+            <!-- Y-axis labels -->
+            <text x="35" y="15" class="axis-label" text-anchor="end">{formatCurrencyShort(chartData.maxValue)}</text>
+            <text x="35" y="{CHART_HEIGHT - 15}" class="axis-label" text-anchor="end">$0</text>
+
+            <!-- Bars -->
+            {#each monthTrends as trend, i}
+              {@const x = CHART_PADDING + i * chartData.groupWidth + 20}
+              {@const isSelected = trend.month === selectedMonth}
+
+              <!-- Income bar -->
+              <rect
+                x={x}
+                y={CHART_HEIGHT - 20 - getBarHeight(trend.income, chartData.maxValue)}
+                width={chartData.barWidth}
+                height={getBarHeight(trend.income, chartData.maxValue)}
+                fill={isSelected ? "var(--accent-success, #22c55e)" : "rgba(34, 197, 94, 0.5)"}
+                rx="2"
+              />
+
+              <!-- Expenses bar -->
+              <rect
+                x={x + chartData.barWidth + 4}
+                y={CHART_HEIGHT - 20 - getBarHeight(trend.expenses, chartData.maxValue)}
+                width={chartData.barWidth}
+                height={getBarHeight(trend.expenses, chartData.maxValue)}
+                fill={isSelected ? "var(--accent-danger, #ef4444)" : "rgba(239, 68, 68, 0.5)"}
+                rx="2"
+              />
+
+              <!-- Savings bar -->
+              <rect
+                x={x + chartData.barWidth * 2 + 8}
+                y={CHART_HEIGHT - 20 - getBarHeight(trend.savings, chartData.maxValue)}
+                width={chartData.barWidth}
+                height={getBarHeight(trend.savings, chartData.maxValue)}
+                fill={isSelected ? "var(--accent-primary)" : "rgba(99, 102, 241, 0.5)"}
+                rx="2"
+              />
+
+              <!-- Month label -->
+              <text
+                x={x + chartData.groupWidth / 2 - 10}
+                y={CHART_HEIGHT - 3}
+                class="month-label"
+                class:selected={isSelected}
+              >
+                {trend.month.slice(5)}
+              </text>
+            {/each}
+          </svg>
+
+          <div class="chart-legend">
+            <span class="legend-item income"><span class="dot"></span> Income</span>
+            <span class="legend-item expense"><span class="dot"></span> Expenses</span>
+            <span class="legend-item savings"><span class="dot"></span> Savings</span>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     <!-- Summary Cards -->
-    <div class="summary-cards">
+    <div class="summary-cards" class:compare-mode={isCompareMode}>
       <div class="summary-card income">
         <div class="card-label">Income</div>
         <div class="card-actual">{formatCurrency(incomeSummary.actual)}</div>
-        <div class="card-expected">of {formatCurrency(incomeSummary.expected)}</div>
+        {#if isCompareMode}
+          <div class="card-compare">vs {formatCurrency(compareIncomeSummary.actual)}</div>
+        {:else}
+          <div class="card-expected">of {formatCurrency(incomeSummary.expected)}</div>
+        {/if}
       </div>
       <div class="summary-card expense">
         <div class="card-label">Expenses</div>
         <div class="card-actual">{formatCurrency(expenseSummary.actual)}</div>
-        <div class="card-expected">of {formatCurrency(expenseSummary.expected)}</div>
+        {#if isCompareMode}
+          <div class="card-compare">vs {formatCurrency(compareExpenseSummary.actual)}</div>
+        {:else}
+          <div class="card-expected">of {formatCurrency(expenseSummary.expected)}</div>
+        {/if}
       </div>
       <div class="summary-card savings">
         <div class="card-label">Savings</div>
         <div class="card-actual">{formatCurrency(savingsSummary.actual)}</div>
-        <div class="card-expected">of {formatCurrency(savingsSummary.expected)}</div>
+        {#if isCompareMode}
+          <div class="card-compare">vs {formatCurrency(compareSavingsSummary.actual)}</div>
+        {:else}
+          <div class="card-expected">of {formatCurrency(savingsSummary.expected)}</div>
+        {/if}
       </div>
       <div class="summary-card net" class:positive={netAmount >= 0} class:negative={netAmount < 0}>
         <div class="card-label">Net</div>
         <div class="card-actual">{formatCurrency(netAmount)}</div>
-        <div class="card-expected">{netAmount >= 0 ? "surplus" : "deficit"}</div>
+        {#if isCompareMode}
+          <div class="card-compare">vs {formatCurrency(compareNetAmount)}</div>
+        {:else}
+          <div class="card-expected">{netAmount >= 0 ? "surplus" : "deficit"}</div>
+        {/if}
       </div>
     </div>
 
@@ -453,14 +835,18 @@
           <div class="category-list">
             {#each incomeActuals as actual}
               {@const cat = categories.find(c => c.id === actual.id)}
-              <div class="category-row">
+              {@const compareActual = compareActuals.find(c => c.id === actual.id)}
+              <div class="category-row" onclick={() => loadTransactionsForCategory(actual)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && loadTransactionsForCategory(actual)}>
                 <div class="category-info">
                   <div class="category-name">{actual.category}</div>
                   <div class="category-tags">
                     {#if cat}
-                      {#each cat.tags as tag}
+                      {#each cat.tags.slice(0, 3) as tag}
                         <span class="tag">{tag}</span>
                       {/each}
+                      {#if cat.tags.length > 3}
+                        <span class="tag-more">+{cat.tags.length - 3}</span>
+                      {/if}
                     {/if}
                   </div>
                 </div>
@@ -473,14 +859,18 @@
                   </div>
                   <div class="progress-text">
                     <span class="actual">{formatCurrency(actual.actual)}</span>
-                    <span class="expected">/ {formatCurrency(actual.expected)}</span>
-                    <span class="percent">({actual.percentUsed}%)</span>
+                    {#if isCompareMode && compareActual}
+                      <span class="compare-value">vs {formatCurrency(compareActual.actual)}</span>
+                    {:else}
+                      <span class="expected">/ {formatCurrency(actual.expected)}</span>
+                      <span class="percent">({actual.percentUsed}%)</span>
+                    {/if}
                   </div>
                 </div>
                 <div class="category-actions">
                   {#if cat}
-                    <button class="action-btn" onclick={() => startEditCategory(cat)}>Edit</button>
-                    <button class="action-btn delete" onclick={() => deleteCategory(cat)}>Delete</button>
+                    <button class="action-btn" onclick={(e) => { e.stopPropagation(); startEditCategory(cat); }}>Edit</button>
+                    <button class="action-btn delete" onclick={(e) => { e.stopPropagation(); deleteCategory(cat); }}>Delete</button>
                   {/if}
                 </div>
               </div>
@@ -501,14 +891,18 @@
           <div class="category-list">
             {#each expenseActuals as actual}
               {@const cat = categories.find(c => c.id === actual.id)}
-              <div class="category-row">
+              {@const compareActual = compareActuals.find(c => c.id === actual.id)}
+              <div class="category-row" onclick={() => loadTransactionsForCategory(actual)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && loadTransactionsForCategory(actual)}>
                 <div class="category-info">
                   <div class="category-name">{actual.category}</div>
                   <div class="category-tags">
                     {#if cat}
-                      {#each cat.tags as tag}
+                      {#each cat.tags.slice(0, 3) as tag}
                         <span class="tag">{tag}</span>
                       {/each}
+                      {#if cat.tags.length > 3}
+                        <span class="tag-more">+{cat.tags.length - 3}</span>
+                      {/if}
                     {/if}
                   </div>
                 </div>
@@ -521,14 +915,18 @@
                   </div>
                   <div class="progress-text">
                     <span class="actual">{formatCurrency(actual.actual)}</span>
-                    <span class="expected">/ {formatCurrency(actual.expected)}</span>
-                    <span class="percent" class:over={actual.percentUsed > 100}>({actual.percentUsed}%)</span>
+                    {#if isCompareMode && compareActual}
+                      <span class="compare-value">vs {formatCurrency(compareActual.actual)}</span>
+                    {:else}
+                      <span class="expected">/ {formatCurrency(actual.expected)}</span>
+                      <span class="percent" class:over={actual.percentUsed > 100}>({actual.percentUsed}%)</span>
+                    {/if}
                   </div>
                 </div>
                 <div class="category-actions">
                   {#if cat}
-                    <button class="action-btn" onclick={() => startEditCategory(cat)}>Edit</button>
-                    <button class="action-btn delete" onclick={() => deleteCategory(cat)}>Delete</button>
+                    <button class="action-btn" onclick={(e) => { e.stopPropagation(); startEditCategory(cat); }}>Edit</button>
+                    <button class="action-btn delete" onclick={(e) => { e.stopPropagation(); deleteCategory(cat); }}>Delete</button>
                   {/if}
                 </div>
               </div>
@@ -549,14 +947,18 @@
           <div class="category-list">
             {#each savingsActuals as actual}
               {@const cat = categories.find(c => c.id === actual.id)}
-              <div class="category-row">
+              {@const compareActual = compareActuals.find(c => c.id === actual.id)}
+              <div class="category-row" onclick={() => loadTransactionsForCategory(actual)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && loadTransactionsForCategory(actual)}>
                 <div class="category-info">
                   <div class="category-name">{actual.category}</div>
                   <div class="category-tags">
                     {#if cat}
-                      {#each cat.tags as tag}
+                      {#each cat.tags.slice(0, 3) as tag}
                         <span class="tag">{tag}</span>
                       {/each}
+                      {#if cat.tags.length > 3}
+                        <span class="tag-more">+{cat.tags.length - 3}</span>
+                      {/if}
                     {/if}
                   </div>
                 </div>
@@ -569,18 +971,68 @@
                   </div>
                   <div class="progress-text">
                     <span class="actual">{formatCurrency(actual.actual)}</span>
-                    <span class="expected">/ {formatCurrency(actual.expected)}</span>
-                    <span class="percent">({actual.percentUsed}%)</span>
+                    {#if isCompareMode && compareActual}
+                      <span class="compare-value">vs {formatCurrency(compareActual.actual)}</span>
+                    {:else}
+                      <span class="expected">/ {formatCurrency(actual.expected)}</span>
+                      <span class="percent">({actual.percentUsed}%)</span>
+                    {/if}
                   </div>
                 </div>
                 <div class="category-actions">
                   {#if cat}
-                    <button class="action-btn" onclick={() => startEditCategory(cat)}>Edit</button>
-                    <button class="action-btn delete" onclick={() => deleteCategory(cat)}>Delete</button>
+                    <button class="action-btn" onclick={(e) => { e.stopPropagation(); startEditCategory(cat); }}>Edit</button>
+                    <button class="action-btn delete" onclick={(e) => { e.stopPropagation(); deleteCategory(cat); }}>Delete</button>
                   {/if}
                 </div>
               </div>
             {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Transaction Drill-down Modal -->
+  {#if showTransactions}
+    <div
+      class="modal-overlay"
+      onclick={closeDrillDown}
+      onkeydown={(e) => e.key === "Escape" && closeDrillDown()}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+    >
+      <div class="modal transactions-modal" onclick={(e) => e.stopPropagation()} role="document">
+        <div class="modal-header">
+          <h3 class="modal-title">
+            {drillDownCategory?.category} - {selectedMonth}
+          </h3>
+          <button class="close-btn" onclick={closeDrillDown}>×</button>
+        </div>
+
+        {#if drillDownLoading}
+          <div class="modal-loading">Loading transactions...</div>
+        {:else if drillDownTransactions.length === 0}
+          <div class="modal-empty">No transactions found</div>
+        {:else}
+          <div class="transactions-list">
+            {#each drillDownTransactions as txn}
+              <div class="transaction-row">
+                <div class="txn-date">{txn.transaction_date}</div>
+                <div class="txn-desc">{txn.description}</div>
+                <div class="txn-account">{txn.account_name}</div>
+                <div class="txn-amount" class:negative={txn.amount < 0}>
+                  {formatCurrency(Math.abs(txn.amount))}
+                </div>
+              </div>
+            {/each}
+          </div>
+          <div class="modal-footer">
+            <span class="txn-count">{drillDownTransactions.length} transactions</span>
+            <span class="txn-total">
+              Total: {formatCurrency(drillDownTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0))}
+            </span>
           </div>
         {/if}
       </div>
@@ -702,7 +1154,9 @@
   .title-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--spacing-md);
+    flex-wrap: wrap;
   }
 
   .title {
@@ -712,6 +1166,13 @@
     margin: 0;
   }
 
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+  }
+
   .month-selector {
     padding: 4px 8px;
     font-size: 13px;
@@ -719,6 +1180,80 @@
     color: var(--text-primary);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-sm);
+  }
+
+  .compare-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .compare-vs {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .filter-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .filter-btn:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .account-filter {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-primary);
+  }
+
+  .filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .text-btn {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .text-btn:hover {
+    text-decoration: underline;
+  }
+
+  .account-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .account-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
   }
 
   .error-bar {
@@ -732,6 +1267,81 @@
     padding: var(--spacing-xl);
     text-align: center;
     color: var(--text-muted);
+  }
+
+  /* Hero Chart */
+  .hero-chart {
+    padding: var(--spacing-lg);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .chart-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .chart-container {
+    position: relative;
+  }
+
+  .chart {
+    width: 100%;
+    height: auto;
+    max-height: 180px;
+  }
+
+  .axis-label {
+    font-size: 10px;
+    fill: var(--text-muted);
+  }
+
+  .month-label {
+    font-size: 11px;
+    fill: var(--text-muted);
+    text-anchor: middle;
+  }
+
+  .month-label.selected {
+    fill: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .chart-legend {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-sm);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .legend-item .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  .legend-item.income .dot {
+    background: var(--accent-success, #22c55e);
+  }
+
+  .legend-item.expense .dot {
+    background: var(--accent-danger, #ef4444);
+  }
+
+  .legend-item.savings .dot {
+    background: var(--accent-primary);
   }
 
   /* Summary Cards */
@@ -771,6 +1381,13 @@
     font-size: 11px;
     color: var(--text-muted);
     margin-top: 2px;
+  }
+
+  .card-compare {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-style: italic;
   }
 
   .summary-card.income .card-actual {
@@ -857,6 +1474,12 @@
     padding: var(--spacing-sm) var(--spacing-lg);
     gap: var(--spacing-md);
     border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .category-row:hover {
+    background: var(--bg-tertiary);
   }
 
   .category-row:last-child {
@@ -864,7 +1487,7 @@
   }
 
   .category-info {
-    flex: 0 0 200px;
+    flex: 0 0 180px;
   }
 
   .category-name {
@@ -883,6 +1506,14 @@
   .tag {
     padding: 1px 6px;
     background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  .tag-more {
+    padding: 1px 6px;
+    background: var(--bg-primary);
     color: var(--text-muted);
     border-radius: 3px;
     font-size: 10px;
@@ -918,6 +1549,12 @@
 
   .progress-text .expected {
     color: var(--text-muted);
+  }
+
+  .progress-text .compare-value {
+    color: var(--text-muted);
+    font-style: italic;
+    margin-left: 8px;
   }
 
   .progress-text .percent {
@@ -981,11 +1618,112 @@
     overflow-y: auto;
   }
 
+  .transactions-modal {
+    width: 700px;
+    padding: 0;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
   .modal-title {
     font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
-    margin: 0 0 var(--spacing-lg) 0;
+    margin: 0;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .close-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .modal-loading, .modal-empty {
+    padding: var(--spacing-xl);
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .transactions-list {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .transaction-row {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    gap: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 13px;
+  }
+
+  .transaction-row:last-child {
+    border-bottom: none;
+  }
+
+  .txn-date {
+    flex: 0 0 90px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .txn-desc {
+    flex: 1;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .txn-account {
+    flex: 0 0 120px;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .txn-amount {
+    flex: 0 0 80px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .txn-amount.negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .txn-total {
+    font-weight: 600;
+    color: var(--text-primary);
   }
 
   .form-group {
@@ -1103,6 +1841,11 @@
 
     .category-progress {
       flex: 1 1 100%;
+    }
+
+    .header-controls {
+      width: 100%;
+      justify-content: flex-start;
     }
   }
 </style>
