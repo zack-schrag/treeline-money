@@ -282,6 +282,42 @@ fn get_plugins_dir() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn read_plugin_config(plugin_id: String, filename: String) -> Result<String, String> {
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let config_path = home_dir
+        .join(".treeline")
+        .join("plugins")
+        .join(&plugin_id)
+        .join(&filename);
+
+    if !config_path.exists() {
+        return Ok("null".to_string());
+    }
+
+    fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))
+}
+
+#[tauri::command]
+fn write_plugin_config(plugin_id: String, filename: String, content: String) -> Result<(), String> {
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let plugin_dir = home_dir
+        .join(".treeline")
+        .join("plugins")
+        .join(&plugin_id);
+
+    // Create plugin directory if it doesn't exist
+    if !plugin_dir.exists() {
+        fs::create_dir_all(&plugin_dir)
+            .map_err(|e| format!("Failed to create plugin directory: {}", e))?;
+    }
+
+    let config_path = plugin_dir.join(&filename);
+    fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))
+}
+
+#[tauri::command]
 fn discover_plugins() -> Result<Vec<ExternalPlugin>, String> {
     let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
 
@@ -352,7 +388,9 @@ pub fn run() {
             status,
             discover_plugins,
             get_plugins_dir,
-            execute_query
+            execute_query,
+            read_plugin_config,
+            write_plugin_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

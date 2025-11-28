@@ -14,9 +14,10 @@ import type { Plugin, PluginContext } from "../sdk";
 import { plugin as statusPlugin } from "./status";
 import { plugin as queryPlugin } from "./query";
 import { plugin as taggingPlugin } from "./tagging";
+import { plugin as budgetPlugin } from "./budget";
 
 // List of core plugins (built into the app)
-const corePlugins: Plugin[] = [statusPlugin, queryPlugin, taggingPlugin];
+const corePlugins: Plugin[] = [statusPlugin, queryPlugin, taggingPlugin, budgetPlugin];
 
 interface ExternalPluginInfo {
   manifest: {
