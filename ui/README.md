@@ -1,102 +1,122 @@
 # Treeline UI
 
-A plugin-based desktop UI for Treeline personal finance. The core is intentionally minimal—**everything is a plugin**.
+A Tauri desktop application for Treeline personal finance. Built with Svelte 5 and a plugin-based architecture.
 
 ## Quick Start
 
 ```bash
 cd ui
 npm install
-npm run dev
+npm run tauri:dev
 ```
 
-Open http://localhost:5173 in your browser.
+This launches the desktop app in development mode with hot reload.
 
 ## Architecture
+
+The UI is a Tauri v2 app with:
+- **Frontend**: Svelte 5 with runes
+- **Backend**: Rust with DuckDB for direct database access
+- **CLI Integration**: Calls the Treeline CLI via Tauri sidecar for operations like sync
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Core Shell                           │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐ │
 │  │ Sidebar │  │ Tab Bar │  │ Content │  │ Command Palette │ │
-│  │(plugins)│  │(plugins)│  │  Area   │  │    (plugins)    │ │
-│  └─────────┘  └─────────┘  │(plugins)│  └─────────────────┘ │
-│                            └─────────┘                      │
+│  │         │  │         │  │  Area   │  │     (⌘K)        │ │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────────┘ │
 ├─────────────────────────────────────────────────────────────┤
-│                       Plugin SDK                            │
-│  • registerView()      • registerCommand()                  │
-│  • registerSidebarItem() • db.query()                       │
-│  • Theme system        • Event subscriptions                │
-├─────────────────────────────────────────────────────────────┤
-│                         Plugins                             │
-│  ┌────────────┐ ┌──────────┐ ┌───────┐ ┌─────────────────┐  │
-│  │Transactions│ │ Accounts │ │ Query │ │    Net Worth    │  │
-│  └────────────┘ └──────────┘ └───────┘ └─────────────────┘  │
+│                       Plugin System                         │
+│  Core: Status, Query, Tagging                               │
+│  External: ~/.treeline/plugins/                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Core Concepts
-
-### The Shell
-
-The shell is **extremely minimal**. It only provides:
-
-- Window frame
-- Sidebar (populated BY plugins)
-- Tab system (tabs come FROM plugins)
-- Command palette (discovers commands FROM plugins)
-- Theme engine
-- Plugin loader
-
-No views, no business logic. Everything else is a plugin.
-
 ### Plugins
 
-A plugin can:
+The shell is minimal - most functionality comes from plugins. Plugins can:
 
-1. **Register views** - Svelte components that render in tabs
+1. **Register views** - Content areas shown in tabs
 2. **Register sidebar items** - Navigation entries
-3. **Register commands** - Actions for command palette
+3. **Register commands** - Actions for the command palette (⌘K)
 4. **Register status bar items** - Footer widgets
-5. **Access database** - Query the DuckDB database
-6. **Respond to theme changes** - Adapt to user preferences
 
-### Theme System
+**Core plugins** (built into the app):
+- `status` - Financial overview dashboard
+- `query` - SQL query editor
+- `tagging` - Transaction tagging interface
 
-Themes are CSS variable-based. Built-in themes:
+**External plugins** are loaded from `~/.treeline/plugins/` at startup.
 
-- `dark` (default) - GitHub dark style
-- `light` - Clean light theme
-- `nord` - Nord color scheme
+## External Plugins
 
-Click the theme button in the status bar to cycle through themes.
+External plugins extend Treeline without modifying the core app.
 
-## Creating a Plugin
+### Installing Plugins
 
-### 1. Create Plugin Directory
+Use the CLI to manage plugins:
+
+```bash
+# Install from a local directory
+tl plugin install /path/to/my-plugin
+
+# Install from GitHub
+tl plugin install https://github.com/user/treeline-plugin-example
+
+# List installed plugins
+tl plugin list
+
+# Uninstall a plugin
+tl plugin uninstall my-plugin
+```
+
+The install command automatically builds the plugin if needed (`npm install && npm run build`).
+
+### Creating Plugins
+
+```bash
+# Create a new plugin from the template
+tl plugin new my-plugin
+cd my-plugin
+
+# Develop with watch mode
+npm run dev
+
+# Build for installation
+npm run build
+```
+
+Or copy the `plugin-template/` directory manually.
+
+### Plugin Structure
 
 ```
-src/lib/plugins/my-plugin/
-├── index.ts              # Plugin definition
-├── MyView.svelte         # Main view component
-└── components/           # Optional sub-components
+my-plugin/
+├── manifest.json          # Plugin metadata (id, name, version, etc.)
+├── src/
+│   ├── index.ts          # Plugin entry point - exports `plugin`
+│   └── MyView.svelte     # Svelte components
+├── dist/
+│   └── index.js          # Built plugin (generated)
+└── vite.config.ts
 ```
 
-### 2. Define the Plugin
+### Plugin API
+
+Plugins export a `plugin` object:
 
 ```typescript
-// src/lib/plugins/my-plugin/index.ts
-import type { Plugin, PluginContext } from "../../sdk/types";
+import type { Plugin, PluginContext } from "./types";
 import MyView from "./MyView.svelte";
 
-export const myPlugin: Plugin = {
+export const plugin: Plugin = {
   manifest: {
     id: "my-plugin",
     name: "My Plugin",
     version: "1.0.0",
-    description: "Does something cool",
+    description: "Does something useful",
     author: "Your Name",
-    icon: "🚀",
   },
 
   activate(ctx: PluginContext) {
@@ -104,7 +124,7 @@ export const myPlugin: Plugin = {
     ctx.registerView({
       id: "my-view",
       name: "My View",
-      icon: "🚀",
+      icon: "🔧",
       component: MyView,
     });
 
@@ -112,108 +132,42 @@ export const myPlugin: Plugin = {
     ctx.registerSidebarItem({
       id: "my-plugin-nav",
       label: "My Plugin",
-      icon: "🚀",
-      sectionId: "plugins", // or "core", "views"
+      icon: "🔧",
+      sectionId: "main",
       viewId: "my-view",
     });
 
-    // Add a command
+    // Add a command (shows in ⌘K palette)
     ctx.registerCommand({
       id: "my-plugin:action",
       name: "Do Something",
       category: "My Plugin",
-      shortcut: "⌘⇧M",
-      execute: () => {
-        // Do something
-      },
+      execute: () => { /* ... */ },
     });
   },
 };
 ```
 
-### 3. Create the View
+See `plugin-template/README.md` for full API documentation.
 
-```svelte
-<!-- src/lib/plugins/my-plugin/MyView.svelte -->
-<script lang="ts">
-  import { createMockDatabase } from "../../sdk/db";
+### Plugin Isolation
 
-  const db = createMockDatabase();
-  let data = $state([]);
+Each external plugin bundles its own Svelte runtime (~47KB). This ensures compatibility regardless of which Svelte version the core app uses.
 
-  async function loadData() {
-    data = await db.query("SELECT * FROM transactions LIMIT 10");
-  }
-</script>
+## Database Access
 
-<div class="my-view">
-  <h1>My Plugin</h1>
-  <button onclick={loadData}>Load Data</button>
-
-  {#each data as item}
-    <div>{item.description}</div>
-  {/each}
-</div>
-
-<style>
-  .my-view {
-    padding: var(--spacing-lg);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-</style>
-```
-
-### 4. Register the Plugin
-
-Add to `src/lib/plugins/index.ts`:
+The Rust backend provides direct DuckDB access via the `execute_query` Tauri command:
 
 ```typescript
-import { myPlugin } from "./my-plugin";
+import { invoke } from "@tauri-apps/api/core";
 
-const corePlugins: Plugin[] = [
-  // ... existing plugins
-  myPlugin,
-];
+const result = await invoke("execute_query", {
+  query: "SELECT * FROM transactions LIMIT 10",
+  readonly: true,
+});
 ```
 
-## Plugin Database Access
-
-Plugins query data using SQL:
-
-```typescript
-// Read data
-const transactions = await ctx.db.query(`
-  SELECT * FROM transactions
-  WHERE amount < -100
-  ORDER BY transaction_date DESC
-`);
-
-// Write to plugin tables (namespaced)
-await ctx.db.execute(`
-  INSERT INTO plugin_myplug_settings (key, value)
-  VALUES ('theme', 'dark')
-`);
-
-// Run migrations
-await ctx.db.migrate("my-plugin", [
-  {
-    version: 1,
-    description: "Create settings table",
-    sql: `CREATE TABLE plugin_myplug_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )`,
-  },
-]);
-```
-
-### Database Rules
-
-- ✅ **CAN** read from any core table
-- ✅ **CAN** create tables with `plugin_<id>_` prefix
-- ❌ **CANNOT** modify core tables
-- ❌ **CANNOT** access other plugins' tables directly
+Returns JSON with `columns`, `rows`, and `row_count`.
 
 ## Keyboard Shortcuts
 
@@ -222,7 +176,6 @@ await ctx.db.migrate("my-plugin", [
 | `⌘K` | Open command palette |
 | `⌘1-9` | Switch to tab 1-9 |
 | `⌘W` | Close current tab |
-| `/` | Focus search (in views) |
 
 ## Project Structure
 
@@ -230,7 +183,7 @@ await ctx.db.migrate("my-plugin", [
 ui/
 ├── src/
 │   ├── lib/
-│   │   ├── core/           # Shell components (minimal!)
+│   │   ├── core/           # Shell components
 │   │   │   ├── Shell.svelte
 │   │   │   ├── Sidebar.svelte
 │   │   │   ├── TabBar.svelte
@@ -238,45 +191,31 @@ ui/
 │   │   │   ├── CommandPalette.svelte
 │   │   │   └── StatusBar.svelte
 │   │   │
-│   │   ├── sdk/            # Plugin SDK
-│   │   │   ├── types.ts    # Type definitions
-│   │   │   ├── registry.ts # Plugin state management
-│   │   │   ├── db.ts       # Database interface
-│   │   │   ├── theme.ts    # Theme system
-│   │   │   └── index.ts    # Public exports
+│   │   ├── sdk/            # Plugin SDK types
+│   │   │   ├── types.ts
+│   │   │   ├── registry.ts
+│   │   │   └── theme.ts
 │   │   │
-│   │   ├── plugins/        # All plugins (core + community)
-│   │   │   ├── transactions/
-│   │   │   ├── accounts/
-│   │   │   ├── query/
-│   │   │   ├── net-worth/
-│   │   │   └── index.ts    # Plugin loader
-│   │   │
-│   │   └── themes/         # Theme definitions
+│   │   └── plugins/        # Core plugins
+│   │       ├── status/
+│   │       ├── query/
+│   │       └── tagging/
 │   │
-│   ├── App.svelte          # Root component
-│   ├── app.css             # Global styles
-│   └── main.ts             # Entry point
+│   ├── App.svelte
+│   └── main.ts
 │
-├── package.json
-└── vite.config.ts
+├── src-tauri/              # Rust backend
+│   ├── src/lib.rs          # Tauri commands
+│   └── tauri.conf.json
+│
+└── package.json
 ```
 
-## Design Philosophy
+## Theme System
 
-- **IDE-like, not cute** - Dense, keyboard-driven, power-user focused
-- **SQL is the API** - Query your data directly, no REST endpoints needed
-- **Local-first** - Your data stays on your machine (DuckDB file)
-- **Extensible** - Everything beyond the shell is a plugin
-- **Themeable** - Full CSS variable system for customization
+Themes use CSS variables. Built-in themes:
+- `dark` (default)
+- `light`
+- `nord`
 
-## Future: Tauri Integration
-
-For the desktop app, we'll use Tauri to:
-
-1. Wrap the web UI in a native window
-2. Provide DuckDB access via Rust bindings
-3. Run Python sidecar for sync operations
-4. Handle file system access
-
-The current prototype uses mock data, but the plugin interface is designed for real database access.
+Click the theme button in the status bar to cycle through themes.
