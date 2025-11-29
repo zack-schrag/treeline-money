@@ -720,6 +720,19 @@ LIMIT 100`;
           </div>
         </div>
       {:else}
+        <!-- Net Worth -->
+        <div class="net-worth-row">
+          <div class="net-worth-label">NET WORTH</div>
+          <div class="net-worth-value" class:negative={netWorth < 0}>
+            {formatCurrency(netWorth)}
+          </div>
+          {#if momChange}
+            <div class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
+              {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)} MoM
+            </div>
+          {/if}
+        </div>
+
         <!-- Assets Section -->
         {#if assetAccounts.length > 0}
           <div class="section">
@@ -787,19 +800,6 @@ LIMIT 100`;
             {/each}
           </div>
         {/if}
-
-        <!-- Net Worth -->
-        <div class="net-worth-row">
-          <div class="net-worth-label">NET WORTH</div>
-          <div class="net-worth-value" class:negative={netWorth < 0}>
-            {formatCurrency(netWorth)}
-          </div>
-          {#if momChange}
-            <div class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
-              {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)} MoM
-            </div>
-          {/if}
-        </div>
       {/if}
     </div>
 
