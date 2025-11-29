@@ -115,11 +115,31 @@
     }
   }
 
-  function handleKeyDown(e: KeyboardEvent) {
+  function clearQuery() {
+    query = "";
+    result = null;
+    error = null;
+  }
+
+  let viewEl: HTMLDivElement;
+
+  function handleGlobalKeyDown(e: KeyboardEvent) {
+    // Only handle if we're inside the query view
+    if (!viewEl?.contains(document.activeElement) && document.activeElement !== document.body) {
+      return;
+    }
+
+    const isMod = e.metaKey || e.ctrlKey;
+
     // Cmd/Ctrl + Enter to run query
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    if (isMod && e.key === "Enter") {
       e.preventDefault();
       runQuery();
+    }
+    // Cmd/Ctrl + L to clear
+    else if (isMod && e.key === "l") {
+      e.preventDefault();
+      clearQuery();
     }
   }
 
@@ -195,7 +215,9 @@
   }
 </script>
 
-<div class="query-view">
+<svelte:window onkeydown={handleGlobalKeyDown} />
+
+<div class="query-view" bind:this={viewEl}>
   <div class="query-panel">
     <div class="panel-header">
       <h2 class="panel-title">SQL Query</h2>
@@ -240,19 +262,24 @@
     <textarea
       class="query-editor"
       bind:value={query}
-      onkeydown={handleKeyDown}
       placeholder="Enter SQL query..."
       spellcheck="false"
     ></textarea>
 
-    <div class="examples">
-      <div class="examples-label">Examples:</div>
-      <div class="examples-list">
-        {#each examples as example}
-          <button class="example-button" onclick={() => loadExample(example.query)}>
-            {example.name}
-          </button>
-        {/each}
+    <div class="query-footer">
+      <div class="examples">
+        <div class="examples-label">Examples:</div>
+        <div class="examples-list">
+          {#each examples as example}
+            <button class="example-button" onclick={() => loadExample(example.query)}>
+              {example.name}
+            </button>
+          {/each}
+        </div>
+      </div>
+      <div class="shortcuts">
+        <span class="shortcut-item"><kbd>⌘</kbd><kbd>↵</kbd> Run</span>
+        <span class="shortcut-item"><kbd>⌘</kbd><kbd>L</kbd> Clear</span>
       </div>
     </div>
   </div>
@@ -526,10 +553,38 @@
     border-color: var(--accent-primary);
   }
 
+  .query-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
   .examples {
     display: flex;
     gap: var(--spacing-sm);
     align-items: center;
+  }
+
+  .shortcuts {
+    display: flex;
+    gap: var(--spacing-md);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .shortcut-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .shortcut-item kbd {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: var(--font-mono);
+    font-size: 10px;
   }
 
   .examples-label {
