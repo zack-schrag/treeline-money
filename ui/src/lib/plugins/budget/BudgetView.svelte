@@ -48,6 +48,16 @@
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
 
+  // Trend data - preloaded for all categories
+  interface TrendData {
+    month: string;
+    actual: number;
+  }
+  let allCategoryTrends = $state<Map<string, TrendData[]>>(new Map());
+
+  // Current category's trend (looked up from preloaded data)
+  let categoryTrend = $derived(currentCategory ? (allCategoryTrends.get(currentCategory.id) || []) : []);
+
   // Flat list of all actuals for navigation (income first, then budget items)
   let incomeActuals = $derived(actuals.filter(a => a.type === "income"));
   let budgetActuals = $derived([
@@ -185,23 +195,6 @@
     }
   }
 
-  async function loadAvailableMonths() {
-    const result = await executeQuery(`SELECT DISTINCT strftime('%Y-%m', transaction_date) as month FROM transactions ORDER BY month DESC`);
-    const transactionMonths = result.rows.map(r => r[0] as string);
-
-    // Always include current month and next month for planning
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
-
-    // Combine and dedupe, keeping DESC order
-    const allMonths = new Set([nextMonthStr, currentMonth, ...transactionMonths]);
-    availableMonths = Array.from(allMonths).sort().reverse();
-
-    if (availableMonths.length > 0 && !selectedMonth) selectedMonth = availableMonths[0];
-  }
-
   async function loadAllAccounts() {
     const result = await executeQuery(`SELECT DISTINCT account_name FROM transactions WHERE account_name IS NOT NULL AND account_name != '' ORDER BY account_name`);
     allAccounts = result.rows.map(r => r[0] as string);
@@ -258,12 +251,87 @@
     actuals = await calculateActualsForMonth(selectedMonth);
   }
 
+  async function loadAllTrends() {
+    if (categories.length === 0) {
+      allCategoryTrends = new Map();
+      return;
+    }
+
+    const accountFilter = buildAccountFilter();
+
+    // Build a single query that gets 6-month trends for ALL categories
+    // Each subquery wrapped in parentheses to make LIMIT work
+    const subqueries = categories.map(cat => {
+      const defaultSign = cat.type === "income" ? "positive" : "negative";
+      const effectiveSign = cat.amount_sign || defaultSign;
+      const tagCondition = cat.require_all
+        ? cat.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`).join(" AND ")
+        : `list_has_any(tags, [${cat.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(", ")}])`;
+      const amountCondition = effectiveSign === "positive" ? "AND amount > 0" : effectiveSign === "negative" ? "AND amount < 0" : "";
+
+      return `(SELECT '${cat.id}' as category_id, strftime('%Y-%m', transaction_date) as month, COALESCE(SUM(ABS(amount)), 0) as total
+        FROM transactions
+        WHERE ${tagCondition} ${amountCondition} ${accountFilter}
+        GROUP BY month
+        ORDER BY month DESC
+        LIMIT 6)`;
+    });
+
+    try {
+      const query = subqueries.join(" UNION ALL ");
+      const result = await executeQuery(query);
+
+      // Group results by category
+      const trendsMap = new Map<string, TrendData[]>();
+      for (const row of result.rows) {
+        const categoryId = row[0] as string;
+        const month = row[1] as string;
+        const total = row[2] as number;
+
+        if (!trendsMap.has(categoryId)) {
+          trendsMap.set(categoryId, []);
+        }
+        trendsMap.get(categoryId)!.push({ month, actual: total });
+      }
+
+      // Sort each category's trends by month (oldest first for display)
+      for (const [id, trends] of trendsMap) {
+        trends.sort((a, b) => a.month.localeCompare(b.month));
+      }
+
+      allCategoryTrends = trendsMap;
+    } catch (e) {
+      console.error("Failed to load trends:", e);
+      allCategoryTrends = new Map();
+    }
+  }
+
+  let initialLoadComplete = false;
+
   async function loadAll() {
     isLoading = true;
     error = null;
     try {
-      await Promise.all([loadAvailableMonths(), loadCategories(), loadAllTags(), loadAllAccounts()]);
-      await calculateActuals();
+      // Load months first but don't set selectedMonth yet to avoid triggering effect
+      const result = await executeQuery(`SELECT DISTINCT strftime('%Y-%m', transaction_date) as month FROM transactions ORDER BY month DESC`);
+      const transactionMonths = result.rows.map(r => r[0] as string);
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+      const allMonths = new Set([nextMonthStr, currentMonth, ...transactionMonths]);
+      availableMonths = Array.from(allMonths).sort().reverse();
+      const targetMonth = availableMonths[0] || "";
+
+      // Load other data in parallel
+      await Promise.all([loadAllTags(), loadAllAccounts()]);
+
+      // Now load categories for the target month and set selectedMonth
+      selectedMonth = targetMonth;
+      await loadCategories();
+      await Promise.all([calculateActuals(), loadAllTrends()]);
+
+      initialLoadComplete = true;
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to load budget data";
     } finally {
@@ -304,6 +372,18 @@
     containerEl?.focus();
   }
 
+  function handleModalEdit() {
+    const cat = categories.find(c => c.id === drillDownCategory?.id);
+    closeDrillDown();
+    if (cat) startEditCategory(cat);
+  }
+
+  function handleModalDelete() {
+    const cat = categories.find(c => c.id === drillDownCategory?.id);
+    closeDrillDown();
+    if (cat) deleteCategory(cat);
+  }
+
   function startAddCategory(type: BudgetType) {
     editingCategory = null;
     editorForm = { type, category: "", expected: 0, tags: "", require_all: false, amount_sign: null };
@@ -337,11 +417,11 @@
   }
 
   async function deleteCategory(cat: BudgetCategory) {
-    if (!confirm(`Delete "${cat.category}"?`)) return;
+    // Note: confirm() may not work in Tauri - removing for now
     const updatedCategories = categories.filter(c => c.id !== cat.id);
     await saveConfig(categoriesToConfig(updatedCategories));
     await loadCategories();
-    await calculateActuals();
+    await Promise.all([calculateActuals(), loadAllTrends()]);
   }
 
   function formatCurrency(amount: number): string {
@@ -421,12 +501,15 @@
   function handleRowClick(index: number) {
     cursorIndex = index;
     containerEl?.focus();
+    // Open details modal on click
+    const actual = allActuals[index];
+    if (actual) loadTransactionsForCategory(actual);
   }
 
   $effect(() => {
-    if (selectedMonth) {
+    if (selectedMonth && initialLoadComplete) {
       // Reload config for the new month (may have month-specific budget)
-      loadCategories().then(() => calculateActuals());
+      loadCategories().then(() => Promise.all([calculateActuals(), loadAllTrends()]));
     }
   });
 
@@ -484,10 +567,10 @@
       {:else if allActuals.length === 0}
         <div class="empty-state">No budget categories. Press <kbd>a</kbd> to add one.</div>
       {:else}
-        <!-- Income Box -->
-        <div class="income-box">
-          <div class="income-header">
-            <div class="row-name income-title">INCOME</div>
+        <!-- Income Section -->
+        <div class="section">
+          <div class="section-header income-header">
+            <div class="row-name section-title">INCOME</div>
             <div class="row-bar"></div>
             <div class="row-actual">{formatCurrency(incomeSummary.actual)}</div>
             <div class="row-expected">/ {formatCurrency(incomeSummary.expected)}</div>
@@ -495,20 +578,25 @@
           </div>
           {#each incomeActuals as actual, i}
             {@const globalIndex = i}
-            <div class="income-row" class:cursor={cursorIndex === globalIndex} data-index={globalIndex} onclick={() => handleRowClick(globalIndex)} role="button" tabindex="-1">
+            <div class="row" class:cursor={cursorIndex === globalIndex} data-index={globalIndex} onclick={() => handleRowClick(globalIndex)} role="button" tabindex="-1">
               <div class="row-name">{actual.category}</div>
-              <div class="row-bar"></div>
+              <div class="row-bar">
+                <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--accent-primary)'}"></div></div>
+              </div>
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{actual.percentUsed}%</div>
             </div>
           {/each}
-          <button class="add-row income-add" onclick={() => startAddCategory("income")}>+ Add income</button>
+          <button class="add-row" onclick={() => startAddCategory("income")}>+ Add income</button>
         </div>
 
+        <!-- Section Divider -->
+        <div class="section-divider"></div>
+
         <!-- Budget Section -->
-        <div class="budget-section">
-          <div class="section-header">
+        <div class="section">
+          <div class="section-header budget-header">
             <div class="row-name section-title">BUDGET</div>
             <div class="row-bar"></div>
             <div class="row-actual">{formatCurrency(budgetSummary.actual)}</div>
@@ -579,6 +667,28 @@
             <span class="mono" class:positive={currentActual.variance >= 0} class:negative={currentActual.variance < 0}>{formatCurrency(currentActual.variance)}</span>
           </div>
         </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-title">6-Month Trend</div>
+          {#if categoryTrend.length === 0}
+            <div class="trend-empty">No history</div>
+          {:else}
+            {@const maxActual = Math.max(...categoryTrend.map(t => t.actual), 1)}
+            {@const avgActual = categoryTrend.reduce((sum, t) => sum + t.actual, 0) / categoryTrend.length}
+            <div class="trend-chart">
+              {#each categoryTrend as trend}
+                <div class="trend-row">
+                  <span class="trend-month">{trend.month.slice(5)}</span>
+                  <div class="trend-bar-container">
+                    <div class="trend-bar" style="width: {(trend.actual / maxActual) * 100}%"></div>
+                  </div>
+                  <span class="trend-amount">{formatCurrency(trend.actual)}</span>
+                </div>
+              {/each}
+            </div>
+            <div class="trend-avg">Avg: {formatCurrency(avgActual)}</div>
+          {/if}
+        </div>
       {:else}
         <div class="sidebar-empty">Select a category</div>
       {/if}
@@ -586,11 +696,11 @@
   </div>
 
   <!-- Transactions Modal -->
-  {#if showTransactions}
+  {#if showTransactions && drillDownCategory}
     <div class="modal-overlay" onclick={closeDrillDown} onkeydown={(e) => e.key === "Escape" && closeDrillDown()} role="dialog" tabindex="-1">
       <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
         <div class="modal-header">
-          <span class="modal-title">{drillDownCategory?.category} — {selectedMonth}</span>
+          <span class="modal-title">{drillDownCategory.category} — {selectedMonth}</span>
           <button class="close-btn" onclick={closeDrillDown}>×</button>
         </div>
         {#if drillDownLoading}
@@ -612,6 +722,10 @@
             <span class="mono">Total: {formatCurrency(drillDownTransactions.reduce((s, t) => s + Math.abs(t.amount), 0))}</span>
           </div>
         {/if}
+        <div class="modal-actions">
+          <button class="btn danger" onclick={handleModalDelete}>Delete</button>
+          <button class="btn secondary" onclick={handleModalEdit}>Edit</button>
+        </div>
       </div>
     </div>
   {/if}
@@ -785,56 +899,30 @@
     font-family: var(--font-mono);
   }
 
-  /* Income Box - visually distinct */
-  .income-box {
-    margin: var(--spacing-md);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
-    background: var(--bg-secondary);
-    overflow: hidden;
-  }
-
-  .income-header {
-    display: flex;
-    align-items: center;
-    padding: 8px var(--spacing-lg);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-primary);
-    gap: var(--spacing-md);
-  }
-
-  .income-title {
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .income-row {
-    display: flex;
-    align-items: center;
-    padding: 6px var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
-    gap: var(--spacing-md);
-    cursor: pointer;
-  }
-
-  .income-row:hover {
+  /* Section divider */
+  .section-divider {
+    height: 12px;
     background: var(--bg-primary);
+    border-top: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-primary);
   }
 
-  .income-row.cursor {
-    background: var(--bg-primary);
-    border-left: 3px solid var(--accent-primary);
-    padding-left: calc(var(--spacing-lg) - 3px);
+  /* Income header - green accent */
+  .section-header.income-header {
+    border-left: 3px solid var(--accent-success, #22c55e);
   }
 
-  .income-add {
-    border-bottom: none;
-    border-radius: 0 0 6px 6px;
+  .section-header.income-header .section-title {
+    color: var(--accent-success, #22c55e);
   }
 
-  /* Budget Section */
-  .budget-section {
-    margin-top: var(--spacing-sm);
+  /* Budget header - blue accent */
+  .section-header.budget-header {
+    border-left: 3px solid var(--accent-primary, #3b82f6);
+  }
+
+  .section-header.budget-header .section-title {
+    color: var(--accent-primary, #3b82f6);
   }
 
 
@@ -900,7 +988,7 @@
 
   .row.cursor {
     background: var(--bg-tertiary);
-    border-left: 3px solid var(--accent-primary);
+    border-left: 3px solid var(--text-muted);
     padding-left: calc(var(--spacing-lg) - 3px);
   }
 
@@ -974,6 +1062,61 @@
     color: var(--text-muted);
     font-size: 12px;
     font-style: italic;
+  }
+
+  .trend-empty {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+  }
+
+  .trend-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .trend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .trend-month {
+    width: 24px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .trend-bar-container {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .trend-bar {
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 2px;
+    transition: width 0.2s;
+  }
+
+  .trend-amount {
+    width: 55px;
+    text-align: right;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+
+  .trend-avg {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
   }
 
   .detail-name {
@@ -1181,4 +1324,31 @@
   }
 
   .btn:hover { opacity: 0.9; }
+
+  .btn.danger {
+    background: var(--accent-danger, #ef4444);
+    color: white;
+  }
+
+  /* Custom select styling */
+  .form select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+
+  .form select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .form select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px;
+  }
 </style>
