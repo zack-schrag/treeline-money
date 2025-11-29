@@ -514,7 +514,9 @@
       </div>
     {:else if error}
       <div class="status error">
-        <span class="error-icon">⚠️</span>
+        <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+        </svg>
         <div class="error-content">
           <div class="error-title">Query Error</div>
           <pre class="error-message">{error}</pre>
@@ -586,7 +588,9 @@
       </div>
     {:else}
       <div class="status empty">
-        <span class="empty-icon">⚡</span>
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
         <span>Run a query to see results</span>
       </div>
     {/if}
@@ -926,7 +930,17 @@
 
   .error-icon,
   .empty-icon {
-    font-size: 48px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .error-icon {
+    color: var(--accent-danger);
+  }
+
+  .empty-icon {
+    color: var(--accent-primary);
+    opacity: 0.6;
   }
 
   .error-content {
