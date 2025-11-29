@@ -781,6 +781,7 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
+                <button class="row-menu-btn" onclick={(e) => { e.stopPropagation(); startEdit(account); }} title="Edit account">⋮</button>
               </div>
             {/each}
           </div>
@@ -815,6 +816,7 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
+                <button class="row-menu-btn" onclick={(e) => { e.stopPropagation(); startEdit(account); }} title="Edit account">⋮</button>
               </div>
             {/each}
           </div>
@@ -1348,6 +1350,32 @@ LIMIT 100`;
     color: var(--text-muted);
     font-size: 11px;
     flex-shrink: 0;
+  }
+
+  .row-menu-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+
+  .row:hover .row-menu-btn,
+  .row.cursor .row-menu-btn {
+    opacity: 1;
+  }
+
+  .row-menu-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
   }
 
   .net-worth-row {
