@@ -1,5 +1,11 @@
 <script lang="ts">
   import { executeQuery, type QueryResult } from "../../sdk";
+  import { onMount } from "svelte";
+  import { EditorView, keymap, placeholder } from "@codemirror/view";
+  import { EditorState } from "@codemirror/state";
+  import { sql } from "@codemirror/lang-sql";
+  import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+  import { tags } from "@lezer/highlight";
 
   const HISTORY_KEY = "treeline-query-history";
   const MAX_HISTORY = 50;
@@ -119,9 +125,98 @@
     query = "";
     result = null;
     error = null;
+    // Update CodeMirror content
+    if (editorView) {
+      editorView.dispatch({
+        changes: { from: 0, to: editorView.state.doc.length, insert: "" }
+      });
+    }
   }
 
   let viewEl: HTMLDivElement;
+  let editorContainer: HTMLDivElement;
+  let editorView: EditorView | null = null;
+
+  // Custom theme using CSS variables
+  const customTheme = EditorView.theme({
+    "&": {
+      backgroundColor: "var(--bg-primary)",
+      color: "var(--text-primary)",
+      fontSize: "13px",
+      minHeight: "120px",
+    },
+    ".cm-content": {
+      fontFamily: "var(--font-mono)",
+      caretColor: "var(--text-primary)",
+      padding: "var(--spacing-md)",
+    },
+    ".cm-cursor": {
+      borderLeftColor: "var(--text-primary)",
+    },
+    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+      backgroundColor: "rgba(255, 255, 255, 0.1)",
+    },
+    ".cm-activeLine": {
+      backgroundColor: "transparent",
+    },
+    ".cm-gutters": {
+      display: "none",
+    },
+    ".cm-placeholder": {
+      color: "var(--text-muted)",
+    },
+    "&.cm-focused": {
+      outline: "none",
+    },
+  });
+
+  // Syntax highlighting colors matching theme
+  const customHighlighting = HighlightStyle.define([
+    { tag: tags.keyword, color: "#c678dd" },           // Purple for keywords
+    { tag: tags.operator, color: "#56b6c2" },          // Cyan for operators
+    { tag: tags.string, color: "#98c379" },            // Green for strings
+    { tag: tags.number, color: "#d19a66" },            // Orange for numbers
+    { tag: tags.comment, color: "#5c6370", fontStyle: "italic" },
+    { tag: tags.function(tags.variableName), color: "#61afef" }, // Blue for functions
+    { tag: tags.variableName, color: "#e5c07b" },      // Yellow for identifiers
+    { tag: tags.punctuation, color: "#abb2bf" },
+    { tag: tags.null, color: "#d19a66" },
+  ]);
+
+  onMount(() => {
+    const state = EditorState.create({
+      doc: query,
+      extensions: [
+        sql(),
+        customTheme,
+        syntaxHighlighting(customHighlighting),
+        placeholder("Enter SQL query..."),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            query = update.state.doc.toString();
+          }
+        }),
+      ],
+    });
+
+    editorView = new EditorView({
+      state,
+      parent: editorContainer,
+    });
+
+    return () => {
+      editorView?.destroy();
+    };
+  });
+
+  // Update editor when query changes externally (e.g., from history or examples)
+  $effect(() => {
+    if (editorView && editorView.state.doc.toString() !== query) {
+      editorView.dispatch({
+        changes: { from: 0, to: editorView.state.doc.length, insert: query }
+      });
+    }
+  });
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
     // Only handle if we're inside the query view
@@ -140,6 +235,11 @@
     else if (isMod && e.key === "l") {
       e.preventDefault();
       clearQuery();
+    }
+    // Cmd/Ctrl + Shift + F to format
+    else if (isMod && e.shiftKey && e.key === "f") {
+      e.preventDefault();
+      formatQuery();
     }
   }
 
@@ -304,12 +404,7 @@
       </div>
     </div>
 
-    <textarea
-      class="query-editor"
-      bind:value={query}
-      placeholder="Enter SQL query..."
-      spellcheck="false"
-    ></textarea>
+    <div class="query-editor" bind:this={editorContainer}></div>
 
     <div class="query-footer">
       <div class="examples">
@@ -325,6 +420,7 @@
       <div class="shortcuts">
         <span class="shortcut-item"><kbd>⌘</kbd><kbd>↵</kbd> Run</span>
         <span class="shortcut-item"><kbd>⌘</kbd><kbd>L</kbd> Clear</span>
+        <span class="shortcut-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd> Format</span>
       </div>
     </div>
   </div>
@@ -604,19 +700,22 @@
   .query-editor {
     width: 100%;
     min-height: 120px;
-    font-family: var(--font-mono);
-    font-size: 13px;
     background: var(--bg-primary);
-    color: var(--text-primary);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-md);
-    padding: var(--spacing-md);
-    resize: vertical;
-    outline: none;
+    overflow: hidden;
   }
 
-  .query-editor:focus {
+  .query-editor:focus-within {
     border-color: var(--accent-primary);
+  }
+
+  .query-editor :global(.cm-editor) {
+    min-height: 120px;
+  }
+
+  .query-editor :global(.cm-scroller) {
+    overflow: auto;
   }
 
   .query-footer {
