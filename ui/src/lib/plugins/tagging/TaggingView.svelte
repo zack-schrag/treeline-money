@@ -61,6 +61,12 @@
   let isBulkTagging = $state(false);
   let bulkTagInput = $state("");
 
+  // Tag edit modal
+  let isTagModalOpen = $state(false);
+  let editingTransaction = $state<Transaction | null>(null);
+  let modalTagInput = $state("");
+  let modalInputEl: HTMLInputElement | null = null;
+
   // Element refs
   let customTagInputEl: HTMLInputElement | null = null;
   let bulkTagInputEl: HTMLInputElement | null = null;
@@ -375,6 +381,12 @@
         e.preventDefault();
         startCustomTagging();
         break;
+      case "Enter":
+        e.preventDefault();
+        if (transactions[cursorIndex]) {
+          openTagModal(transactions[cursorIndex]);
+        }
+        break;
       case "c":
         e.preventDefault();
         clearTagsFromCurrent();
@@ -654,6 +666,13 @@
     containerEl?.focus();
   }
 
+  function handleRowDoubleClick(index: number) {
+    const txn = transactions[index];
+    if (txn) {
+      openTagModal(txn);
+    }
+  }
+
   function handleListScroll(e: Event) {
     const target = e.target as HTMLElement;
     const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
@@ -889,6 +908,52 @@
     await clearTagsFromCurrent();
   }
 
+  // Tag edit modal functions
+  function openTagModal(txn: Transaction) {
+    editingTransaction = txn;
+    modalTagInput = txn.tags.join(", ");
+    isTagModalOpen = true;
+    setTimeout(() => modalInputEl?.focus(), 10);
+  }
+
+  function closeTagModal() {
+    isTagModalOpen = false;
+    editingTransaction = null;
+    modalTagInput = "";
+    containerEl?.focus();
+  }
+
+  async function saveTagModal() {
+    if (!editingTransaction) return;
+
+    const newTags = modalTagInput.split(",").map(t => t.trim()).filter(t => t);
+
+    // Find the transaction in our list and update it
+    const idx = transactions.findIndex(t => t.transaction_id === editingTransaction!.transaction_id);
+    if (idx >= 0) {
+      transactions[idx] = {
+        ...transactions[idx],
+        tags: newTags
+      };
+      transactions = [...transactions];
+
+      // Persist in background
+      persistTagChanges([transactions[idx]]);
+    }
+
+    closeTagModal();
+  }
+
+  function handleModalKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeTagModal();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      saveTagModal();
+    }
+  }
+
   function formatAmount(amount: number): string {
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -1080,6 +1145,7 @@
             class:selected={selectedIndices.has(index)}
             data-index={index}
             onclick={() => handleRowClick(index)}
+            ondblclick={() => handleRowDoubleClick(index)}
             role="button"
             tabindex="-1"
           >
@@ -1192,11 +1258,73 @@
       </div>
     {:else}
       <div class="command-hint-row">
-        <kbd>1-9</kbd> quick tag | <kbd>t</kbd> edit | <kbd>c</kbd> clear | <kbd>a</kbd> bulk | <kbd>/</kbd> search | <kbd>u</kbd> filter
+        <kbd>1-9</kbd> quick tag | <kbd>Enter</kbd> edit | <kbd>c</kbd> clear | <kbd>a</kbd> bulk | <kbd>/</kbd> search | <kbd>u</kbd> filter
       </div>
     {/if}
   </div>
 </div>
+
+<!-- Tag Edit Modal -->
+{#if isTagModalOpen && editingTransaction}
+  <div
+    class="modal-overlay"
+    onclick={closeTagModal}
+    onkeydown={handleModalKeyDown}
+    role="dialog"
+    tabindex="-1"
+  >
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
+      <div class="modal-header">
+        <span class="modal-title">Edit Tags</span>
+        <button class="close-btn" onclick={closeTagModal}>×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="txn-preview">
+          <div class="txn-preview-date">{editingTransaction.transaction_date}</div>
+          <div class="txn-preview-desc">{editingTransaction.description}</div>
+          <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0} class:positive={editingTransaction.amount >= 0}>
+            {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-tags">Tags (comma-separated)</label>
+          <input
+            id="modal-tags"
+            type="text"
+            bind:this={modalInputEl}
+            bind:value={modalTagInput}
+            onkeydown={handleModalKeyDown}
+            placeholder="e.g., groceries, food, weekly"
+          />
+        </div>
+
+        {#if currentSuggestions.length > 0}
+          <div class="suggested-tags">
+            <span class="suggested-label">Suggested:</span>
+            {#each currentSuggestions.slice(0, 5) as suggestion}
+              <button
+                class="suggested-tag-btn"
+                onclick={() => {
+                  const current = modalTagInput.trim();
+                  modalTagInput = current ? `${current}, ${suggestion.tag}` : suggestion.tag;
+                }}
+              >
+                {suggestion.tag}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn secondary" onclick={closeTagModal}>Cancel</button>
+        <button class="btn primary" onclick={saveTagModal}>Save</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .tagging-view {
@@ -1911,5 +2039,182 @@
       top: 100vh;
       transform: rotate(calc(var(--rotation) + 720deg)) translateX(calc(var(--x) * 0.2 - 10vw));
     }
+  }
+
+  /* Modal styles */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    width: 450px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .modal-title {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    font-size: 20px;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .close-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .modal-body {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .txn-preview {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .txn-preview-date {
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .txn-preview-desc {
+    flex: 1;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .txn-preview-amount {
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+
+  .txn-preview-amount.positive {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .txn-preview-amount.negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .form-group label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .form-group input {
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 14px;
+  }
+
+  .form-group input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .suggested-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .suggested-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .suggested-tag-btn {
+    padding: 3px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .suggested-tag-btn:hover {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn.primary {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+  }
+
+  .btn.secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+  }
+
+  .btn:hover {
+    opacity: 0.9;
   }
 </style>
