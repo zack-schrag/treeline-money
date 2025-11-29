@@ -511,6 +511,16 @@
     containerEl?.focus();
   }
 
+  function handleRowDoubleClick(index: number) {
+    // Get the actual for this index
+    const actual = index < incomeActuals.length
+      ? incomeActuals[index]
+      : budgetActuals[index - incomeActuals.length];
+    if (actual) {
+      loadTransactionsForCategory(actual);
+    }
+  }
+
   // Move category up or down within its section
   async function moveCategory(direction: "up" | "down") {
     if (!currentCategory) return;
@@ -621,6 +631,7 @@
               class:cursor={cursorIndex === globalIndex}
               data-index={globalIndex}
               onclick={() => handleRowClick(globalIndex)}
+              ondblclick={() => handleRowDoubleClick(globalIndex)}
               role="listitem"
             >
               <div class="row-name">{actual.category}</div>
@@ -657,6 +668,7 @@
               class:cursor={cursorIndex === globalIndex}
               data-index={globalIndex}
               onclick={() => handleRowClick(globalIndex)}
+              ondblclick={() => handleRowDoubleClick(globalIndex)}
               role="listitem"
             >
               <div class="row-name">{actual.category}</div>

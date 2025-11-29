@@ -1167,6 +1167,11 @@
                 {/if}
               {/if}
             </div>
+            <button
+              class="row-edit-btn"
+              onclick={(e) => { e.stopPropagation(); openTagModal(txn); }}
+              title="Edit tags"
+            >⋮</button>
           </div>
         {/each}
         {#if isLoadingMore}
@@ -1814,6 +1819,32 @@
     color: var(--text-muted);
     border-radius: 3px;
     font-size: 10px;
+  }
+
+  .row-edit-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+
+  .row:hover .row-edit-btn,
+  .row.cursor .row-edit-btn {
+    opacity: 1;
+  }
+
+  .row-edit-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
   }
 
   .command-bar {
