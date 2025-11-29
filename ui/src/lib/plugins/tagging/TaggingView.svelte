@@ -24,6 +24,35 @@
   let isSearching = $state(false);
   let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Account filter state (multi-select)
+  const ACCOUNT_FILTER_KEY = "tagging-selected-accounts";
+  let selectedAccounts = $state<Set<string>>(new Set());
+  let availableAccounts = $state<string[]>([]);
+  let isAccountDropdownOpen = $state(false);
+  let accountCursorIndex = $state(0);
+
+  function loadPersistedAccounts(): Set<string> {
+    try {
+      const stored = localStorage.getItem(ACCOUNT_FILTER_KEY);
+      if (stored) {
+        const accounts = JSON.parse(stored) as string[];
+        return new Set(accounts);
+      }
+    } catch (e) {
+      console.error("Failed to load persisted accounts:", e);
+    }
+    return new Set();
+  }
+
+  function persistSelectedAccounts() {
+    try {
+      const accounts = Array.from(selectedAccounts);
+      localStorage.setItem(ACCOUNT_FILTER_KEY, JSON.stringify(accounts));
+    } catch (e) {
+      console.error("Failed to persist accounts:", e);
+    }
+  }
+
   // Custom tag input mode (for typing a new tag)
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
@@ -92,6 +121,20 @@
     }
   }
 
+  async function loadAvailableAccounts() {
+    try {
+      const result = await executeQuery(`
+        SELECT DISTINCT account_name
+        FROM transactions
+        WHERE account_name IS NOT NULL AND account_name != ''
+        ORDER BY account_name
+      `);
+      availableAccounts = result.rows.map(r => r[0] as string);
+    } catch (e) {
+      console.error("Failed to load accounts:", e);
+    }
+  }
+
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
 
@@ -125,17 +168,35 @@
       FROM transactions
     `;
 
+    const conditions: string[] = [];
+
+    // Account filter (multi-select)
+    if (selectedAccounts.size > 0) {
+      const accountList = Array.from(selectedAccounts)
+        .map(a => `'${a.replace(/'/g, "''")}'`)
+        .join(", ");
+      conditions.push(`account_name IN (${accountList})`);
+    }
+
+    // Untagged filter
     if (filterMode === "untagged" && !searchQuery.trim()) {
-      query += " WHERE tags = []";
-    } else if (searchQuery.trim()) {
+      conditions.push("tags = []");
+    }
+
+    // Search filter
+    if (searchQuery.trim()) {
       const escapedSearch = searchQuery.trim().replace(/'/g, "''");
       // Search across description, account_name, amount (as string), and tags
-      query += ` WHERE (
+      conditions.push(`(
         description ILIKE '%${escapedSearch}%'
         OR account_name ILIKE '%${escapedSearch}%'
         OR CAST(amount AS VARCHAR) LIKE '%${escapedSearch}%'
         OR array_to_string(tags, ',') ILIKE '%${escapedSearch}%'
-      )`;
+      )`);
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
     }
 
     query += ` ORDER BY transaction_date DESC LIMIT ${PAGE_SIZE + 1} OFFSET ${offset}`;
@@ -256,6 +317,12 @@
       return;
     }
 
+    // Account dropdown open - handle navigation
+    if (isAccountDropdownOpen) {
+      handleAccountFilterKeyDown(e);
+      return;
+    }
+
     // Number keys 1-9 to apply suggested tags
     if (e.key >= "1" && e.key <= "9") {
       const tagIndex = parseInt(e.key) - 1;
@@ -319,6 +386,10 @@
       case "u":
         e.preventDefault();
         toggleFilterMode();
+        break;
+      case "f":
+        e.preventDefault();
+        startAccountFiltering();
         break;
       case "/":
         e.preventDefault();
@@ -401,6 +472,97 @@
     }
   }
 
+  function handleAccountFilterKeyDown(e: KeyboardEvent) {
+    switch (e.key) {
+      case "Escape":
+        e.preventDefault();
+        closeAccountDropdown();
+        break;
+      case "j":
+      case "ArrowDown":
+        e.preventDefault();
+        accountCursorIndex = Math.min(accountCursorIndex + 1, availableAccounts.length - 1);
+        scrollAccountCursor();
+        break;
+      case "k":
+      case "ArrowUp":
+        e.preventDefault();
+        accountCursorIndex = Math.max(accountCursorIndex - 1, 0);
+        scrollAccountCursor();
+        break;
+      case " ":
+      case "x":
+        e.preventDefault();
+        toggleAccountSelection(availableAccounts[accountCursorIndex]);
+        break;
+      case "Enter":
+        e.preventDefault();
+        applyAccountFilterAndClose();
+        break;
+      case "a":
+        // Select all
+        e.preventDefault();
+        selectedAccounts = new Set(availableAccounts);
+        break;
+      case "A":
+        // Deselect all
+        e.preventDefault();
+        selectedAccounts = new Set();
+        break;
+    }
+  }
+
+  function scrollAccountCursor() {
+    setTimeout(() => {
+      const element = document.querySelector(`[data-account-index="${accountCursorIndex}"]`);
+      if (element) {
+        element.scrollIntoView({ block: "nearest", behavior: "auto" });
+      }
+    }, 0);
+  }
+
+  function startAccountFiltering() {
+    if (availableAccounts.length === 0) return;
+    isAccountDropdownOpen = true;
+    accountCursorIndex = 0;
+  }
+
+  function closeAccountDropdown() {
+    isAccountDropdownOpen = false;
+    containerEl?.focus();
+  }
+
+  function toggleAccountSelection(account: string) {
+    if (!account) return;
+    if (selectedAccounts.has(account)) {
+      selectedAccounts.delete(account);
+    } else {
+      selectedAccounts.add(account);
+    }
+    selectedAccounts = new Set(selectedAccounts); // trigger reactivity
+  }
+
+  function applyAccountFilterAndClose() {
+    isAccountDropdownOpen = false;
+    persistSelectedAccounts();
+    loadTransactions();
+    containerEl?.focus();
+  }
+
+  function clearAccountFilter() {
+    selectedAccounts = new Set();
+    persistSelectedAccounts();
+    loadTransactions();
+  }
+
+  function toggleAccountDropdown() {
+    if (isAccountDropdownOpen) {
+      closeAccountDropdown();
+    } else {
+      startAccountFiltering();
+    }
+  }
+
   function startSearch() {
     isSearching = true;
     setTimeout(() => searchInputEl?.focus(), 10);
@@ -428,6 +590,8 @@
   function resetFilters() {
     searchQuery = "";
     filterMode = "all";
+    selectedAccounts = new Set();
+    persistSelectedAccounts();
     loadTransactions();
   }
 
@@ -730,10 +894,25 @@
   }
 
   onMount(async () => {
-    // Preload tag data in parallel with loading transactions
+    // Load persisted account filter
+    selectedAccounts = loadPersistedAccounts();
+
+    // Preload tag data and accounts in parallel with loading transactions
     await suggester.loadTagData();
     allTags = suggester.getAllTags();
-    await loadGlobalStats();
+    await Promise.all([loadGlobalStats(), loadAvailableAccounts()]);
+
+    // Filter out any persisted accounts that no longer exist
+    if (selectedAccounts.size > 0) {
+      const validAccounts = new Set(
+        Array.from(selectedAccounts).filter(a => availableAccounts.includes(a))
+      );
+      if (validAccounts.size !== selectedAccounts.size) {
+        selectedAccounts = validAccounts;
+        persistSelectedAccounts();
+      }
+    }
+
     await loadTransactions();
     containerEl?.focus();
   });
@@ -794,6 +973,57 @@
           <span class="mode">All</span>
         {/if}
       </div>
+
+      <!-- Account filter dropdown -->
+      <div class="account-filter-container">
+        <button
+          class="account-filter-btn"
+          class:active={selectedAccounts.size > 0}
+          onclick={toggleAccountDropdown}
+        >
+          {#if selectedAccounts.size === 0}
+            All Accounts
+          {:else if selectedAccounts.size === 1}
+            {Array.from(selectedAccounts)[0]}
+          {:else}
+            {selectedAccounts.size} accounts
+          {/if}
+          <span class="dropdown-arrow">{isAccountDropdownOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {#if isAccountDropdownOpen}
+          <div class="account-dropdown">
+            <div class="dropdown-header">
+              <span class="dropdown-title">Filter by Account</span>
+              {#if selectedAccounts.size > 0}
+                <button class="clear-selection" onclick={clearAccountFilter}>Clear</button>
+              {/if}
+            </div>
+            <div class="dropdown-hint">
+              <kbd>j</kbd><kbd>k</kbd> navigate | <kbd>space</kbd> toggle | <kbd>Enter</kbd> apply
+            </div>
+            <div class="account-list">
+              {#each availableAccounts as account, i}
+                <button
+                  class="account-option"
+                  class:cursor={accountCursorIndex === i}
+                  class:selected={selectedAccounts.has(account)}
+                  data-account-index={i}
+                  onclick={() => toggleAccountSelection(account)}
+                >
+                  <span class="checkbox">{selectedAccounts.has(account) ? "☑" : "☐"}</span>
+                  <span class="account-name">{account}</span>
+                </button>
+              {/each}
+            </div>
+            <div class="dropdown-footer">
+              <button class="dropdown-apply" onclick={applyAccountFilterAndClose}>
+                Apply Filter
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
     <div class="stats">
       <span>Viewing {transactions.length}{hasMore ? '+' : ''}</span>
@@ -818,7 +1048,8 @@
     <span><kbd>c</kbd> clear</span>
     <span><kbd>a</kbd> bulk tag</span>
     <span><kbd>/</kbd> search</span>
-    <span><kbd>u</kbd> filter</span>
+    <span><kbd>f</kbd> account</span>
+    <span><kbd>u</kbd> untagged</span>
     <span><kbd>r</kbd> reset</span>
     <span><kbd>n</kbd> next untagged</span>
   </div>
@@ -1035,6 +1266,174 @@
 
   .clear-search:hover {
     color: var(--text-primary);
+  }
+
+  /* Account filter dropdown */
+  .account-filter-container {
+    position: relative;
+    margin-left: auto;
+  }
+
+  .account-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 4px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    min-width: 140px;
+    justify-content: space-between;
+  }
+
+  .account-filter-btn:hover {
+    border-color: var(--accent-primary);
+  }
+
+  .account-filter-btn.active {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .dropdown-arrow {
+    font-size: 8px;
+    opacity: 0.7;
+  }
+
+  .account-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    min-width: 250px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .dropdown-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .clear-selection {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+
+  .clear-selection:hover {
+    text-decoration: underline;
+  }
+
+  .dropdown-hint {
+    padding: 6px 12px;
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .dropdown-hint kbd {
+    display: inline-block;
+    padding: 1px 3px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    margin-right: 2px;
+  }
+
+  .account-list {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .account-option {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .account-option:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .account-option.cursor {
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--accent-primary);
+    padding-left: 9px;
+  }
+
+  .account-option.selected {
+    font-weight: 600;
+  }
+
+  .account-option.selected .checkbox {
+    color: var(--accent-primary);
+  }
+
+  .checkbox {
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .account-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dropdown-footer {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .dropdown-apply {
+    width: 100%;
+    padding: 6px 12px;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .dropdown-apply:hover {
+    opacity: 0.9;
   }
 
   .stats {
