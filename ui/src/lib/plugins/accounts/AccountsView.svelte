@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { executeQuery, registry } from "../../sdk";
-  import { invoke } from "@tauri-apps/api/core";
+  import { executeQuery, registry, getPluginSettings, setPluginSettings } from "../../sdk";
   import type {
     AccountWithStats,
     BalanceClassification,
@@ -10,8 +9,13 @@
   } from "./types";
   import { getDefaultClassification } from "./types";
 
+  // Props (passed from openView)
+  interface Props {
+    action?: "add";
+  }
+  let { action }: Props = $props();
+
   const PLUGIN_ID = "accounts";
-  const CONFIG_FILE = "accounts_config.json";
 
   // State
   let accounts = $state<AccountWithStats[]>([]);
@@ -70,6 +74,17 @@
     excluded_from_net_worth: false,
   });
 
+  // Add account modal
+  let isAddingAccount = $state(false);
+  let addAccountForm = $state({
+    name: "",
+    nickname: "",
+    account_type: "",
+    classification: "asset" as BalanceClassification,
+    initial_balance: "",
+    institution_name: "",
+  });
+
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
   let liabilityAccounts = $derived(accounts.filter((a) => a.classification === "liability"));
@@ -102,27 +117,17 @@
     return { change, percent };
   });
 
+  const DEFAULT_CONFIG: AccountsConfig = {
+    classificationOverrides: {},
+    excludedFromNetWorth: [],
+  };
+
   async function loadConfig(): Promise<AccountsConfig> {
-    try {
-      const content = await invoke<string>("read_plugin_config", {
-        pluginId: PLUGIN_ID,
-        filename: CONFIG_FILE,
-      });
-      if (content === "null" || !content) {
-        return { classificationOverrides: {}, excludedFromNetWorth: [] };
-      }
-      return JSON.parse(content);
-    } catch (e) {
-      return { classificationOverrides: {}, excludedFromNetWorth: [] };
-    }
+    return getPluginSettings<AccountsConfig>(PLUGIN_ID, DEFAULT_CONFIG);
   }
 
   async function saveConfig(newConfig: AccountsConfig): Promise<void> {
-    await invoke("write_plugin_config", {
-      pluginId: PLUGIN_ID,
-      filename: CONFIG_FILE,
-      content: JSON.stringify(newConfig, null, 2),
-    });
+    await setPluginSettings(PLUGIN_ID, newConfig);
     config = newConfig;
   }
 
@@ -415,7 +420,7 @@
   });
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (isEditing || showTransactionPreview) return;
+    if (isEditing || showTransactionPreview || isAddingAccount) return;
 
     switch (e.key) {
       case "j":
@@ -440,9 +445,9 @@
         e.preventDefault();
         if (currentAccount) startEdit(currentAccount);
         break;
-      case "n":
+      case "a":
         e.preventDefault();
-        if (currentAccount) startEdit(currentAccount);
+        startAddAccount();
         break;
       case "h":
       case "ArrowLeft":
@@ -640,6 +645,99 @@ LIMIT 100`;
     }
   }
 
+  function startAddAccount() {
+    addAccountForm = {
+      name: "",
+      nickname: "",
+      account_type: "",
+      classification: "asset",
+      initial_balance: "",
+      institution_name: "",
+    };
+    isAddingAccount = true;
+  }
+
+  function cancelAddAccount() {
+    isAddingAccount = false;
+    containerEl?.focus();
+  }
+
+  function generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  async function saveAddAccount() {
+    if (!addAccountForm.name.trim()) {
+      error = "Account name is required";
+      return;
+    }
+
+    try {
+      const accountId = generateUUID();
+      const now = new Date().toISOString();
+      const nameValue = addAccountForm.name.trim().replace(/'/g, "''");
+      const nicknameValue = addAccountForm.nickname.trim() || null;
+      const typeValue = addAccountForm.account_type.trim() || null;
+      const institutionValue = addAccountForm.institution_name.trim() || null;
+
+      // Insert the account
+      await executeQuery(
+        `INSERT INTO sys_accounts (
+          account_id, name, nickname, account_type, currency,
+          external_ids, institution_name, created_at, updated_at
+        ) VALUES (
+          '${accountId}',
+          '${nameValue}',
+          ${nicknameValue ? `'${nicknameValue.replace(/'/g, "''")}'` : "NULL"},
+          ${typeValue ? `'${typeValue.replace(/'/g, "''")}'` : "NULL"},
+          'USD',
+          '{}',
+          ${institutionValue ? `'${institutionValue.replace(/'/g, "''")}'` : "NULL"},
+          '${now}',
+          '${now}'
+        )`,
+        { readonly: false }
+      );
+
+      // If initial balance provided, create a balance snapshot
+      const initialBalance = parseFloat(addAccountForm.initial_balance);
+      if (!isNaN(initialBalance) && addAccountForm.initial_balance.trim()) {
+        const snapshotId = generateUUID();
+        await executeQuery(
+          `INSERT INTO sys_balance_snapshots (
+            snapshot_id, account_id, balance, snapshot_time, created_at, updated_at
+          ) VALUES (
+            '${snapshotId}',
+            '${accountId}',
+            ${initialBalance},
+            '${now}',
+            '${now}',
+            '${now}'
+          )`,
+          { readonly: false }
+        );
+      }
+
+      // Update config for classification if not default
+      const defaultClass = getDefaultClassification(typeValue);
+      if (addAccountForm.classification !== defaultClass) {
+        const newConfig = { ...config };
+        newConfig.classificationOverrides[accountId] = addAccountForm.classification;
+        await saveConfig(newConfig);
+      }
+
+      cancelAddAccount();
+      await loadAccounts();
+    } catch (e) {
+      console.error("Failed to add account:", e);
+      error = e instanceof Error ? e.message : "Failed to add account";
+    }
+  }
+
   function formatCurrency(amount: number): string {
     return amount.toLocaleString("en-US", {
       style: "currency",
@@ -684,6 +782,11 @@ LIMIT 100`;
     await loadAccounts();
     // Focus container for keyboard navigation
     containerEl?.focus();
+
+    // Handle action prop from command palette
+    if (action === "add") {
+      startAddAccount();
+    }
   });
 </script>
 
@@ -718,6 +821,7 @@ LIMIT 100`;
     <span><kbd>j</kbd><kbd>k</kbd> nav</span>
     <span><kbd>Enter</kbd> transactions</span>
     <span><kbd>e</kbd> edit</span>
+    <span><kbd>a</kbd> add</span>
     <span><kbd>h</kbd><kbd>l</kbd> date</span>
     <span><kbd>t</kbd> today</span>
     <span><kbd>r</kbd> refresh</span>
@@ -1053,6 +1157,95 @@ LIMIT 100`;
         <div class="modal-actions">
           <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
           <button class="btn primary" onclick={saveEdit}>Save</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Add Account Modal -->
+  {#if isAddingAccount}
+    <div
+      class="modal-overlay"
+      onclick={cancelAddAccount}
+      onkeydown={(e) => e.key === "Escape" && cancelAddAccount()}
+      role="dialog"
+      tabindex="-1"
+    >
+      <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
+        <div class="modal-header">
+          <span class="modal-title">Add Manual Account</span>
+          <button class="close-btn" onclick={cancelAddAccount}>×</button>
+        </div>
+        <div class="form">
+          <label>
+            Account Name *
+            <input
+              type="text"
+              bind:value={addAccountForm.name}
+              placeholder="e.g., Home Equity, Cash"
+            />
+          </label>
+          <label>
+            Nickname (optional)
+            <input
+              type="text"
+              bind:value={addAccountForm.nickname}
+              placeholder="Display name"
+            />
+          </label>
+          <label>
+            Institution (optional)
+            <input
+              type="text"
+              bind:value={addAccountForm.institution_name}
+              placeholder="e.g., Zillow, Manual"
+            />
+          </label>
+          <label>
+            Type
+            <input
+              type="text"
+              bind:value={addAccountForm.account_type}
+              placeholder="depository, credit, investment, loan, other"
+            />
+            <span class="form-hint">depository, credit, investment, loan, other</span>
+          </label>
+          <div class="form-group">
+            <span class="form-label">Balance Classification</span>
+            <div class="radio-group">
+              <label class="radio">
+                <input
+                  type="radio"
+                  name="add-classification"
+                  value="asset"
+                  bind:group={addAccountForm.classification}
+                />
+                Asset
+              </label>
+              <label class="radio">
+                <input
+                  type="radio"
+                  name="add-classification"
+                  value="liability"
+                  bind:group={addAccountForm.classification}
+                />
+                Liability
+              </label>
+            </div>
+          </div>
+          <label>
+            Initial Balance (optional)
+            <input
+              type="text"
+              bind:value={addAccountForm.initial_balance}
+              placeholder="0.00"
+            />
+            <span class="form-hint">Current balance as of today</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="btn secondary" onclick={cancelAddAccount}>Cancel</button>
+          <button class="btn primary" onclick={saveAddAccount}>Add Account</button>
         </div>
       </div>
     </div>

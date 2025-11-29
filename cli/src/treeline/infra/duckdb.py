@@ -211,13 +211,13 @@ class DuckDBRepository(Repository):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (account_id) DO UPDATE SET
                         name = excluded.name,
-                        nickname = excluded.nickname,
-                        account_type = excluded.account_type,
+                        nickname = COALESCE(sys_accounts.nickname, excluded.nickname),
+                        account_type = COALESCE(sys_accounts.account_type, excluded.account_type),
                         currency = excluded.currency,
                         external_ids = excluded.external_ids,
-                        institution_name = excluded.institution_name,
-                        institution_url = excluded.institution_url,
-                        institution_domain = excluded.institution_domain,
+                        institution_name = COALESCE(excluded.institution_name, sys_accounts.institution_name),
+                        institution_url = COALESCE(excluded.institution_url, sys_accounts.institution_url),
+                        institution_domain = COALESCE(excluded.institution_domain, sys_accounts.institution_domain),
                         updated_at = excluded.updated_at
                     """,
                     [

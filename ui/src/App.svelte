@@ -2,27 +2,72 @@
   import { onMount } from "svelte";
   import Shell from "./lib/core/Shell.svelte";
   import { initializePlugins } from "./lib/plugins";
-  import { themeManager } from "./lib/sdk";
+  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting } from "./lib/sdk";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
 
   onMount(async () => {
     try {
-      // Initialize theme
+      // Initialize theme from settings
       loadingStatus = "Loading theme...";
-      themeManager.init();
+      const savedTheme = await getAppSetting("theme");
+      themeManager.setTheme(savedTheme === "system" ? "dark" : savedTheme);
 
       // Load all plugins
       loadingStatus = "Loading plugins...";
       await initializePlugins();
 
       isLoading = false;
+
+      // Check if sync is needed (after UI is loaded so user sees the app)
+      checkAndRunSync();
     } catch (error) {
       console.error("Initialization error:", error);
       loadingStatus = `Error: ${error}`;
     }
   });
+
+  async function checkAndRunSync() {
+    try {
+      const needsSync = await isSyncNeeded();
+      if (needsSync) {
+        toast.info("Syncing...", "Fetching latest data from integrations");
+
+        try {
+          const result = await runSync();
+          const totalAccounts = result.results.reduce(
+            (sum, r) => sum + (r.accounts_synced || 0),
+            0
+          );
+          const totalTransactions = result.results.reduce(
+            (sum, r) => sum + (r.transaction_stats?.new || r.transactions_synced || 0),
+            0
+          );
+
+          // Check for errors
+          const errors = result.results.filter((r) => r.error);
+          if (errors.length > 0) {
+            toast.warning(
+              "Sync completed with warnings",
+              errors.map((e) => e.error).join(", ")
+            );
+          } else if (totalTransactions > 0 || totalAccounts > 0) {
+            toast.success(
+              "Sync complete",
+              `${totalAccounts} accounts, ${totalTransactions} new transactions`
+            );
+          }
+          // Don't show toast if nothing synced (no integrations configured)
+        } catch (e) {
+          // Don't show error toast on startup for missing integrations
+          console.log("Startup sync skipped:", e);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to check sync status:", e);
+    }
+  }
 </script>
 
 {#if isLoading}

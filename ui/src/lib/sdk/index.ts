@@ -29,3 +29,28 @@ export type { StatusResponse, QueryResult, ExecuteQueryOptions } from "./api";
 // Theme
 export { themeManager, themes } from "./theme";
 export type { ThemeDefinition } from "./theme";
+
+// Settings
+export {
+  readSettings,
+  writeSettings,
+  getSettings,
+  getAppSetting,
+  setAppSetting,
+  getPluginSettings,
+  setPluginSettings,
+  updatePluginSettings,
+  subscribeToSettings,
+  clearSettingsCache,
+  readPluginState,
+  writePluginState,
+  runSync,
+  isSyncNeeded,
+  getDemoMode,
+  setDemoMode,
+} from "./settings";
+export type { Settings, AppSettings, SyncResult } from "./settings";
+
+// Toast notifications
+export { toast, showToast, dismissToast, dismissAllToasts } from "./toast.svelte";
+export type { Toast, ToastOptions, ToastType } from "./toast.svelte";

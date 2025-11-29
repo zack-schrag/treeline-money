@@ -27,5 +27,6 @@ export const plugin: Plugin = {
       icon: "🏦",
       viewId: "accounts",
     });
+
   },
 };

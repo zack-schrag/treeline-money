@@ -1,5 +1,6 @@
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -281,6 +282,130 @@ fn get_plugins_dir() -> Result<String, String> {
         .ok_or_else(|| "Invalid plugins directory path".to_string())
 }
 
+/// Get the path to the treeline directory (~/.treeline)
+fn get_treeline_dir() -> Result<PathBuf, String> {
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    Ok(home_dir.join(".treeline"))
+}
+
+/// Read the unified settings.json file
+#[tauri::command]
+fn read_settings() -> Result<String, String> {
+    let treeline_dir = get_treeline_dir()?;
+    let settings_path = treeline_dir.join("settings.json");
+
+    if !settings_path.exists() {
+        // Return default settings structure
+        let default_settings = serde_json::json!({
+            "app": {
+                "theme": "dark",
+                "lastSyncDate": null,
+                "autoSyncOnStartup": true
+            },
+            "plugins": {}
+        });
+        return Ok(default_settings.to_string());
+    }
+
+    fs::read_to_string(&settings_path)
+        .map_err(|e| format!("Failed to read settings: {}", e))
+}
+
+/// Write the unified settings.json file
+#[tauri::command]
+fn write_settings(content: String) -> Result<(), String> {
+    let treeline_dir = get_treeline_dir()?;
+
+    // Ensure treeline directory exists
+    if !treeline_dir.exists() {
+        fs::create_dir_all(&treeline_dir)
+            .map_err(|e| format!("Failed to create treeline directory: {}", e))?;
+    }
+
+    let settings_path = treeline_dir.join("settings.json");
+
+    // Validate JSON before writing
+    serde_json::from_str::<JsonValue>(&content)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+
+    fs::write(&settings_path, content)
+        .map_err(|e| format!("Failed to write settings: {}", e))
+}
+
+/// Read plugin-specific state file (for runtime state, not user settings)
+#[tauri::command]
+fn read_plugin_state(plugin_id: String) -> Result<String, String> {
+    let treeline_dir = get_treeline_dir()?;
+    let state_path = treeline_dir
+        .join("plugins")
+        .join(&plugin_id)
+        .join("state.json");
+
+    if !state_path.exists() {
+        return Ok("null".to_string());
+    }
+
+    fs::read_to_string(&state_path)
+        .map_err(|e| format!("Failed to read plugin state: {}", e))
+}
+
+/// Write plugin-specific state file (for runtime state, not user settings)
+#[tauri::command]
+fn write_plugin_state(plugin_id: String, content: String) -> Result<(), String> {
+    let treeline_dir = get_treeline_dir()?;
+    let plugin_dir = treeline_dir.join("plugins").join(&plugin_id);
+
+    // Create plugin directory if it doesn't exist
+    if !plugin_dir.exists() {
+        fs::create_dir_all(&plugin_dir)
+            .map_err(|e| format!("Failed to create plugin directory: {}", e))?;
+    }
+
+    let state_path = plugin_dir.join("state.json");
+
+    fs::write(&state_path, content)
+        .map_err(|e| format!("Failed to write plugin state: {}", e))
+}
+
+/// Get current demo mode status
+#[tauri::command]
+fn get_demo_mode() -> bool {
+    std::env::var("TREELINE_DEMO_MODE")
+        .map(|v| v.to_lowercase() == "true" || v == "1" || v == "yes")
+        .unwrap_or(false)
+}
+
+/// Set demo mode (requires app restart to take full effect)
+#[tauri::command]
+fn set_demo_mode(enabled: bool) {
+    if enabled {
+        std::env::set_var("TREELINE_DEMO_MODE", "true");
+    } else {
+        std::env::remove_var("TREELINE_DEMO_MODE");
+    }
+}
+
+/// Run the sync command via CLI sidecar
+#[tauri::command]
+async fn run_sync(app: AppHandle) -> Result<String, String> {
+    let output = app
+        .shell()
+        .sidecar("tl")
+        .map_err(|e| format!("Failed to get sidecar: {}", e))?
+        .args(["sync", "--json"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run sync: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Sync failed: {}", stderr));
+    }
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse sync output: {}", e))
+}
+
 #[tauri::command]
 fn read_plugin_config(plugin_id: String, filename: String) -> Result<String, String> {
     let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -399,7 +524,14 @@ pub fn run() {
             get_plugins_dir,
             execute_query,
             read_plugin_config,
-            write_plugin_config
+            write_plugin_config,
+            read_settings,
+            write_settings,
+            read_plugin_state,
+            write_plugin_state,
+            run_sync,
+            get_demo_mode,
+            set_demo_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

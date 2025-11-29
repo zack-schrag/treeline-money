@@ -1,12 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { executeQuery } from "../../sdk";
+  import { executeQuery, getPluginSettings, setPluginSettings } from "../../sdk";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
-  const CONFIG_FILE = "budget_config.json"; // template
-  const MONTHS_DIR = "months"; // monthly overrides
+  const MONTHS_DIR = "months"; // monthly overrides (kept as plugin files, not settings)
 
   // State
   let categories = $state<BudgetCategory[]>([]);
@@ -139,10 +138,19 @@
     return config;
   }
 
+  // Budget settings structure (template only - monthly overrides are stored as plugin files)
+  interface BudgetSettings {
+    template: BudgetConfig;
+  }
+
+  const DEFAULT_SETTINGS: BudgetSettings = {
+    template: { income: {}, expenses: {} },
+  };
+
   async function loadConfig(month?: string): Promise<BudgetConfig> {
     const targetMonth = month || selectedMonth;
 
-    // Try month-specific config first
+    // Try month-specific config first (stored as plugin files, not settings)
     if (targetMonth) {
       try {
         const monthFile = `${MONTHS_DIR}/${targetMonth}.json`;
@@ -156,12 +164,11 @@
       }
     }
 
-    // Fall back to template
+    // Fall back to template (from unified settings)
     try {
       isCustomMonth = false;
-      const content = await invoke<string>("read_plugin_config", { pluginId: PLUGIN_ID, filename: CONFIG_FILE });
-      if (content === "null" || !content) return { income: {}, expenses: {} };
-      return JSON.parse(content);
+      const settings = await getPluginSettings<BudgetSettings>(PLUGIN_ID, DEFAULT_SETTINGS);
+      return settings.template || { income: {}, expenses: {} };
     } catch (e) {
       console.error("Failed to load config:", e);
       return { income: {}, expenses: {} };
@@ -169,7 +176,7 @@
   }
 
   async function saveConfig(config: BudgetConfig): Promise<void> {
-    // Always save to month-specific file
+    // Always save to month-specific file (as plugin files, not settings)
     if (!selectedMonth) return;
     const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
     await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile, content: JSON.stringify(config, null, 2) });
@@ -177,8 +184,10 @@
   }
 
   async function saveAsTemplate(config: BudgetConfig): Promise<void> {
-    // Save current config as the template for future months
-    await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: CONFIG_FILE, content: JSON.stringify(config, null, 2) });
+    // Save current config as the template for future months (to unified settings)
+    const settings = await getPluginSettings<BudgetSettings>(PLUGIN_ID, DEFAULT_SETTINGS);
+    settings.template = config;
+    await setPluginSettings(PLUGIN_ID, settings);
   }
 
   async function resetToTemplate(): Promise<void> {

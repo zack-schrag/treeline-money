@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { executeQuery, type QueryResult } from "../../sdk";
+  import { executeQuery, readPluginState, writePluginState, type QueryResult } from "../../sdk";
   import { onMount } from "svelte";
   import { EditorView, keymap, placeholder } from "@codemirror/view";
   import { EditorState } from "@codemirror/state";
@@ -14,7 +14,7 @@
   }
   let { initialQuery = undefined }: Props = $props();
 
-  const HISTORY_KEY = "treeline-query-history";
+  const PLUGIN_ID = "query";
   const MAX_HISTORY = 50;
 
   interface HistoryEntry {
@@ -148,18 +148,29 @@
     }
   }
 
+  // Plugin state structure for query history
+  interface QueryState {
+    history: HistoryEntry[];
+  }
+
+  // Load history from plugin state (async, but we initialize synchronously with empty array)
   function loadHistory(): HistoryEntry[] {
+    // Return empty initially, will be loaded async in onMount
+    return [];
+  }
+
+  async function loadHistoryAsync(): Promise<HistoryEntry[]> {
     try {
-      const stored = localStorage.getItem(HISTORY_KEY);
-      return stored ? JSON.parse(stored) : [];
+      const state = await readPluginState<QueryState>(PLUGIN_ID);
+      return state?.history || [];
     } catch {
       return [];
     }
   }
 
-  function saveHistory(entries: HistoryEntry[]) {
+  async function saveHistory(entries: HistoryEntry[]) {
     try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+      await writePluginState<QueryState>(PLUGIN_ID, { history: entries });
     } catch {
       // Ignore storage errors
     }
@@ -316,6 +327,11 @@
   ]);
 
   onMount(() => {
+    // Load history from plugin state
+    loadHistoryAsync().then((entries) => {
+      history = entries;
+    });
+
     const state = EditorState.create({
       doc: query,
       extensions: [

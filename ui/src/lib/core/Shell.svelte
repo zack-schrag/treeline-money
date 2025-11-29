@@ -4,6 +4,7 @@
   import ContentArea from "./ContentArea.svelte";
   import StatusBar from "./StatusBar.svelte";
   import CommandPalette from "./CommandPalette.svelte";
+  import ToastContainer from "./ToastContainer.svelte";
   import { registry } from "../sdk";
 
   let commandPaletteOpen = $state(false);
@@ -63,6 +64,7 @@
   <StatusBar />
 
   <CommandPalette bind:isOpen={commandPaletteOpen} />
+  <ToastContainer />
 </div>
 
 <style>

@@ -15,9 +15,11 @@ import { plugin as queryPlugin } from "./query";
 import { plugin as taggingPlugin } from "./tagging";
 import { plugin as budgetPlugin } from "./budget";
 import { plugin as accountsPlugin } from "./accounts";
+import { plugin as settingsPlugin } from "./settings";
 
 // List of core plugins (built into the app)
-const corePlugins: Plugin[] = [queryPlugin, taggingPlugin, budgetPlugin, accountsPlugin];
+// Settings plugin loaded last to ensure it appears after other items
+const corePlugins: Plugin[] = [accountsPlugin, budgetPlugin, taggingPlugin, queryPlugin, settingsPlugin];
 
 interface ExternalPluginInfo {
   manifest: {
@@ -86,11 +88,17 @@ export async function initializePlugins(): Promise<void> {
 
   console.log(`Initializing ${allPlugins.length} plugin(s) (${corePlugins.length} core, ${externalPlugins.length} external)...`);
 
-  // Register core sidebar section
+  // Register core sidebar sections
   registry.registerSidebarSection({
     id: "main",
-    title: "Main",
+    title: "Views",
     order: 1,
+  });
+
+  registry.registerSidebarSection({
+    id: "system",
+    title: "System",
+    order: 100, // High order to appear at the bottom
   });
 
   for (const plugin of allPlugins) {
