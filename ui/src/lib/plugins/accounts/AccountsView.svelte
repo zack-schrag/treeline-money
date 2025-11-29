@@ -556,6 +556,12 @@
     containerEl?.focus();
   }
 
+  function editFromPreview() {
+    const account = previewAccount;
+    closePreview();
+    if (account) startEdit(account);
+  }
+
   function openInQuery() {
     if (!previewAccount) return;
     const accountName = previewAccount.name.replace(/'/g, "''");
@@ -967,6 +973,7 @@ LIMIT 100`;
         {/if}
         <div class="modal-actions">
           <button class="btn secondary" onclick={closePreview}>Close</button>
+          <button class="btn secondary" onclick={editFromPreview}>Edit</button>
           <button class="btn primary" onclick={openInQuery}>Open in Query →</button>
         </div>
       </div>
