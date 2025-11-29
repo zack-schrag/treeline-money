@@ -22,6 +22,7 @@
   let error = $state<string | null>(null);
   let history = $state<HistoryEntry[]>(loadHistory());
   let showHistory = $state(false);
+  let executionTime = $state<number | null>(null);
 
   // Sorting state
   let sortColumn = $state<number | null>(null);
@@ -181,13 +182,18 @@
     isLoading = true;
     error = null;
     result = null;
+    executionTime = null;
     sortColumn = null;
     sortDirection = "asc";
 
+    const startTime = performance.now();
+
     try {
       result = await executeQuery(query);
+      executionTime = performance.now() - startTime;
       addToHistory(query, true);
     } catch (e) {
+      executionTime = performance.now() - startTime;
       error = e instanceof Error ? e.message : "Failed to execute query";
       addToHistory(query, false);
       console.error("Query error:", e);
@@ -517,7 +523,16 @@
     {:else if result}
       <div class="results-content">
         <div class="results-header">
-          <span class="result-count">{result.row_count} {result.row_count === 1 ? 'row' : 'rows'}</span>
+          <div class="results-meta">
+            <span class="result-count">{result.row_count} {result.row_count === 1 ? 'row' : 'rows'}</span>
+            {#if executionTime !== null}
+              <span class="execution-time">
+                {executionTime < 1000
+                  ? `${Math.round(executionTime)}ms`
+                  : `${(executionTime / 1000).toFixed(2)}s`}
+              </span>
+            {/if}
+          </div>
           <div class="export-buttons">
             <button class="export-button" onclick={exportCSV}>Export CSV</button>
             <button class="export-button" onclick={exportJSON}>Export JSON</button>
@@ -950,10 +965,25 @@
     align-items: center;
   }
 
+  .results-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+
   .result-count {
     font-size: 12px;
     font-family: var(--font-mono);
     color: var(--text-muted);
+  }
+
+  .execution-time {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    padding: 2px 6px;
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
   }
 
   .export-buttons {
