@@ -27,6 +27,7 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.11.3",
     "@codemirror/state": "^6.5.2",

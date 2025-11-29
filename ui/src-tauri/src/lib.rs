@@ -72,10 +72,10 @@ fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String
     // Execute query and get arrow result
     let mut stmt = conn
         .prepare(&query)
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+        .map_err(|e| e.to_string())?;
 
     let arrow = stmt.query_arrow([])
-        .map_err(|e| format!("Failed to execute query: {}", e))?;
+        .map_err(|e| e.to_string())?;
 
     // Get column names from schema
     let schema = arrow.get_schema();

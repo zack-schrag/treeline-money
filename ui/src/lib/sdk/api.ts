@@ -57,14 +57,23 @@ export interface ExecuteQueryOptions {
  */
 export async function executeQuery(query: string, options: ExecuteQueryOptions = {}): Promise<QueryResult> {
   const { readonly = true } = options;
-  const jsonString = await invoke<string>("execute_query", { query, readonly });
 
-  // Parse JSON string from Rust backend
-  const response = JSON.parse(jsonString);
+  try {
+    const jsonString = await invoke<string>("execute_query", { query, readonly });
 
-  return {
-    columns: response.columns || [],
-    rows: response.rows || [],
-    row_count: response.row_count || 0,
-  };
+    // Parse JSON string from Rust backend
+    const response = JSON.parse(jsonString);
+
+    return {
+      columns: response.columns || [],
+      rows: response.rows || [],
+      row_count: response.row_count || 0,
+    };
+  } catch (e) {
+    // Tauri invoke errors come as strings from Rust's Result::Err
+    if (typeof e === 'string') {
+      throw new Error(e);
+    }
+    throw e;
+  }
 }

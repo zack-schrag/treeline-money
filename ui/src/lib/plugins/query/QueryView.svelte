@@ -6,6 +6,7 @@
   import { sql } from "@codemirror/lang-sql";
   import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
   import { tags } from "@lezer/highlight";
+  import { history as cmHistory, defaultKeymap, historyKeymap } from "@codemirror/commands";
 
   const HISTORY_KEY = "treeline-query-history";
   const MAX_HISTORY = 50;
@@ -23,6 +24,50 @@
   let history = $state<HistoryEntry[]>(loadHistory());
   let showHistory = $state(false);
   let executionTime = $state<number | null>(null);
+
+  // Schema state
+  interface TableSchema {
+    name: string;
+    columns: { name: string; type: string }[];
+  }
+  let schema = $state<TableSchema[]>([]);
+  let showSchema = $state(false);
+  let schemaLoading = $state(false);
+
+  async function loadSchema() {
+    if (schema.length > 0) {
+      showSchema = !showSchema;
+      return;
+    }
+
+    schemaLoading = true;
+    try {
+      // Get list of tables
+      const tablesResult = await executeQuery("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'");
+      const tableNames = tablesResult.rows.map(row => row[0] as string);
+
+      // Get columns for each table
+      const tables: TableSchema[] = [];
+      for (const tableName of tableNames) {
+        const columnsResult = await executeQuery(
+          `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${tableName}' ORDER BY ordinal_position`
+        );
+        tables.push({
+          name: tableName,
+          columns: columnsResult.rows.map(row => ({
+            name: row[0] as string,
+            type: row[1] as string,
+          })),
+        });
+      }
+      schema = tables;
+      showSchema = true;
+    } catch (e) {
+      console.error("Failed to load schema:", e);
+    } finally {
+      schemaLoading = false;
+    }
+  }
 
   // Sorting state
   let sortColumn = $state<number | null>(null);
@@ -272,6 +317,8 @@
         customTheme,
         syntaxHighlighting(customHighlighting),
         placeholder("Enter SQL query..."),
+        cmHistory(),
+        keymap.of([...defaultKeymap, ...historyKeymap]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             query = update.state.doc.toString();
@@ -332,7 +379,7 @@
     },
     {
       name: "Spending by tag",
-      query: "SELECT unnest(tags) as tag, SUM(amount) as total FROM transactions WHERE amount < 0 GROUP BY tag ORDER BY total",
+      query: "SELECT tag, SUM(amount) as total FROM (SELECT unnest(tags) as tag, amount FROM transactions WHERE amount < 0) GROUP BY tag ORDER BY total",
     },
     {
       name: "Monthly spending",
@@ -440,32 +487,38 @@
 
 <svelte:window onkeydown={handleGlobalKeyDown} />
 
-<div class="query-view" bind:this={viewEl}>
-  <div class="query-panel">
+<div class="query-view" bind:this={viewEl} role="region" aria-label="SQL Query Editor">
+  <div class="query-panel" role="form" aria-label="Query input">
     <div class="panel-header">
       <h2 class="panel-title">SQL Query</h2>
-      <div class="header-actions">
+      <div class="header-actions" role="toolbar" aria-label="Query actions">
         <div class="history-container">
           <button
             class="history-button"
             class:active={showHistory}
             onclick={() => (showHistory = !showHistory)}
             disabled={history.length === 0}
+            aria-expanded={showHistory}
+            aria-haspopup="listbox"
+            aria-label={`Query history, ${history.length} entries`}
           >
             History ({history.length})
           </button>
           {#if showHistory}
-            <div class="history-dropdown">
+            <div class="history-dropdown" role="listbox" aria-label="Query history">
               <div class="history-header">
-                <span>Query History</span>
-                <button class="clear-history" onclick={clearHistory}>Clear</button>
+                <span id="history-title">Query History</span>
+                <button class="clear-history" onclick={clearHistory} aria-label="Clear all history">Clear</button>
               </div>
-              <div class="history-list">
-                {#each history as entry}
+              <div class="history-list" aria-labelledby="history-title">
+                {#each history as entry, i}
                   <button
                     class="history-item"
                     class:failed={!entry.success}
                     onclick={() => loadFromHistory(entry)}
+                    role="option"
+                    aria-selected="false"
+                    aria-label={`${entry.success ? '' : 'Failed: '}${entry.query.slice(0, 50)}${entry.query.length > 50 ? '...' : ''}, ${formatTimestamp(entry.timestamp)}`}
                   >
                     <pre class="history-query">{entry.query}</pre>
                     <span class="history-time">{formatTimestamp(entry.timestamp)}</span>
@@ -475,30 +528,70 @@
             </div>
           {/if}
         </div>
-        <button class="format-button" onclick={formatQuery} disabled={!query.trim()}>
+        <button class="format-button" onclick={formatQuery} disabled={!query.trim()} aria-label="Format SQL query">
           Format
         </button>
-        <button class="run-button" onclick={runQuery} disabled={isLoading}>
+        <button
+          class="schema-button"
+          class:active={showSchema}
+          onclick={loadSchema}
+          disabled={schemaLoading}
+          aria-expanded={showSchema}
+          aria-label={schemaLoading ? "Loading database schema" : "Show database schema"}
+        >
+          {schemaLoading ? "Loading..." : "Schema"}
+        </button>
+        <button class="run-button" onclick={runQuery} disabled={isLoading} aria-label="Run query (Command+Enter)">
           {isLoading ? "Running..." : "Run Query"}
-          <span class="shortcut">⌘↵</span>
+          <span class="shortcut" aria-hidden="true">⌘↵</span>
         </button>
       </div>
     </div>
 
-    <div class="query-editor" bind:this={editorContainer}></div>
+    <div class="query-editor-container">
+      <div class="query-editor" bind:this={editorContainer} role="textbox" aria-label="SQL query input" aria-multiline="true"></div>
+      {#if showSchema}
+        <aside class="schema-panel" aria-label="Database schema">
+          <div class="schema-header">
+            <span id="schema-title">Database Schema</span>
+            <button class="schema-close" onclick={() => showSchema = false} aria-label="Close schema panel">×</button>
+          </div>
+          <div class="schema-content" aria-labelledby="schema-title">
+            {#each [...schema].sort((a, b) => {
+              const aIsSys = a.name.startsWith('sys_');
+              const bIsSys = b.name.startsWith('sys_');
+              if (aIsSys !== bIsSys) return aIsSys ? 1 : -1;
+              return a.name.localeCompare(b.name);
+            }) as table}
+              <div class="schema-table" class:sys-table={table.name.startsWith('sys_')}>
+                <div class="table-name" role="heading" aria-level="3">{table.name}</div>
+                <ul class="table-columns" aria-label={`Columns in ${table.name}`}>
+                  {#each table.columns as column}
+                    <li class="column-row">
+                      <span class="column-name">{column.name}</span>
+                      <span class="column-type" aria-label="type">{column.type}</span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/each}
+          </div>
+        </aside>
+      {/if}
+    </div>
 
     <div class="query-footer">
-      <div class="examples">
-        <div class="examples-label">Examples:</div>
-        <div class="examples-list">
+      <div class="examples" role="group" aria-label="Example queries">
+        <div class="examples-label" id="examples-label">Examples:</div>
+        <div class="examples-list" aria-labelledby="examples-label">
           {#each examples as example}
-            <button class="example-button" onclick={() => loadExample(example.query)}>
+            <button class="example-button" onclick={() => loadExample(example.query)} aria-label={`Load example: ${example.name}`}>
               {example.name}
             </button>
           {/each}
         </div>
       </div>
-      <div class="shortcuts">
+      <div class="shortcuts" aria-label="Keyboard shortcuts">
         <span class="shortcut-item"><kbd>⌘</kbd><kbd>↵</kbd> Run</span>
         <span class="shortcut-item"><kbd>⌘</kbd><kbd>L</kbd> Clear</span>
         <span class="shortcut-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd> Format</span>
@@ -506,15 +599,15 @@
     </div>
   </div>
 
-  <div class="results-panel">
+  <div class="results-panel" role="region" aria-label="Query results" aria-live="polite">
     {#if isLoading}
-      <div class="status">
-        <div class="spinner"></div>
+      <div class="status" role="status" aria-busy="true">
+        <div class="spinner" aria-hidden="true"></div>
         <span>Running query...</span>
       </div>
     {:else if error}
-      <div class="status error">
-        <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor">
+      <div class="status error" role="alert">
+        <svg class="error-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
         </svg>
         <div class="error-content">
@@ -525,34 +618,42 @@
     {:else if result}
       <div class="results-content">
         <div class="results-header">
-          <div class="results-meta">
+          <div class="results-meta" aria-live="polite">
             <span class="result-count">{result.row_count} {result.row_count === 1 ? 'row' : 'rows'}</span>
             {#if executionTime !== null}
-              <span class="execution-time">
+              <span class="execution-time" aria-label={`Query took ${executionTime < 1000 ? Math.round(executionTime) + ' milliseconds' : (executionTime / 1000).toFixed(2) + ' seconds'}`}>
                 {executionTime < 1000
                   ? `${Math.round(executionTime)}ms`
                   : `${(executionTime / 1000).toFixed(2)}s`}
               </span>
             {/if}
           </div>
-          <div class="export-buttons">
-            <button class="export-button" onclick={exportCSV}>Export CSV</button>
-            <button class="export-button" onclick={exportJSON}>Export JSON</button>
+          <div class="export-buttons" role="group" aria-label="Export options">
+            <button class="export-button" onclick={exportCSV} aria-label="Export results as CSV">Export CSV</button>
+            <button class="export-button" onclick={exportJSON} aria-label="Export results as JSON">Export JSON</button>
           </div>
         </div>
 
         {#if result.row_count === 0}
-          <div class="no-results">No results returned</div>
+          <div class="no-results" role="status">No results returned</div>
         {:else}
           <div class="table-container">
-            <table class="results-table">
+            <table class="results-table" aria-label="Query results">
               <thead>
                 <tr>
                   {#each result.columns as column, i}
-                    <th class="sortable" class:sorted={sortColumn === i} onclick={() => toggleSort(i)}>
+                    <th
+                      class="sortable"
+                      class:sorted={sortColumn === i}
+                      onclick={() => toggleSort(i)}
+                      aria-sort={sortColumn === i ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}
+                      role="columnheader"
+                      tabindex="0"
+                      onkeydown={(e) => e.key === 'Enter' && toggleSort(i)}
+                    >
                       <span class="column-name">{column}</span>
                       {#if sortColumn === i}
-                        <span class="sort-indicator">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                        <span class="sort-indicator" aria-hidden="true">{sortDirection === "asc" ? "▲" : "▼"}</span>
                       {/if}
                     </th>
                   {/each}
@@ -566,10 +667,13 @@
                         class="copyable"
                         class:copied={copiedCell?.row === rowIndex && copiedCell?.col === colIndex}
                         onclick={() => copyCell(cell, rowIndex, colIndex)}
-                        title="Click to copy"
+                        onkeydown={(e) => e.key === 'Enter' && copyCell(cell, rowIndex, colIndex)}
+                        tabindex="0"
+                        role="gridcell"
+                        aria-label={`${result.columns[colIndex]}: ${cell === null ? 'null' : Array.isArray(cell) ? cell.join(', ') : cell}. Click to copy`}
                       >
                         {#if copiedCell?.row === rowIndex && copiedCell?.col === colIndex}
-                          <span class="copied-indicator">Copied!</span>
+                          <span class="copied-indicator" role="status">Copied!</span>
                         {:else if cell === null}
                           <span class="null-value">NULL</span>
                         {:else if Array.isArray(cell)}
@@ -587,11 +691,32 @@
         {/if}
       </div>
     {:else}
-      <div class="status empty">
-        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="status empty" role="status">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </svg>
         <span>Run a query to see results</span>
+        {#if schema.length > 0}
+          <div class="empty-schema">
+            <div class="empty-schema-title">Available Tables</div>
+            <nav class="empty-schema-tables" aria-label="Quick table queries">
+              {#each [...schema].sort((a, b) => {
+                const aIsSys = a.name.startsWith('sys_');
+                const bIsSys = b.name.startsWith('sys_');
+                if (aIsSys !== bIsSys) return aIsSys ? 1 : -1;
+                return a.name.localeCompare(b.name);
+              }) as table}
+                <button class="empty-schema-table" class:sys-table={table.name.startsWith('sys_')} onclick={() => query = `SELECT * FROM ${table.name} LIMIT 100`} aria-label={`Query ${table.name} table`}>
+                  {table.name}
+                </button>
+              {/each}
+            </nav>
+          </div>
+        {:else}
+          <button class="load-schema-button" onclick={loadSchema} disabled={schemaLoading} aria-label="Load database tables">
+            {schemaLoading ? "Loading..." : "Show available tables"}
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -961,6 +1086,9 @@
     border-radius: var(--radius-sm);
     overflow-x: auto;
     text-align: left;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 
   .results-content {
@@ -1123,5 +1251,211 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--accent-primary);
+  }
+
+  /* Schema button and panel */
+  .schema-button {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .schema-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  .schema-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .schema-button.active {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+  }
+
+  .query-editor-container {
+    display: flex;
+    gap: var(--spacing-md);
+  }
+
+  .query-editor-container .query-editor {
+    flex: 1;
+  }
+
+  .schema-panel {
+    width: 280px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    max-height: 200px;
+    overflow: hidden;
+  }
+
+  .schema-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .schema-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+
+  .schema-close:hover {
+    color: var(--text-primary);
+  }
+
+  .schema-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+  }
+
+  .schema-table {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .schema-table:last-child {
+    margin-bottom: 0;
+  }
+
+  .schema-table .table-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-primary);
+    margin-bottom: var(--spacing-xs);
+    padding: 2px var(--spacing-xs);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .schema-table.sys-table {
+    opacity: 0.5;
+  }
+
+  .schema-table.sys-table .table-name {
+    color: var(--text-muted);
+  }
+
+  .table-columns {
+    padding-left: var(--spacing-sm);
+    list-style: none;
+    margin: 0;
+  }
+
+  .column-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+
+  ul.table-columns {
+    padding-left: var(--spacing-sm);
+  }
+
+  li.column-row {
+    list-style: none;
+  }
+
+  .column-row .column-name {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+  }
+
+  .column-row .column-type {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  /* Empty state schema display */
+  .empty-schema {
+    margin-top: var(--spacing-lg);
+    text-align: center;
+  }
+
+  .empty-schema-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .empty-schema-tables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    justify-content: center;
+  }
+
+  .empty-schema-table {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--accent-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .empty-schema-table:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+  }
+
+  .empty-schema-table.sys-table {
+    opacity: 0.5;
+    color: var(--text-muted);
+  }
+
+  .empty-schema-table.sys-table:hover {
+    opacity: 0.7;
+  }
+
+  .load-schema-button {
+    margin-top: var(--spacing-lg);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .load-schema-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .load-schema-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
