@@ -11,13 +11,12 @@ import { registry, themeManager } from "../sdk";
 import type { Plugin, PluginContext } from "../sdk";
 
 // Import core plugins
-import { plugin as statusPlugin } from "./status";
 import { plugin as queryPlugin } from "./query";
 import { plugin as taggingPlugin } from "./tagging";
 import { plugin as budgetPlugin } from "./budget";
 
 // List of core plugins (built into the app)
-const corePlugins: Plugin[] = [statusPlugin, queryPlugin, taggingPlugin, budgetPlugin];
+const corePlugins: Plugin[] = [queryPlugin, taggingPlugin, budgetPlugin];
 
 interface ExternalPluginInfo {
   manifest: {
