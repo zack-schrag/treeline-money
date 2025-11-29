@@ -146,6 +146,53 @@
   function loadExample(exampleQuery: string) {
     query = exampleQuery;
   }
+
+  function exportCSV() {
+    if (!result) return;
+
+    const escapeCSV = (val: unknown): string => {
+      if (val === null) return "";
+      if (Array.isArray(val)) val = `[${val.join(", ")}]`;
+      const str = String(val);
+      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const header = result.columns.map(escapeCSV).join(",");
+    const rows = result.rows.map((row) => row.map(escapeCSV).join(","));
+    const csv = [header, ...rows].join("\n");
+
+    downloadFile(csv, "query-results.csv", "text/csv");
+  }
+
+  function exportJSON() {
+    if (!result) return;
+
+    const data = result.rows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      result!.columns.forEach((col, i) => {
+        obj[col] = row[i];
+      });
+      return obj;
+    });
+
+    const json = JSON.stringify(data, null, 2);
+    downloadFile(json, "query-results.json", "application/json");
+  }
+
+  function downloadFile(content: string, filename: string, mimeType: string) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 </script>
 
 <div class="query-view">
@@ -228,6 +275,10 @@
       <div class="results-content">
         <div class="results-header">
           <span class="result-count">{result.row_count} {result.row_count === 1 ? 'row' : 'rows'}</span>
+          <div class="export-buttons">
+            <button class="export-button" onclick={exportCSV}>Export CSV</button>
+            <button class="export-button" onclick={exportJSON}>Export JSON</button>
+          </div>
         </div>
 
         {#if result.row_count === 0}
@@ -587,12 +638,37 @@
     padding: var(--spacing-md) var(--spacing-lg);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
 
   .result-count {
     font-size: 12px;
     font-family: var(--font-mono);
     color: var(--text-muted);
+  }
+
+  .export-buttons {
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+
+  .export-button {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: 4px var(--spacing-sm);
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .export-button:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
   }
 
   .no-results {
