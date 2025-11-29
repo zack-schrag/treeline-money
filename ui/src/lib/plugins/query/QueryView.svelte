@@ -72,6 +72,30 @@
     }
   }
 
+  // Copy to clipboard
+  let copiedCell = $state<{ row: number; col: number } | null>(null);
+
+  async function copyCell(value: unknown, rowIndex: number, colIndex: number) {
+    let text: string;
+    if (value === null) {
+      text = "";
+    } else if (Array.isArray(value)) {
+      text = value.join(", ");
+    } else {
+      text = String(value);
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedCell = { row: rowIndex, col: colIndex };
+      setTimeout(() => {
+        copiedCell = null;
+      }, 1500);
+    } catch (e) {
+      console.error("Failed to copy:", e);
+    }
+  }
+
   function loadHistory(): HistoryEntry[] {
     try {
       const stored = localStorage.getItem(HISTORY_KEY);
@@ -518,11 +542,18 @@
                 </tr>
               </thead>
               <tbody>
-                {#each sortedRows as row}
+                {#each sortedRows as row, rowIndex}
                   <tr>
-                    {#each row as cell}
-                      <td>
-                        {#if cell === null}
+                    {#each row as cell, colIndex}
+                      <td
+                        class="copyable"
+                        class:copied={copiedCell?.row === rowIndex && copiedCell?.col === colIndex}
+                        onclick={() => copyCell(cell, rowIndex, colIndex)}
+                        title="Click to copy"
+                      >
+                        {#if copiedCell?.row === rowIndex && copiedCell?.col === colIndex}
+                          <span class="copied-indicator">Copied!</span>
+                        {:else if cell === null}
                           <span class="null-value">NULL</span>
                         {:else if Array.isArray(cell)}
                           <span class="array-value">[{cell.join(", ")}]</span>
@@ -1013,6 +1044,25 @@
     max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .results-table td.copyable {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .results-table td.copyable:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .results-table td.copied {
+    background: rgba(152, 195, 121, 0.2);
+  }
+
+  .copied-indicator {
+    color: #98c379;
+    font-size: 11px;
+    font-weight: 500;
   }
 
   .results-table tbody tr:hover {
