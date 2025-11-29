@@ -8,6 +8,12 @@
   import { tags } from "@lezer/highlight";
   import { history as cmHistory, defaultKeymap, historyKeymap } from "@codemirror/commands";
 
+  // Props passed from openView
+  interface Props {
+    initialQuery?: string;
+  }
+  let { initialQuery = undefined }: Props = $props();
+
   const HISTORY_KEY = "treeline-query-history";
   const MAX_HISTORY = 50;
 
@@ -17,7 +23,7 @@
     success: boolean;
   }
 
-  let query = $state("SELECT * FROM transactions LIMIT 10");
+  let query = $state(initialQuery ?? "SELECT * FROM transactions LIMIT 10");
   let result = $state<QueryResult | null>(null);
   let isLoading = $state(false);
   let error = $state<string | null>(null);

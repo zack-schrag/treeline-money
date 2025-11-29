@@ -11,12 +11,13 @@ export const plugin: Plugin = {
   },
 
   activate(context: PluginContext) {
-    // Register view
+    // Register view - allowMultiple enables opening multiple query tabs
     context.registerView({
       id: "query",
       name: "Query",
       icon: "⚡",
       component: QueryView,
+      allowMultiple: true,
     });
 
     // Add sidebar item
