@@ -45,6 +45,7 @@
     amount_sign: null as AmountSign | null,
   });
 
+
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
 
@@ -60,10 +61,7 @@
 
   // Flat list of all actuals for navigation (income first, then budget items)
   let incomeActuals = $derived(actuals.filter(a => a.type === "income"));
-  let budgetActuals = $derived([
-    ...actuals.filter(a => a.type === "expense"),
-    ...actuals.filter(a => a.type === "savings"),
-  ]);
+  let budgetActuals = $derived(actuals.filter(a => a.type === "expense"));
   let allActuals = $derived([...incomeActuals, ...budgetActuals]);
 
   let currentActual = $derived(allActuals[cursorIndex]);
@@ -71,30 +69,15 @@
 
   // Computed summaries
   let incomeSummary = $derived.by(() => {
-    const expected = actuals.filter(a => a.type === "income").reduce((sum, a) => sum + a.expected, 0);
-    const actual = actuals.filter(a => a.type === "income").reduce((sum, a) => sum + a.actual, 0);
+    const expected = incomeActuals.reduce((sum, a) => sum + a.expected, 0);
+    const actual = incomeActuals.reduce((sum, a) => sum + a.actual, 0);
     const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
     return { expected, actual, percent };
   });
 
-  let expenseSummary = $derived.by(() => {
-    const expected = actuals.filter(a => a.type === "expense").reduce((sum, a) => sum + a.expected, 0);
-    const actual = actuals.filter(a => a.type === "expense").reduce((sum, a) => sum + a.actual, 0);
-    const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
-    return { expected, actual, percent };
-  });
-
-  let savingsSummary = $derived.by(() => {
-    const expected = actuals.filter(a => a.type === "savings").reduce((sum, a) => sum + a.expected, 0);
-    const actual = actuals.filter(a => a.type === "savings").reduce((sum, a) => sum + a.actual, 0);
-    const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
-    return { expected, actual, percent };
-  });
-
-  // Budget = expenses + savings combined
   let budgetSummary = $derived.by(() => {
-    const expected = expenseSummary.expected + savingsSummary.expected;
-    const actual = expenseSummary.actual + savingsSummary.actual;
+    const expected = budgetActuals.reduce((sum, a) => sum + a.expected, 0);
+    const actual = budgetActuals.reduce((sum, a) => sum + a.actual, 0);
     const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
     return { expected, actual, percent };
   });
@@ -107,34 +90,52 @@
     return { expected, actual, percent };
   });
 
-  let netAmount = $derived(incomeSummary.actual - expenseSummary.actual - savingsSummary.actual);
-
 
   // Config helpers
   function configToCategories(config: BudgetConfig): BudgetCategory[] {
     const result: BudgetCategory[] = [];
-    for (const [category, data] of Object.entries(config.income || {})) {
-      result.push({ id: `income-${category}`, type: "income", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
+
+    // Get income categories in order
+    const incomeNames = config.incomeOrder || Object.keys(config.income || {});
+    for (const category of incomeNames) {
+      const data = config.income?.[category];
+      if (data) {
+        result.push({ id: `income-${category}`, type: "income", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
+      }
     }
-    for (const [category, data] of Object.entries(config.expenses || {})) {
-      result.push({ id: `expense-${category}`, type: "expense", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
+
+    // Get expense categories in order
+    const expenseNames = config.expensesOrder || Object.keys(config.expenses || {});
+    for (const category of expenseNames) {
+      const data = config.expenses?.[category];
+      if (data) {
+        result.push({ id: `expense-${category}`, type: "expense", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
+      }
     }
-    for (const [category, data] of Object.entries(config.savings || {})) {
-      result.push({ id: `savings-${category}`, type: "savings", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
-    }
+
     return result;
   }
 
   function categoriesToConfig(cats: BudgetCategory[]): BudgetConfig {
-    const config: BudgetConfig = { income: {}, expenses: {}, savings: {}, selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined };
+    const config: BudgetConfig = { income: {}, expenses: {}, selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined };
+    const incomeOrder: string[] = [];
+    const expensesOrder: string[] = [];
+
     for (const cat of cats) {
       const data: { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign } = { expected: cat.expected, tags: cat.tags };
       if (cat.require_all) data.require_all = true;
       if (cat.amount_sign) data.amount_sign = cat.amount_sign;
-      if (cat.type === "income") config.income[cat.category] = data;
-      else if (cat.type === "expense") config.expenses[cat.category] = data;
-      else if (cat.type === "savings") config.savings[cat.category] = data;
+      if (cat.type === "income") {
+        config.income[cat.category] = data;
+        incomeOrder.push(cat.category);
+      } else if (cat.type === "expense") {
+        config.expenses[cat.category] = data;
+        expensesOrder.push(cat.category);
+      }
     }
+
+    config.incomeOrder = incomeOrder;
+    config.expensesOrder = expensesOrder;
     return config;
   }
 
@@ -159,11 +160,11 @@
     try {
       isCustomMonth = false;
       const content = await invoke<string>("read_plugin_config", { pluginId: PLUGIN_ID, filename: CONFIG_FILE });
-      if (content === "null" || !content) return { income: {}, expenses: {}, savings: {} };
+      if (content === "null" || !content) return { income: {}, expenses: {} };
       return JSON.parse(content);
     } catch (e) {
       console.error("Failed to load config:", e);
-      return { income: {}, expenses: {}, savings: {} };
+      return { income: {}, expenses: {} };
     }
   }
 
@@ -442,6 +443,13 @@
   function handleKeyDown(e: KeyboardEvent) {
     if (isEditing || showTransactions) return;
 
+    // Cmd/Ctrl + Arrow for reordering
+    if ((e.metaKey || e.ctrlKey) && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      moveCategory(e.key === "ArrowUp" ? "up" : "down");
+      return;
+    }
+
     switch(e.key) {
       case "j":
       case "ArrowDown":
@@ -501,9 +509,36 @@
   function handleRowClick(index: number) {
     cursorIndex = index;
     containerEl?.focus();
-    // Open details modal on click
-    const actual = allActuals[index];
-    if (actual) loadTransactionsForCategory(actual);
+  }
+
+  // Move category up or down within its section
+  async function moveCategory(direction: "up" | "down") {
+    if (!currentCategory) return;
+
+    const type = currentCategory.type;
+    const typeCats = [...categories.filter(c => c.type === type)];
+    const currentIndex = typeCats.findIndex(c => c.id === currentCategory.id);
+
+    if (currentIndex === -1) return;
+
+    const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= typeCats.length) return;
+
+    // Swap positions
+    [typeCats[currentIndex], typeCats[newIndex]] = [typeCats[newIndex], typeCats[currentIndex]];
+
+    // Rebuild categories array (income first, then expenses)
+    const incomeCats = type === "income" ? typeCats : categories.filter(c => c.type === "income");
+    const expenseCats = type === "expense" ? typeCats : categories.filter(c => c.type === "expense");
+    const newCategories = [...incomeCats, ...expenseCats];
+
+    // Save and update
+    await saveConfig(categoriesToConfig(newCategories));
+    categories = newCategories;
+    await calculateActuals();
+
+    // Move cursor to follow the category
+    cursorIndex = cursorIndex + (direction === "up" ? -1 : 1);
   }
 
   $effect(() => {
@@ -552,6 +587,7 @@
     <span><kbd>e</kbd> edit</span>
     <span><kbd>a</kbd> add</span>
     <span><kbd>d</kbd> delete</span>
+    <span><kbd>⌘↑</kbd><kbd>⌘↓</kbd> reorder</span>
     <span><kbd>h</kbd><kbd>l</kbd> month</span>
   </div>
 
@@ -575,10 +611,18 @@
             <div class="row-actual">{formatCurrency(incomeSummary.actual)}</div>
             <div class="row-expected">/ {formatCurrency(incomeSummary.expected)}</div>
             <div class="row-percent" style="color: {incomeSummary.percent >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{incomeSummary.percent}%</div>
+            <div class="row-details-placeholder"></div>
           </div>
           {#each incomeActuals as actual, i}
             {@const globalIndex = i}
-            <div class="row" class:cursor={cursorIndex === globalIndex} data-index={globalIndex} onclick={() => handleRowClick(globalIndex)} role="button" tabindex="-1">
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="row"
+              class:cursor={cursorIndex === globalIndex}
+              data-index={globalIndex}
+              onclick={() => handleRowClick(globalIndex)}
+              role="listitem"
+            >
               <div class="row-name">{actual.category}</div>
               <div class="row-bar">
                 <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--accent-primary)'}"></div></div>
@@ -586,6 +630,7 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{actual.percentUsed}%</div>
+              <button class="row-details-btn" onclick={(e) => { e.stopPropagation(); loadTransactionsForCategory(actual); }} title="View transactions">⋮</button>
             </div>
           {/each}
           <button class="add-row" onclick={() => startAddCategory("income")}>+ Add income</button>
@@ -602,10 +647,18 @@
             <div class="row-actual">{formatCurrency(budgetSummary.actual)}</div>
             <div class="row-expected">/ {formatCurrency(budgetSummary.expected)}</div>
             <div class="row-percent" style="color: {budgetSummary.percent > 100 ? 'var(--accent-danger, #ef4444)' : budgetSummary.percent > 90 ? 'var(--accent-warning, #f59e0b)' : 'var(--accent-success, #22c55e)'}">{budgetSummary.percent}%</div>
+            <div class="row-details-placeholder"></div>
           </div>
           {#each budgetActuals as actual, i}
             {@const globalIndex = incomeActuals.length + i}
-            <div class="row" class:cursor={cursorIndex === globalIndex} data-index={globalIndex} onclick={() => handleRowClick(globalIndex)} role="button" tabindex="-1">
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="row"
+              class:cursor={cursorIndex === globalIndex}
+              data-index={globalIndex}
+              onclick={() => handleRowClick(globalIndex)}
+              role="listitem"
+            >
               <div class="row-name">{actual.category}</div>
               <div class="row-bar">
                 <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {getStatusColor(actual)}"></div></div>
@@ -613,6 +666,7 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
+              <button class="row-details-btn" onclick={(e) => { e.stopPropagation(); loadTransactionsForCategory(actual); }} title="View transactions">⋮</button>
             </div>
           {/each}
           <button class="add-row" onclick={() => startAddCategory("expense")}>+ Add category</button>
@@ -627,6 +681,7 @@
           <div class="row-actual" style="color: {remainingSummary.actual >= 0 ? 'var(--accent-success, #22c55e)' : 'var(--accent-danger, #ef4444)'}">{formatCurrency(remainingSummary.actual)}</div>
           <div class="row-expected">/ {formatCurrency(remainingSummary.expected)}</div>
           <div class="row-percent" style="color: {remainingSummary.actual >= remainingSummary.expected ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{remainingSummary.percent}%</div>
+          <div class="row-details-placeholder"></div>
         </div>
       {/if}
     </div>
@@ -739,7 +794,7 @@
           <button class="close-btn" onclick={cancelEdit}>×</button>
         </div>
         <div class="form">
-          <label>Type<select bind:value={editorForm.type}><option value="income">Income</option><option value="expense">Expense</option><option value="savings">Savings</option></select></label>
+          <label>Type<select bind:value={editorForm.type}><option value="income">Income</option><option value="expense">Expense</option></select></label>
           <label>Name<input type="text" bind:value={editorForm.category} placeholder="e.g., Groceries" /></label>
           <label>Expected<input type="number" bind:value={editorForm.expected} min="0" step="100" /></label>
           <label>Tags (comma-separated)<input type="text" bind:value={editorForm.tags} placeholder="e.g., groceries, food" /></label>
@@ -990,6 +1045,37 @@
     background: var(--bg-tertiary);
     border-left: 3px solid var(--text-muted);
     padding-left: calc(var(--spacing-lg) - 3px);
+  }
+
+  .row-details-placeholder {
+    width: 24px;
+    flex-shrink: 0;
+  }
+
+  .row-details-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+  }
+
+  .row:hover .row-details-btn,
+  .row.cursor .row-details-btn {
+    opacity: 1;
+  }
+
+  .row-details-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
   }
 
   .row-name {

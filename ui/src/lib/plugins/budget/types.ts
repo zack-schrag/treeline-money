@@ -2,7 +2,7 @@
  * Budget Plugin Types
  */
 
-export type BudgetType = "income" | "expense" | "savings";
+export type BudgetType = "income" | "expense";
 export type AmountSign = "positive" | "negative" | "any";
 
 export interface BudgetCategory {
@@ -29,14 +29,22 @@ export interface MonthSummary {
   month: string;
   income: number;
   expenses: number;
-  savings: number;
   net: number;
 }
 
+export interface BudgetConfigCategory {
+  expected: number;
+  tags: string[];
+  require_all?: boolean;
+  amount_sign?: AmountSign;
+}
+
 export interface BudgetConfig {
-  income: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
-  expenses: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
-  savings: Record<string, { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign }>;
+  income: Record<string, BudgetConfigCategory>;
+  expenses: Record<string, BudgetConfigCategory>;
+  // Optional: ordering of categories (array of category names)
+  incomeOrder?: string[];
+  expensesOrder?: string[];
   // Optional: filter to only include certain accounts
   selectedAccounts?: string[];
 }
