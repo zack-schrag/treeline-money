@@ -47,8 +47,11 @@ async def test_get_accounts_success():
         )
 
         assert result.success is True
-        accounts = result.data
+        # New format: {"accounts": [...], "errors": [...]}
+        accounts = result.data["accounts"]
+        errors = result.data["errors"]
         assert len(accounts) == 1
+        assert len(errors) == 0
         assert accounts[0].name == "Checking Account"
         assert accounts[0].external_ids.get("simplefin") == "acc123"
         assert accounts[0].currency == "USD"
@@ -102,7 +105,8 @@ async def test_get_accounts_filters_by_account_ids():
         )
 
         assert result.success is True
-        accounts = result.data
+        # New format: {"accounts": [...], "errors": [...]}
+        accounts = result.data["accounts"]
         assert len(accounts) == 1
         assert accounts[0].external_ids.get("simplefin") == "acc1"
 
@@ -174,8 +178,11 @@ async def test_get_transactions_success():
         )
 
         assert result.success is True
-        transactions_with_accounts = result.data
+        # New format: {"transactions": [...], "errors": [...]}
+        transactions_with_accounts = result.data["transactions"]
+        errors = result.data["errors"]
         assert len(transactions_with_accounts) == 2
+        assert len(errors) == 0
 
         # SimpleFIN now returns tuples of (account_id, transaction)
         account_id_1, tx1 = transactions_with_accounts[0]
@@ -183,6 +190,90 @@ async def test_get_transactions_success():
         assert tx1.external_ids.get("simplefin") == "tx1"
         assert tx1.amount == Decimal("-50.00")
         assert tx1.description == "Coffee Shop"
+
+
+@pytest.mark.asyncio
+async def test_get_accounts_with_api_errors():
+    """Test that API-level errors are captured and returned."""
+    provider = SimpleFINProvider()
+
+    # Mock response with errors (e.g., "You must reauthenticate")
+    mock_response = {
+        "errors": ["You must reauthenticate.", "Connection to Bank XYZ failed."],
+        "accounts": [
+            {
+                "id": "acc123",
+                "name": "Working Account",
+                "currency": "USD",
+                "balance": "500.00",
+                "available-balance": "500.00",
+                "balance-date": 1735689600,
+                "org": {"name": "Working Bank"},
+            }
+        ],
+    }
+
+    with patch("httpx.AsyncClient.get") as mock_get:
+        mock_get.return_value = Mock(status_code=200, json=lambda: mock_response)
+
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
+        result = await provider.get_accounts(
+            provider_account_ids=[], provider_settings=provider_options
+        )
+
+        assert result.success is True
+        # Accounts should still be returned
+        accounts = result.data["accounts"]
+        assert len(accounts) == 1
+        assert accounts[0].name == "Working Account"
+
+        # Errors should be captured
+        errors = result.data["errors"]
+        assert len(errors) == 2
+        assert "reauthenticate" in errors[0]
+        assert "Bank XYZ" in errors[1]
+
+
+@pytest.mark.asyncio
+async def test_get_accounts_http_403_error():
+    """Test that HTTP 403 returns actionable error message."""
+    provider = SimpleFINProvider()
+
+    with patch("httpx.AsyncClient.get") as mock_get:
+        mock_get.return_value = Mock(status_code=403)
+
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
+        result = await provider.get_accounts(
+            provider_account_ids=[], provider_settings=provider_options
+        )
+
+        assert result.success is False
+        assert "authentication failed" in result.error.lower()
+        assert "beta-bridge.simplefin.org" in result.error
+
+
+@pytest.mark.asyncio
+async def test_get_accounts_http_402_error():
+    """Test that HTTP 402 returns payment required message."""
+    provider = SimpleFINProvider()
+
+    with patch("httpx.AsyncClient.get") as mock_get:
+        mock_get.return_value = Mock(status_code=402)
+
+        provider_options = {
+            "accessUrl": "https://username:password@bridge.simplefin.org/simplefin"
+        }
+        result = await provider.get_accounts(
+            provider_account_ids=[], provider_settings=provider_options
+        )
+
+        assert result.success is False
+        assert "payment" in result.error.lower()
+        assert "beta-bridge.simplefin.org" in result.error
 
 
 @pytest.mark.asyncio

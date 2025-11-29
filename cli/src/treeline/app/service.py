@@ -97,7 +97,16 @@ class SyncService:
         if not discovered_result.success:
             return discovered_result
 
-        discovered_accounts = discovered_result.data or []
+        # Handle new response format: {"accounts": [...], "errors": [...]}
+        # or old format: List[Account]
+        result_data = discovered_result.data or {}
+        if isinstance(result_data, dict):
+            discovered_accounts = result_data.get("accounts", [])
+            provider_errors = result_data.get("errors", [])
+        else:
+            # Backwards compatibility with providers that return List[Account]
+            discovered_accounts = result_data
+            provider_errors = []
 
         # Map discovered accounts to existing accounts by external ID
         updated_accounts = []
@@ -151,6 +160,7 @@ class SyncService:
                 "discovered_accounts": discovered_accounts,
                 "ingested_accounts": ingested_result.data,
                 "new_accounts": new_accounts,  # Accounts that didn't exist before
+                "provider_errors": provider_errors,  # Errors from SimpleFIN (e.g., "You must reauthenticate")
             },
         )
 
@@ -199,7 +209,16 @@ class SyncService:
         if not discovered_result.success:
             return discovered_result
 
-        discovered_data = discovered_result.data or []
+        # Handle new response format: {"transactions": [...], "errors": [...]}
+        # or old format: List[...]
+        result_data = discovered_result.data or {}
+        if isinstance(result_data, dict):
+            discovered_data = result_data.get("transactions", [])
+            provider_errors = result_data.get("errors", [])
+        else:
+            # Backwards compatibility with providers that return List
+            discovered_data = result_data
+            provider_errors = []
 
         # Map provider account IDs to internal account IDs
         account_id_map = {
@@ -329,6 +348,7 @@ class SyncService:
                 },
                 "tagger_stats": combined_tagger_stats,
                 "tagger_verbose_logs": all_verbose_logs,  # Always return (contains errors even if not verbose)
+                "provider_errors": provider_errors,  # Errors from SimpleFIN (e.g., "You must reauthenticate")
             },
         )
 
@@ -443,6 +463,7 @@ class SyncService:
             integration_options = integration["integrationOptions"]
 
             # Sync accounts (skip in dry-run since we don't save them anyway)
+            provider_errors = []  # Collect errors from provider (e.g., "You must reauthenticate")
             if not dry_run:
                 accounts_result = await self.sync_accounts(
                     integration_name, integration_options
@@ -461,6 +482,7 @@ class SyncService:
 
                 num_accounts = len(accounts_result.data.get("ingested_accounts", []))
                 new_accounts = accounts_result.data.get("new_accounts", [])
+                provider_errors.extend(accounts_result.data.get("provider_errors", []))
                 # Collect new accounts that don't have account_type set
                 for account in new_accounts:
                     if account.account_type is None:
@@ -513,6 +535,7 @@ class SyncService:
             tagger_verbose_logs = transactions_result.data.get(
                 "tagger_verbose_logs", []
             )
+            provider_errors.extend(transactions_result.data.get("provider_errors", []))
 
             sync_results.append(
                 {
@@ -525,6 +548,7 @@ class SyncService:
                     "sync_type": date_range["sync_type"],
                     "start_date": date_range["start_date"],
                     "end_date": date_range["end_date"],
+                    "provider_warnings": provider_errors,  # Warnings from SimpleFIN (e.g., "You must reauthenticate")
                 }
             )
 

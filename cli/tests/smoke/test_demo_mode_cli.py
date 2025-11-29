@@ -28,9 +28,7 @@ def run_treeline_cli(args: list[str], treeline_dir: str) -> subprocess.Completed
     )  # Override treeline directory for testing
 
     cmd = ["uv", "run", "treeline"] + args
-    return subprocess.run(
-        cmd, capture_output=True, text=True, env=env
-    )
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
 def test_demo_mode_sync_and_status():

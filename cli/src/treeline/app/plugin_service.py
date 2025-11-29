@@ -23,7 +23,9 @@ class PluginService:
         self.plugins_dir = Path(plugins_dir)
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_plugin(self, name: str, target_dir: Path | None = None) -> Result[Dict[str, Any]]:
+    def create_plugin(
+        self, name: str, target_dir: Path | None = None
+    ) -> Result[Dict[str, Any]]:
         """Create a new plugin from template.
 
         Args:
@@ -37,7 +39,7 @@ class PluginService:
         if not name or not name.replace("-", "").replace("_", "").isalnum():
             return Result(
                 success=False,
-                error="Plugin name must contain only letters, numbers, hyphens, and underscores"
+                error="Plugin name must contain only letters, numbers, hyphens, and underscores",
             )
 
         # Determine target directory
@@ -47,32 +49,33 @@ class PluginService:
         plugin_dir = target_dir / name
         if plugin_dir.exists():
             return Result(
-                success=False,
-                error=f"Directory already exists: {plugin_dir}"
+                success=False, error=f"Directory already exists: {plugin_dir}"
             )
 
         # Find plugin template (relative to this service file)
         # The template is at: treeline-money/plugin-template/
         service_file = Path(__file__)  # cli/src/treeline/app/plugin_service.py
-        repo_root = service_file.parent.parent.parent.parent.parent  # Go up to repo root
+        repo_root = (
+            service_file.parent.parent.parent.parent.parent
+        )  # Go up to repo root
         template_dir = repo_root / "plugin-template"
 
         if not template_dir.exists():
             return Result(
-                success=False,
-                error=f"Plugin template not found at {template_dir}"
+                success=False, error=f"Plugin template not found at {template_dir}"
             )
 
         # Copy template
         try:
-            shutil.copytree(template_dir, plugin_dir, ignore=shutil.ignore_patterns(
-                'node_modules', 'dist', '.git', '*.log', '__pycache__'
-            ))
-        except Exception as e:
-            return Result(
-                success=False,
-                error=f"Failed to copy template: {e}"
+            shutil.copytree(
+                template_dir,
+                plugin_dir,
+                ignore=shutil.ignore_patterns(
+                    "node_modules", "dist", ".git", "*.log", "__pycache__"
+                ),
             )
+        except Exception as e:
+            return Result(success=False, error=f"Failed to copy template: {e}")
 
         # Update manifest.json with plugin name
         manifest_path = plugin_dir / "manifest.json"
@@ -86,20 +89,19 @@ class PluginService:
             with open(manifest_path, "w") as f:
                 json.dump(manifest, f, indent=2)
         except Exception as e:
-            return Result(
-                success=False,
-                error=f"Failed to update manifest: {e}"
-            )
+            return Result(success=False, error=f"Failed to update manifest: {e}")
 
         return Result(
             success=True,
             data={
                 "plugin_dir": str(plugin_dir),
                 "plugin_id": name,
-            }
+            },
         )
 
-    def install_plugin(self, source: str, force_build: bool = False) -> Result[Dict[str, Any]]:
+    def install_plugin(
+        self, source: str, force_build: bool = False
+    ) -> Result[Dict[str, Any]]:
         """Install a plugin from a local directory or GitHub URL.
 
         Args:
@@ -117,7 +119,9 @@ class PluginService:
         else:
             return self._install_from_directory(Path(source).expanduser(), force_build)
 
-    def _install_from_directory(self, source_dir: Path, force_build: bool) -> Result[Dict[str, Any]]:
+    def _install_from_directory(
+        self, source_dir: Path, force_build: bool
+    ) -> Result[Dict[str, Any]]:
         """Install plugin from local directory.
 
         Args:
@@ -128,34 +132,24 @@ class PluginService:
             Result with installation details
         """
         if not source_dir.exists():
-            return Result(
-                success=False,
-                error=f"Directory not found: {source_dir}"
-            )
+            return Result(success=False, error=f"Directory not found: {source_dir}")
 
         # Read manifest
         manifest_path = source_dir / "manifest.json"
         if not manifest_path.exists():
             return Result(
-                success=False,
-                error=f"No manifest.json found in {source_dir}"
+                success=False, error=f"No manifest.json found in {source_dir}"
             )
 
         try:
             with open(manifest_path, "r") as f:
                 manifest = json.load(f)
         except Exception as e:
-            return Result(
-                success=False,
-                error=f"Failed to parse manifest.json: {e}"
-            )
+            return Result(success=False, error=f"Failed to parse manifest.json: {e}")
 
         plugin_id = manifest.get("id")
         if not plugin_id:
-            return Result(
-                success=False,
-                error="manifest.json missing 'id' field"
-            )
+            return Result(success=False, error="manifest.json missing 'id' field")
 
         # Check if plugin needs to be built
         dist_file = source_dir / "dist" / "index.js"
@@ -170,14 +164,14 @@ class PluginService:
             else:
                 return Result(
                     success=False,
-                    error=f"Plugin not built and no package.json found. Expected dist/index.js at {dist_file}"
+                    error=f"Plugin not built and no package.json found. Expected dist/index.js at {dist_file}",
                 )
 
         # Verify dist file exists after build
         if not dist_file.exists():
             return Result(
                 success=False,
-                error=f"Build succeeded but dist/index.js not found at {dist_file}"
+                error=f"Build succeeded but dist/index.js not found at {dist_file}",
             )
 
         # Install to plugins directory
@@ -189,10 +183,7 @@ class PluginService:
             shutil.copy2(manifest_path, install_dir / "manifest.json")
             shutil.copy2(dist_file, install_dir / "index.js")
         except Exception as e:
-            return Result(
-                success=False,
-                error=f"Failed to copy plugin files: {e}"
-            )
+            return Result(success=False, error=f"Failed to copy plugin files: {e}")
 
         return Result(
             success=True,
@@ -202,10 +193,12 @@ class PluginService:
                 "version": manifest.get("version", "unknown"),
                 "install_dir": str(install_dir),
                 "built": needs_build,
-            }
+            },
         )
 
-    def _install_from_github(self, url: str, force_build: bool) -> Result[Dict[str, Any]]:
+    def _install_from_github(
+        self, url: str, force_build: bool
+    ) -> Result[Dict[str, Any]]:
         """Install plugin from GitHub URL.
 
         Args:
@@ -229,13 +222,11 @@ class PluginService:
                 )
             except subprocess.CalledProcessError as e:
                 return Result(
-                    success=False,
-                    error=f"Failed to clone repository: {e.stderr}"
+                    success=False, error=f"Failed to clone repository: {e.stderr}"
                 )
             except FileNotFoundError:
                 return Result(
-                    success=False,
-                    error="git command not found. Please install git."
+                    success=False, error="git command not found. Please install git."
                 )
 
             repo_path = temp_path / "repo"
@@ -262,7 +253,7 @@ class PluginService:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return Result(
                 success=False,
-                error="npm command not found. Please install Node.js and npm."
+                error="npm command not found. Please install Node.js and npm.",
             )
 
         # Install dependencies
@@ -275,10 +266,7 @@ class PluginService:
                 text=True,
             )
         except subprocess.CalledProcessError as e:
-            return Result(
-                success=False,
-                error=f"npm install failed: {e.stderr}"
-            )
+            return Result(success=False, error=f"npm install failed: {e.stderr}")
 
         # Build plugin
         try:
@@ -290,10 +278,7 @@ class PluginService:
                 text=True,
             )
         except subprocess.CalledProcessError as e:
-            return Result(
-                success=False,
-                error=f"npm run build failed: {e.stderr}"
-            )
+            return Result(success=False, error=f"npm run build failed: {e.stderr}")
 
         return Result(success=True)
 
@@ -309,10 +294,7 @@ class PluginService:
         plugin_dir = self.plugins_dir / plugin_id
 
         if not plugin_dir.exists():
-            return Result(
-                success=False,
-                error=f"Plugin not found: {plugin_id}"
-            )
+            return Result(success=False, error=f"Plugin not found: {plugin_id}")
 
         # Read manifest for plugin name
         manifest_path = plugin_dir / "manifest.json"
@@ -329,17 +311,14 @@ class PluginService:
         try:
             shutil.rmtree(plugin_dir)
         except Exception as e:
-            return Result(
-                success=False,
-                error=f"Failed to remove plugin: {e}"
-            )
+            return Result(success=False, error=f"Failed to remove plugin: {e}")
 
         return Result(
             success=True,
             data={
                 "plugin_id": plugin_id,
                 "plugin_name": plugin_name,
-            }
+            },
         )
 
     def list_plugins(self) -> Result[list[Dict[str, Any]]]:
@@ -365,13 +344,15 @@ class PluginService:
                 with open(manifest_path, "r") as f:
                     manifest = json.load(f)
 
-                plugins.append({
-                    "id": manifest.get("id", plugin_dir.name),
-                    "name": manifest.get("name", plugin_dir.name),
-                    "version": manifest.get("version", "unknown"),
-                    "description": manifest.get("description", ""),
-                    "author": manifest.get("author", ""),
-                })
+                plugins.append(
+                    {
+                        "id": manifest.get("id", plugin_dir.name),
+                        "name": manifest.get("name", plugin_dir.name),
+                        "version": manifest.get("version", "unknown"),
+                        "description": manifest.get("description", ""),
+                        "author": manifest.get("author", ""),
+                    }
+                )
             except Exception:
                 # Skip invalid plugins
                 continue

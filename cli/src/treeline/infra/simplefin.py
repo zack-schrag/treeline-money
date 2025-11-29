@@ -12,6 +12,7 @@ import httpx
 
 from treeline.abstractions import DataAggregationProvider, IntegrationProvider
 from treeline.domain import Account, BalanceSnapshot, Fail, Ok, Result, Transaction
+from treeline.utils import get_logger
 
 
 class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
@@ -54,10 +55,29 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     timeout=30.0,
                 )
 
+                # Handle specific HTTP error codes with actionable messages
+                if response.status_code == 403:
+                    return Fail(
+                        "SimpleFIN authentication failed. Your access token may be invalid or revoked. "
+                        "Please reset your SimpleFIN credentials at https://beta-bridge.simplefin.org/"
+                    )
+                if response.status_code == 402:
+                    return Fail(
+                        "SimpleFIN subscription payment required. "
+                        "Please check your SimpleFIN account at https://beta-bridge.simplefin.org/"
+                    )
                 if response.status_code != 200:
-                    return Fail(f"SimpleFIN API error: {response.status_code}")
+                    return Fail(f"SimpleFIN API error: HTTP {response.status_code}")
 
                 data = response.json()
+
+                # Check for API-level errors (e.g., "You must reauthenticate")
+                # These are warnings/errors from SimpleFIN about individual connections
+                api_errors = data.get("errors", [])
+                if api_errors:
+                    logger = get_logger("infra.simplefin")
+                    logger.warning(f"SimpleFIN returned errors: {api_errors}")
+
                 accounts = []
 
                 for acc_data in data.get("accounts", []):
@@ -87,10 +107,31 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     )
                     accounts.append(account)
 
-                return Ok(accounts)
+                # Return accounts along with any API errors/warnings
+                return Ok({"accounts": accounts, "errors": api_errors})
 
+        except httpx.TimeoutException as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(f"Timeout fetching SimpleFIN accounts: {e}", exc_info=True)
+            return Fail(
+                f"Failed to fetch SimpleFIN accounts: Connection timed out after 30 seconds"
+            )
+        except httpx.ConnectError as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Connection error fetching SimpleFIN accounts: {e}", exc_info=True
+            )
+            return Fail(
+                f"Failed to fetch SimpleFIN accounts: Unable to connect to SimpleFIN servers"
+            )
         except Exception as e:
-            return Fail(f"Failed to fetch SimpleFIN accounts: {str(e)}")
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Unexpected error fetching SimpleFIN accounts: {e}", exc_info=True
+            )
+            return Fail(
+                f"Failed to fetch SimpleFIN accounts: {type(e).__name__}: {str(e)}"
+            )
 
     async def get_transactions(
         self,
@@ -128,10 +169,28 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                     timeout=30.0,
                 )
 
+                # Handle specific HTTP error codes with actionable messages
+                if response.status_code == 403:
+                    return Fail(
+                        "SimpleFIN authentication failed. Your access token may be invalid or revoked. "
+                        "Please reset your SimpleFIN credentials at https://beta-bridge.simplefin.org/"
+                    )
+                if response.status_code == 402:
+                    return Fail(
+                        "SimpleFIN subscription payment required. "
+                        "Please check your SimpleFIN account at https://beta-bridge.simplefin.org/"
+                    )
                 if response.status_code != 200:
-                    return Fail(f"SimpleFIN API error: {response.status_code}")
+                    return Fail(f"SimpleFIN API error: HTTP {response.status_code}")
 
                 data = response.json()
+
+                # Check for API-level errors (e.g., "You must reauthenticate")
+                # These are warnings/errors from SimpleFIN about individual connections
+                api_errors = data.get("errors", [])
+                if api_errors:
+                    logger = get_logger("infra.simplefin")
+                    logger.warning(f"SimpleFIN returned errors: {api_errors}")
 
                 # Return list of tuples: (simplefin_account_id, transaction)
                 # This allows service layer to map accounts without polluting external_ids
@@ -168,10 +227,33 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
                             (simplefin_account_id, transaction)
                         )
 
-                return Ok(transactions_with_accounts)
+                # Return transactions along with any API errors/warnings
+                return Ok(
+                    {"transactions": transactions_with_accounts, "errors": api_errors}
+                )
 
+        except httpx.TimeoutException as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(f"Timeout fetching SimpleFIN transactions: {e}", exc_info=True)
+            return Fail(
+                f"Failed to fetch SimpleFIN transactions: Connection timed out after 30 seconds"
+            )
+        except httpx.ConnectError as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Connection error fetching SimpleFIN transactions: {e}", exc_info=True
+            )
+            return Fail(
+                f"Failed to fetch SimpleFIN transactions: Unable to connect to SimpleFIN servers"
+            )
         except Exception as e:
-            return Fail(f"Failed to fetch SimpleFIN transactions: {str(e)}")
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Unexpected error fetching SimpleFIN transactions: {e}", exc_info=True
+            )
+            return Fail(
+                f"Failed to fetch SimpleFIN transactions: {type(e).__name__}: {str(e)}"
+            )
 
     async def get_balances(
         self,
@@ -215,8 +297,28 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
 
                 return Ok({"accessUrl": access_url})
 
+        except httpx.TimeoutException as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Timeout during SimpleFIN integration setup: {e}", exc_info=True
+            )
+            return Fail(f"Integration setup failed: Connection timed out")
+        except httpx.ConnectError as e:
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Connection error during SimpleFIN integration setup: {e}",
+                exc_info=True,
+            )
+            return Fail(
+                f"Integration setup failed: Unable to connect to SimpleFIN servers"
+            )
         except Exception as e:
-            return Fail(f"Integration setup failed: {str(e)}")
+            logger = get_logger("infra.simplefin")
+            logger.error(
+                f"Unexpected error during SimpleFIN integration setup: {e}",
+                exc_info=True,
+            )
+            return Fail(f"Integration setup failed: {type(e).__name__}: {str(e)}")
 
     def _parse_access_url(self, access_url: str) -> Result[Dict[str, str]]:
         """Parse and validate SimpleFIN access URL."""

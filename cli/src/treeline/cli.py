@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from treeline.app.container import Container
 from treeline.commands.import_csv import handle_import_command
 from treeline.theme import get_theme
-from treeline.utils import get_treeline_dir
+from treeline.utils import get_log_file_path, get_logger, get_treeline_dir
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,13 +79,17 @@ def get_container() -> Container:
     return _container
 
 
-def display_error(error: str) -> None:
+def display_error(error: str, show_log_hint: bool = True) -> None:
     """Display error message in consistent format.
 
     Args:
         error: Error message to display
+        show_log_hint: Whether to show the log file location hint
     """
     console.print(f"[{theme.error}]Error: {error}[/{theme.error}]")
+    if show_log_hint:
+        log_file = get_log_file_path()
+        console.print(f"[{theme.muted}]See {log_file} for details[/{theme.muted}]")
 
 
 def output_json(data: dict) -> None:
@@ -166,6 +170,10 @@ def display_sync_result(
 
         if "error" in sync_result:
             console.print(f"[{theme.error}]  ✗ {sync_result['error']}[/{theme.error}]")
+            log_file = get_log_file_path()
+            console.print(
+                f"[{theme.muted}]    See {log_file} for details[/{theme.muted}]"
+            )
             continue
 
         console.print(
@@ -233,6 +241,18 @@ def display_sync_result(
         console.print(
             f"[{theme.muted}]  Balance snapshots created automatically from account data[/{theme.muted}]"
         )
+
+        # Display provider warnings (e.g., "You must reauthenticate" from SimpleFIN)
+        provider_warnings = sync_result.get("provider_warnings", [])
+        if provider_warnings:
+            console.print(
+                f"\n[{theme.warning}]  ⚠ SimpleFIN warnings:[/{theme.warning}]"
+            )
+            for warning in provider_warnings:
+                console.print(f"[{theme.warning}]    • {warning}[/{theme.warning}]")
+            console.print(
+                f"[{theme.muted}]    Visit https://beta-bridge.simplefin.org/ to fix connection issues[/{theme.muted}]"
+            )
 
     if dry_run:
         console.print(
@@ -892,6 +912,9 @@ def sync_command(
       # Scriptable sync without prompts
       treeline sync --skip-account-type-prompt
     """
+    logger = get_logger("cli.sync")
+    logger.info(f"Starting sync command (dry_run={dry_run}, verbose={verbose})")
+
     ensure_treeline_initialized()
 
     container = get_container()
@@ -914,12 +937,15 @@ def sync_command(
         )
 
     if not result.success:
+        logger.error(f"Sync failed: {result.error}")
         display_error(result.error)
         if result.error == "No integrations configured":
             console.print(
                 f"[{theme.muted}]Use 'treeline simplefin' to setup an integration first[/{theme.muted}]"
             )
         raise typer.Exit(1)
+
+    logger.info("Sync completed successfully")
 
     if json_output:
         output_json(result.data)
@@ -1709,7 +1735,10 @@ def _backfill_balances(
 def plugin_new_command(
     name: str = typer.Argument(..., help="Plugin name"),
     directory: str = typer.Option(
-        None, "--directory", "-d", help="Directory to create plugin in (defaults to current directory)"
+        None,
+        "--directory",
+        "-d",
+        help="Directory to create plugin in (defaults to current directory)",
     ),
 ) -> None:
     """Create a new plugin from template.
@@ -1777,7 +1806,9 @@ def plugin_install_command(
 
     # Show progress
     if not json_output:
-        with console.status(f"[{theme.status_loading}]Installing plugin from {source}..."):
+        with console.status(
+            f"[{theme.status_loading}]Installing plugin from {source}..."
+        ):
             result = plugin_service.install_plugin(source, force_build=force_build)
     else:
         result = plugin_service.install_plugin(source, force_build=force_build)
@@ -1790,18 +1821,19 @@ def plugin_install_command(
         raise typer.Exit(1)
 
     if json_output:
-        output_json({
-            "success": True,
-            **result.data
-        })
+        output_json({"success": True, **result.data})
     else:
-        console.print(f"\n[{theme.success}]✓ Installed plugin: {result.data['plugin_name']}[/{theme.success}]")
+        console.print(
+            f"\n[{theme.success}]✓ Installed plugin: {result.data['plugin_name']}[/{theme.success}]"
+        )
         console.print(f"  Plugin ID: {result.data['plugin_id']}")
         console.print(f"  Version: {result.data['version']}")
         console.print(f"  Location: {result.data['install_dir']}")
-        if result.data.get('built'):
+        if result.data.get("built"):
             console.print(f"  [{theme.muted}](Built from source)[/{theme.muted}]")
-        console.print(f"\n[{theme.info}]Restart the Treeline UI to load the plugin[/{theme.info}]\n")
+        console.print(
+            f"\n[{theme.info}]Restart the Treeline UI to load the plugin[/{theme.info}]\n"
+        )
 
 
 @plugin_app.command(name="uninstall")
@@ -1831,12 +1863,11 @@ def plugin_uninstall_command(
         raise typer.Exit(1)
 
     if json_output:
-        output_json({
-            "success": True,
-            **result.data
-        })
+        output_json({"success": True, **result.data})
     else:
-        console.print(f"[{theme.success}]✓ Uninstalled plugin: {result.data['plugin_name']}[/{theme.success}]\n")
+        console.print(
+            f"[{theme.success}]✓ Uninstalled plugin: {result.data['plugin_name']}[/{theme.success}]\n"
+        )
 
 
 @plugin_app.command(name="list")
@@ -1871,17 +1902,23 @@ def plugin_list_command(
     else:
         if not plugins:
             console.print(f"\n[{theme.muted}]No plugins installed[/{theme.muted}]")
-            console.print(f"[{theme.muted}]Use 'tl plugin new <name>' to create a plugin[/{theme.muted}]\n")
+            console.print(
+                f"[{theme.muted}]Use 'tl plugin new <name>' to create a plugin[/{theme.muted}]\n"
+            )
             return
 
         console.print(f"\n[{theme.ui_header}]Installed Plugins[/{theme.ui_header}]\n")
 
         for plugin in plugins:
-            console.print(f"[{theme.emphasis}]{plugin['name']}[/{theme.emphasis}] ({plugin['id']})")
+            console.print(
+                f"[{theme.emphasis}]{plugin['name']}[/{theme.emphasis}] ({plugin['id']})"
+            )
             console.print(f"  Version: {plugin['version']}")
-            if plugin.get('description'):
-                console.print(f"  [{theme.muted}]{plugin['description']}[/{theme.muted}]")
-            if plugin.get('author'):
+            if plugin.get("description"):
+                console.print(
+                    f"  [{theme.muted}]{plugin['description']}[/{theme.muted}]"
+                )
+            if plugin.get("author"):
                 console.print(f"  [{theme.muted}]by {plugin['author']}[/{theme.muted}]")
             console.print()
 
