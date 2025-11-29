@@ -1,10 +1,97 @@
 <script lang="ts">
   import { executeQuery, type QueryResult } from "../../sdk";
 
+  const HISTORY_KEY = "treeline-query-history";
+  const MAX_HISTORY = 50;
+
+  interface HistoryEntry {
+    query: string;
+    timestamp: number;
+    success: boolean;
+  }
+
   let query = $state("SELECT * FROM transactions LIMIT 10");
   let result = $state<QueryResult | null>(null);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
+  let history = $state<HistoryEntry[]>(loadHistory());
+  let showHistory = $state(false);
+
+  function loadHistory(): HistoryEntry[] {
+    try {
+      const stored = localStorage.getItem(HISTORY_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveHistory(entries: HistoryEntry[]) {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  function addToHistory(queryText: string, success: boolean) {
+    // Don't add duplicates of the most recent query
+    if (history.length > 0 && history[0].query === queryText) {
+      return;
+    }
+
+    const entry: HistoryEntry = {
+      query: queryText,
+      timestamp: Date.now(),
+      success,
+    };
+
+    history = [entry, ...history.slice(0, MAX_HISTORY - 1)];
+    saveHistory(history);
+  }
+
+  function loadFromHistory(entry: HistoryEntry) {
+    query = entry.query;
+    showHistory = false;
+  }
+
+  function handleClickOutside(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (!target.closest(".history-container")) {
+      showHistory = false;
+    }
+  }
+
+  $effect(() => {
+    if (showHistory) {
+      // Use setTimeout to avoid the click that opened the dropdown from immediately closing it
+      const timeout = setTimeout(() => {
+        document.addEventListener("click", handleClickOutside);
+      }, 0);
+      return () => {
+        clearTimeout(timeout);
+        document.removeEventListener("click", handleClickOutside);
+      };
+    }
+  });
+
+  function clearHistory() {
+    history = [];
+    saveHistory([]);
+  }
+
+  function formatTimestamp(ts: number): string {
+    const date = new Date(ts);
+    const now = new Date();
+    const diff = now.getTime() - ts;
+
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    if (date.toDateString() === now.toDateString()) return "today";
+
+    return date.toLocaleDateString();
+  }
 
   async function runQuery() {
     if (!query.trim()) {
@@ -18,8 +105,10 @@
 
     try {
       result = await executeQuery(query);
+      addToHistory(query, true);
     } catch (e) {
       error = e instanceof Error ? e.message : "Failed to execute query";
+      addToHistory(query, false);
       console.error("Query error:", e);
     } finally {
       isLoading = false;
@@ -63,10 +152,42 @@
   <div class="query-panel">
     <div class="panel-header">
       <h2 class="panel-title">SQL Query</h2>
-      <button class="run-button" onclick={runQuery} disabled={isLoading}>
-        {isLoading ? "Running..." : "Run Query"}
-        <span class="shortcut">⌘↵</span>
-      </button>
+      <div class="header-actions">
+        <div class="history-container">
+          <button
+            class="history-button"
+            class:active={showHistory}
+            onclick={() => (showHistory = !showHistory)}
+            disabled={history.length === 0}
+          >
+            History ({history.length})
+          </button>
+          {#if showHistory}
+            <div class="history-dropdown">
+              <div class="history-header">
+                <span>Query History</span>
+                <button class="clear-history" onclick={clearHistory}>Clear</button>
+              </div>
+              <div class="history-list">
+                {#each history as entry}
+                  <button
+                    class="history-item"
+                    class:failed={!entry.success}
+                    onclick={() => loadFromHistory(entry)}
+                  >
+                    <pre class="history-query">{entry.query}</pre>
+                    <span class="history-time">{formatTimestamp(entry.timestamp)}</span>
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+        </div>
+        <button class="run-button" onclick={runQuery} disabled={isLoading}>
+          {isLoading ? "Running..." : "Run Query"}
+          <span class="shortcut">⌘↵</span>
+        </button>
+      </div>
     </div>
 
     <textarea
@@ -172,6 +293,131 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+  }
+
+  .history-container {
+    position: relative;
+  }
+
+  .history-button {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .history-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  .history-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .history-button.active {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+  }
+
+  .history-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: var(--spacing-xs);
+    width: 400px;
+    max-height: 300px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .clear-history {
+    background: none;
+    border: none;
+    color: var(--accent-danger);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px var(--spacing-xs);
+  }
+
+  .clear-history:hover {
+    text-decoration: underline;
+  }
+
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .history-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border-primary);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.2s;
+  }
+
+  .history-item:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .history-item:last-child {
+    border-bottom: none;
+  }
+
+  .history-item.failed {
+    border-left: 2px solid var(--accent-danger);
+  }
+
+  .history-query {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .history-time {
+    font-size: 10px;
+    color: var(--text-muted);
   }
 
   .panel-title {
