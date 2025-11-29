@@ -23,6 +23,55 @@
   let history = $state<HistoryEntry[]>(loadHistory());
   let showHistory = $state(false);
 
+  // Sorting state
+  let sortColumn = $state<number | null>(null);
+  let sortDirection = $state<"asc" | "desc">("asc");
+
+  // Derived sorted rows
+  let sortedRows = $derived.by(() => {
+    if (!result || sortColumn === null) return result?.rows ?? [];
+
+    const rows = [...result.rows];
+    rows.sort((a, b) => {
+      const aVal = a[sortColumn];
+      const bVal = b[sortColumn];
+
+      // Handle nulls
+      if (aVal === null && bVal === null) return 0;
+      if (aVal === null) return sortDirection === "asc" ? 1 : -1;
+      if (bVal === null) return sortDirection === "asc" ? -1 : 1;
+
+      // Compare values
+      let cmp = 0;
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        cmp = aVal - bVal;
+      } else if (Array.isArray(aVal) && Array.isArray(bVal)) {
+        cmp = aVal.join(",").localeCompare(bVal.join(","));
+      } else {
+        cmp = String(aVal).localeCompare(String(bVal));
+      }
+
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+
+    return rows;
+  });
+
+  function toggleSort(colIndex: number) {
+    if (sortColumn === colIndex) {
+      // Toggle direction or clear
+      if (sortDirection === "asc") {
+        sortDirection = "desc";
+      } else {
+        sortColumn = null;
+        sortDirection = "asc";
+      }
+    } else {
+      sortColumn = colIndex;
+      sortDirection = "asc";
+    }
+  }
+
   function loadHistory(): HistoryEntry[] {
     try {
       const stored = localStorage.getItem(HISTORY_KEY);
@@ -108,6 +157,8 @@
     isLoading = true;
     error = null;
     result = null;
+    sortColumn = null;
+    sortDirection = "asc";
 
     try {
       result = await executeQuery(query);
@@ -456,13 +507,18 @@
             <table class="results-table">
               <thead>
                 <tr>
-                  {#each result.columns as column}
-                    <th>{column}</th>
+                  {#each result.columns as column, i}
+                    <th class="sortable" class:sorted={sortColumn === i} onclick={() => toggleSort(i)}>
+                      <span class="column-name">{column}</span>
+                      {#if sortColumn === i}
+                        <span class="sort-indicator">{sortDirection === "asc" ? "▲" : "▼"}</span>
+                      {/if}
+                    </th>
                   {/each}
                 </tr>
               </thead>
               <tbody>
-                {#each result.rows as row}
+                {#each sortedRows as row}
                   <tr>
                     {#each row as cell}
                       <td>
@@ -925,6 +981,29 @@
     color: var(--text-secondary);
     border-bottom: 2px solid var(--border-primary);
     white-space: nowrap;
+  }
+
+  .results-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s;
+  }
+
+  .results-table th.sortable:hover {
+    color: var(--text-primary);
+  }
+
+  .results-table th.sorted {
+    color: var(--accent-primary);
+  }
+
+  .results-table th .column-name {
+    margin-right: var(--spacing-xs);
+  }
+
+  .results-table th .sort-indicator {
+    font-size: 10px;
+    opacity: 0.8;
   }
 
   .results-table td {
