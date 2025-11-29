@@ -213,6 +213,48 @@
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
+  function formatQuery() {
+    // Simple SQL formatter
+    const keywords = [
+      "SELECT", "FROM", "WHERE", "AND", "OR", "ORDER BY", "GROUP BY",
+      "HAVING", "LIMIT", "OFFSET", "JOIN", "LEFT JOIN", "RIGHT JOIN",
+      "INNER JOIN", "OUTER JOIN", "ON", "AS", "DISTINCT", "UNION",
+      "INSERT INTO", "VALUES", "UPDATE", "SET", "DELETE FROM", "CREATE",
+      "DROP", "ALTER", "WITH"
+    ];
+
+    let formatted = query.trim();
+
+    // Normalize whitespace
+    formatted = formatted.replace(/\s+/g, " ");
+
+    // Add newlines before major keywords
+    const majorKeywords = [
+      "SELECT", "FROM", "WHERE", "ORDER BY", "GROUP BY", "HAVING",
+      "LIMIT", "JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN",
+      "OUTER JOIN", "UNION", "WITH"
+    ];
+
+    for (const kw of majorKeywords) {
+      const regex = new RegExp(`\\b(${kw})\\b`, "gi");
+      formatted = formatted.replace(regex, "\n$1");
+    }
+
+    // Add newlines and indentation for AND/OR
+    formatted = formatted.replace(/\b(AND|OR)\b/gi, "\n  $1");
+
+    // Uppercase keywords
+    for (const kw of keywords) {
+      const regex = new RegExp(`\\b(${kw})\\b`, "gi");
+      formatted = formatted.replace(regex, kw);
+    }
+
+    // Clean up leading newline and extra spaces
+    formatted = formatted.trim();
+
+    query = formatted;
+  }
 </script>
 
 <svelte:window onkeydown={handleGlobalKeyDown} />
@@ -252,6 +294,9 @@
             </div>
           {/if}
         </div>
+        <button class="format-button" onclick={formatQuery} disabled={!query.trim()}>
+          Format
+        </button>
         <button class="run-button" onclick={runQuery} disabled={isLoading}>
           {isLoading ? "Running..." : "Run Query"}
           <span class="shortcut">⌘↵</span>
@@ -408,6 +453,27 @@
     background: var(--bg-tertiary);
     border-color: var(--accent-primary);
     color: var(--text-primary);
+  }
+
+  .format-button {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .format-button:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  .format-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .history-dropdown {
