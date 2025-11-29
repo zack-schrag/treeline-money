@@ -26,15 +26,20 @@
   let cursorIndex = $state(0);
   let containerEl: HTMLDivElement | null = null;
 
-  // Current date for month-over-month comparison
+  // "As of" date for viewing historical balances
   let referenceDate = $state(new Date());
   let referenceDay = $derived(referenceDate.getDate());
   let referenceDateStr = $derived(
     referenceDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })
   );
+  let isToday = $derived(
+    referenceDate.toDateString() === new Date().toDateString()
+  );
 
   // Date picker
-  let datePickerInputEl: HTMLInputElement | null = null;
+  function goToToday() {
+    referenceDate = new Date();
+  }
 
   // Transaction preview modal
   interface PreviewTransaction {
@@ -128,15 +133,19 @@
     try {
       config = await loadConfig();
 
-      // Load accounts with transaction stats and latest balance from snapshots
+      // Format reference date for SQL query (end of day)
+      const refDateStr = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}-${String(referenceDate.getDate()).padStart(2, "0")} 23:59:59`;
+
+      // Load accounts with balances as of the reference date
       const result = await executeQuery(`
-        WITH latest_snapshots AS (
+        WITH snapshots_as_of AS (
           SELECT
             account_id,
             balance,
             snapshot_time,
             ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY snapshot_time DESC) as rn
           FROM balance_snapshots
+          WHERE snapshot_time <= '${refDateStr}'
         ),
         account_stats AS (
           SELECT
@@ -153,16 +162,16 @@
           a.nickname,
           a.account_type,
           a.currency,
-          ls.balance as latest_balance,
+          s_ao.balance as balance_as_of_date,
           a.institution_name,
           a.created_at,
           a.updated_at,
           COALESCE(s.transaction_count, 0) as transaction_count,
           s.first_transaction,
           s.last_transaction,
-          ls.snapshot_time as balance_as_of
+          s_ao.snapshot_time as balance_as_of
         FROM accounts a
-        LEFT JOIN latest_snapshots ls ON a.account_id = ls.account_id AND ls.rn = 1
+        LEFT JOIN snapshots_as_of s_ao ON a.account_id = s_ao.account_id AND s_ao.rn = 1
         LEFT JOIN account_stats s ON a.account_id = s.account_id
         ORDER BY a.name
       `);
@@ -217,7 +226,10 @@
     const day = referenceDay;
     const trends: BalanceTrendPoint[] = [];
 
-    // Get snapshots for this account
+    // Format reference date for SQL query (end of day)
+    const refDateStr = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}-${String(referenceDate.getDate()).padStart(2, "0")} 23:59:59`;
+
+    // Get snapshots for this account up to reference date
     const result = await executeQuery(`
       SELECT
         snapshot_id,
@@ -226,6 +238,7 @@
         snapshot_time
       FROM balance_snapshots
       WHERE account_id = '${accountId}'
+        AND snapshot_time <= '${refDateStr}'
       ORDER BY snapshot_time DESC
     `);
 
@@ -252,10 +265,9 @@
       });
     }
 
-    // For each of the last 6 months, find the snapshot closest to our reference day
-    const now = new Date();
+    // For each of the last 6 months relative to reference date, find the snapshot closest to our reference day
     for (let i = 0; i < 6; i++) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const targetDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
       const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
       const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
       const targetDay = Math.min(day, daysInMonth);
@@ -392,6 +404,16 @@
     }
   });
 
+  // Effect: reload accounts when reference date changes
+  let previousRefDate: string | null = null;
+  $effect(() => {
+    const currentRefDate = referenceDate.toISOString().split("T")[0];
+    if (previousRefDate !== null && previousRefDate !== currentRefDate) {
+      loadAccounts();
+    }
+    previousRefDate = currentRefDate;
+  });
+
   function handleKeyDown(e: KeyboardEvent) {
     if (isEditing || showTransactionPreview) return;
 
@@ -436,6 +458,10 @@
         e.preventDefault();
         loadAccounts();
         break;
+      case "t":
+        e.preventDefault();
+        goToToday();
+        break;
       case "g":
         e.preventDefault();
         cursorIndex = 0;
@@ -456,11 +482,6 @@
     if (newDate <= new Date()) {
       referenceDate = newDate;
     }
-  }
-
-  function openDatePicker() {
-    // Just show the native date picker directly
-    datePickerInputEl?.showPicker?.();
   }
 
   function handleDateChange(e: Event) {
@@ -666,25 +687,22 @@ LIMIT 100`;
     <div class="title-row">
       <h1 class="title">Accounts</h1>
       <div class="date-nav">
+        <span class="as-of-label">as of</span>
         <button class="nav-btn" onclick={() => cycleDay(-1)} title="Previous day">←</button>
-        <button class="current-date" onclick={openDatePicker} title="Click to pick date">
-          {referenceDateStr}
-        </button>
         <input
           type="date"
-          class="date-picker-input"
-          bind:this={datePickerInputEl}
+          class="date-input"
           value={referenceDate.toISOString().split("T")[0]}
           max={new Date().toISOString().split("T")[0]}
           onchange={handleDateChange}
-          onblur={() => showDatePicker = false}
         />
         <button
           class="nav-btn"
           onclick={() => cycleDay(1)}
-          disabled={referenceDate.toDateString() === new Date().toDateString()}
+          disabled={isToday}
           title="Next day"
         >→</button>
+        <button class="today-btn" onclick={goToToday} title="Jump to today" disabled={isToday}>Today</button>
       </div>
     </div>
   </div>
@@ -694,7 +712,8 @@ LIMIT 100`;
     <span><kbd>j</kbd><kbd>k</kbd> nav</span>
     <span><kbd>Enter</kbd> transactions</span>
     <span><kbd>e</kbd> edit</span>
-    <span><kbd>h</kbd><kbd>l</kbd> day</span>
+    <span><kbd>h</kbd><kbd>l</kbd> date</span>
+    <span><kbd>t</kbd> today</span>
     <span><kbd>r</kbd> refresh</span>
   </div>
 
@@ -834,9 +853,9 @@ LIMIT 100`;
         </div>
 
         <div class="sidebar-section">
-          <div class="sidebar-title">Balance</div>
+          <div class="sidebar-title">Balance {isToday ? "" : `(as of ${referenceDateStr})`}</div>
           <div class="detail-row">
-            <span>Current:</span>
+            <span>Amount:</span>
             <span class="mono">{formatCurrency(getBalanceForDisplay(currentAccount))}</span>
           </div>
           {#if balanceTrend.length >= 2}
@@ -845,7 +864,7 @@ LIMIT 100`;
             {@const change = current.balance - previous.balance}
             {@const percent = previous.balance !== 0 ? (change / Math.abs(previous.balance)) * 100 : 0}
             <div class="detail-row">
-              <span>Last month:</span>
+              <span>Prev month:</span>
               <span class="mono">{formatCurrency(previous.balance)}</span>
             </div>
             <div class="detail-row">
@@ -1066,6 +1085,12 @@ LIMIT 100`;
     gap: var(--spacing-sm);
   }
 
+  .as-of-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-right: var(--spacing-xs);
+  }
+
   .nav-btn {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-primary);
@@ -1085,31 +1110,47 @@ LIMIT 100`;
     cursor: default;
   }
 
-  .current-date {
+  .date-input {
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
-    min-width: 120px;
-    text-align: center;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-primary);
     border-radius: 4px;
-    padding: 4px 12px;
+    padding: 4px 8px;
     cursor: pointer;
     transition: border-color 0.15s;
   }
 
-  .current-date:hover {
+  .date-input:hover {
     border-color: var(--accent-primary);
   }
 
-  .date-picker-input {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-    height: 0;
-    pointer-events: none;
+  .date-input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .today-btn {
+    background: var(--accent-primary);
+    border: none;
+    color: var(--bg-primary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: var(--spacing-xs);
+  }
+
+  .today-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .today-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   .help-bar {
