@@ -252,8 +252,9 @@ class DuckDBRepository(Repository):
                     """
                     INSERT INTO sys_transactions (
                         transaction_id, account_id, external_ids, amount, description,
-                        transaction_date, posted_date, tags, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        transaction_date, posted_date, tags, created_at, updated_at,
+                        deleted_at, parent_transaction_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (transaction_id) DO UPDATE SET
                         account_id = excluded.account_id,
                         external_ids = excluded.external_ids,
@@ -275,6 +276,8 @@ class DuckDBRepository(Repository):
                         list(transaction.tags),
                         transaction.created_at,
                         transaction.updated_at,
+                        transaction.deleted_at,
+                        str(transaction.parent_transaction_id) if transaction.parent_transaction_id else None,
                     ],
                 )
 
@@ -458,6 +461,8 @@ class DuckDBRepository(Repository):
                         tags=tuple(row_dict["tags"]) if row_dict["tags"] else tuple(),
                         created_at=self._ensure_timezone(row_dict["created_at"]),
                         updated_at=self._ensure_timezone(row_dict["updated_at"]),
+                        deleted_at=self._ensure_timezone(row_dict["deleted_at"]) if row_dict.get("deleted_at") else None,
+                        parent_transaction_id=UUID(row_dict["parent_transaction_id"]) if row_dict.get("parent_transaction_id") else None,
                     )
                     transactions.append(transaction)
 
@@ -779,7 +784,9 @@ class DuckDBRepository(Repository):
                     posted_date,
                     tags,
                     created_at,
-                    updated_at
+                    updated_at,
+                    deleted_at,
+                    parent_transaction_id
                 FROM sys_transactions
                 WHERE {where_sql}
                 ORDER BY transaction_date DESC
@@ -797,15 +804,13 @@ class DuckDBRepository(Repository):
                         external_ids=json.loads(row[2]) if row[2] else {},
                         amount=Decimal(str(row[3])),
                         description=row[4],
-                        transaction_date=row[
-                            5
-                        ],  # Already a date, no timezone conversion needed
-                        posted_date=row[
-                            6
-                        ],  # Already a date, no timezone conversion needed
+                        transaction_date=row[5],
+                        posted_date=row[6],
                         tags=tuple(row[7]) if row[7] else (),
                         created_at=self._ensure_timezone(row[8]),
                         updated_at=self._ensure_timezone(row[9]),
+                        deleted_at=self._ensure_timezone(row[10]) if row[10] else None,
+                        parent_transaction_id=UUID(row[11]) if row[11] else None,
                     )
                 )
 
@@ -835,7 +840,9 @@ class DuckDBRepository(Repository):
                     posted_date,
                     tags,
                     created_at,
-                    updated_at
+                    updated_at,
+                    deleted_at,
+                    parent_transaction_id
                 FROM sys_transactions
                 WHERE account_id = ?
                 ORDER BY {order_by}
@@ -857,6 +864,8 @@ class DuckDBRepository(Repository):
                         tags=tuple(row[7]) if row[7] else (),
                         created_at=self._ensure_timezone(row[8]),
                         updated_at=self._ensure_timezone(row[9]),
+                        deleted_at=self._ensure_timezone(row[10]) if row[10] else None,
+                        parent_transaction_id=UUID(row[11]) if row[11] else None,
                     )
                 )
 
@@ -897,7 +906,9 @@ class DuckDBRepository(Repository):
                     posted_date,
                     tags,
                     created_at,
-                    updated_at
+                    updated_at,
+                    deleted_at,
+                    parent_transaction_id
                 FROM sys_transactions
                 WHERE transaction_id = ?
             """,
@@ -916,11 +927,13 @@ class DuckDBRepository(Repository):
                 ),
                 amount=Decimal(str(result[3])),
                 description=result[4],
-                transaction_date=self._ensure_timezone(result[5]),
-                posted_date=self._ensure_timezone(result[6]),
+                transaction_date=result[5],
+                posted_date=result[6],
                 tags=tuple(result[7]) if result[7] else (),
                 created_at=self._ensure_timezone(result[8]),
                 updated_at=self._ensure_timezone(result[9]),
+                deleted_at=self._ensure_timezone(result[10]) if result[10] else None,
+                parent_transaction_id=UUID(result[11]) if result[11] else None,
             )
 
             conn.close()

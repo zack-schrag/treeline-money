@@ -67,6 +67,16 @@
   let modalTagInput = $state("");
   let modalInputEl: HTMLInputElement | null = null;
 
+  // Delete confirmation
+  let showDeleteConfirm = $state(false);
+
+  // Split modal
+  let showSplitModal = $state(false);
+  let splitAmounts = $state<{ description: string; amount: string }[]>([
+    { description: "", amount: "" },
+    { description: "", amount: "" },
+  ]);
+
   // Element refs
   let customTagInputEl: HTMLInputElement | null = null;
   let bulkTagInputEl: HTMLInputElement | null = null;
@@ -954,6 +964,151 @@
     }
   }
 
+  // Delete transaction
+  async function deleteTransaction() {
+    if (!editingTransaction) return;
+
+    try {
+      const now = new Date().toISOString();
+      await executeQuery(
+        `UPDATE sys_transactions SET deleted_at = '${now}' WHERE transaction_id = '${editingTransaction.transaction_id}'`,
+        { readonly: false }
+      );
+
+      // Remove from local list
+      transactions = transactions.filter(
+        (t) => t.transaction_id !== editingTransaction!.transaction_id
+      );
+
+      showDeleteConfirm = false;
+      closeTagModal();
+      await loadGlobalStats();
+    } catch (e) {
+      console.error("Failed to delete transaction:", e);
+      error = e instanceof Error ? e.message : "Failed to delete transaction";
+    }
+  }
+
+  // Split transaction
+  function openSplitModal() {
+    if (!editingTransaction) return;
+    splitAmounts = [
+      { description: editingTransaction.description || "", amount: "" },
+      { description: "", amount: "" },
+    ];
+    showSplitModal = true;
+  }
+
+  function closeSplitModal() {
+    showSplitModal = false;
+    splitAmounts = [
+      { description: "", amount: "" },
+      { description: "", amount: "" },
+    ];
+  }
+
+  function addSplitRow() {
+    splitAmounts = [...splitAmounts, { description: "", amount: "" }];
+  }
+
+  function removeSplitRow(index: number) {
+    if (splitAmounts.length > 2) {
+      splitAmounts = splitAmounts.filter((_, i) => i !== index);
+    }
+  }
+
+  function generateUUID(): string {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  async function executeSplit() {
+    if (!editingTransaction) return;
+
+    // Validate amounts sum to original
+    const originalAmount = editingTransaction.amount;
+    const splitTotal = splitAmounts.reduce((sum, s) => {
+      const amt = parseFloat(s.amount);
+      return sum + (isNaN(amt) ? 0 : amt);
+    }, 0);
+
+    // Allow small floating point differences
+    if (Math.abs(splitTotal - originalAmount) > 0.01) {
+      error = `Split amounts (${splitTotal.toFixed(2)}) must equal original amount (${originalAmount.toFixed(2)})`;
+      return;
+    }
+
+    try {
+      const now = new Date().toISOString();
+      const parentId = editingTransaction.transaction_id;
+
+      // Soft-delete the parent transaction
+      await executeQuery(
+        `UPDATE sys_transactions SET deleted_at = '${now}' WHERE transaction_id = '${parentId}'`,
+        { readonly: false }
+      );
+
+      // Insert child transactions
+      const newTransactions: Transaction[] = [];
+      for (const split of splitAmounts) {
+        const amt = parseFloat(split.amount);
+        if (isNaN(amt) || amt === 0) continue;
+
+        const childId = generateUUID();
+        const desc = split.description.replace(/'/g, "''");
+
+        await executeQuery(
+          `INSERT INTO sys_transactions (
+            transaction_id, account_id, amount, description,
+            transaction_date, posted_date, tags, external_ids,
+            parent_transaction_id, created_at, updated_at
+          ) VALUES (
+            '${childId}',
+            '${editingTransaction.account_id}',
+            ${amt},
+            '${desc}',
+            '${editingTransaction.transaction_date}',
+            '${editingTransaction.transaction_date}',
+            ${editingTransaction.tags.length > 0 ? `ARRAY[${editingTransaction.tags.map((t) => `'${t}'`).join(",")}]` : "NULL"},
+            '{}',
+            '${parentId}',
+            '${now}',
+            '${now}'
+          )`,
+          { readonly: false }
+        );
+
+        // Add to local list for display
+        newTransactions.push({
+          transaction_id: childId,
+          account_id: editingTransaction.account_id,
+          account_name: editingTransaction.account_name,
+          amount: amt,
+          description: split.description,
+          transaction_date: editingTransaction.transaction_date,
+          tags: [...editingTransaction.tags],
+        });
+      }
+
+      // Replace parent with children in local list
+      const parentIdx = transactions.findIndex(t => t.transaction_id === parentId);
+      if (parentIdx >= 0) {
+        transactions.splice(parentIdx, 1, ...newTransactions);
+        transactions = [...transactions];
+      }
+
+      closeSplitModal();
+      closeTagModal();
+      await loadGlobalStats();
+    } catch (e) {
+      console.error("Failed to split transaction:", e);
+      error = e instanceof Error ? e.message : "Failed to split transaction";
+    }
+  }
+
   function formatAmount(amount: number): string {
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -1007,7 +1162,7 @@
   <!-- Header -->
   <div class="header">
     <div class="title-row">
-      <h1 class="title">Tag Transactions</h1>
+      <h1 class="title">Transactions</h1>
 
       <!-- Progress Ring -->
       {#if globalStats.total > 0}
@@ -1280,7 +1435,7 @@
   >
     <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
       <div class="modal-header">
-        <span class="modal-title">Edit Tags</span>
+        <span class="modal-title">Edit Transaction</span>
         <button class="close-btn" onclick={closeTagModal}>×</button>
       </div>
 
@@ -1324,8 +1479,110 @@
       </div>
 
       <div class="modal-actions">
+        <button class="btn danger" onclick={() => showDeleteConfirm = true}>Delete</button>
+        <button class="btn secondary" onclick={openSplitModal}>Split</button>
+        <div class="modal-actions-spacer"></div>
         <button class="btn secondary" onclick={closeTagModal}>Cancel</button>
-        <button class="btn primary" onclick={saveTagModal}>Save</button>
+        <button class="btn primary" onclick={saveTagModal}>Save Tags</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteConfirm && editingTransaction}
+  <div
+    class="modal-overlay confirm-overlay"
+    onclick={() => showDeleteConfirm = false}
+    onkeydown={(e) => e.key === "Escape" && (showDeleteConfirm = false)}
+    role="dialog"
+    tabindex="-1"
+  >
+    <div class="modal confirm-modal" onclick={(e) => e.stopPropagation()} role="document">
+      <div class="modal-header">
+        <span class="modal-title">Delete Transaction?</span>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete this transaction?</p>
+        <div class="txn-preview">
+          <div class="txn-preview-desc">{editingTransaction.description}</div>
+          <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
+            {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
+          </div>
+        </div>
+        <p class="confirm-note">This transaction won't be re-imported during sync.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" onclick={() => showDeleteConfirm = false}>Cancel</button>
+        <button class="btn danger" onclick={deleteTransaction}>Delete</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Split Transaction Modal -->
+{#if showSplitModal && editingTransaction}
+  <div
+    class="modal-overlay"
+    onclick={closeSplitModal}
+    onkeydown={(e) => e.key === "Escape" && closeSplitModal()}
+    role="dialog"
+    tabindex="-1"
+  >
+    <div class="modal split-modal" onclick={(e) => e.stopPropagation()} role="document">
+      <div class="modal-header">
+        <span class="modal-title">Split Transaction</span>
+        <button class="close-btn" onclick={closeSplitModal}>×</button>
+      </div>
+      <div class="modal-body">
+        <div class="txn-preview">
+          <div class="txn-preview-desc">{editingTransaction.description}</div>
+          <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
+            Original: {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
+          </div>
+        </div>
+
+        <div class="split-rows">
+          {#each splitAmounts as split, i}
+            <div class="split-row">
+              <input
+                type="text"
+                class="split-desc"
+                bind:value={split.description}
+                placeholder="Description"
+              />
+              <input
+                type="text"
+                class="split-amount"
+                bind:value={split.amount}
+                placeholder="0.00"
+              />
+              {#if splitAmounts.length > 2}
+                <button class="btn-icon" onclick={() => removeSplitRow(i)}>×</button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <button class="btn secondary add-split-btn" onclick={addSplitRow}>+ Add Row</button>
+
+        {#if true}
+          {@const splitTotal = splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)}
+          {@const remaining = editingTransaction.amount - splitTotal}
+          <div class="split-summary" class:error={Math.abs(remaining) > 0.01}>
+            Total: ${splitTotal.toFixed(2)} | Remaining: ${remaining.toFixed(2)}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" onclick={closeSplitModal}>Cancel</button>
+        <button
+          class="btn primary"
+          onclick={executeSplit}
+          disabled={Math.abs(editingTransaction.amount - splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)) > 0.01}
+        >
+          Split
+        </button>
       </div>
     </div>
   </div>
@@ -2245,7 +2502,113 @@
     border: 1px solid var(--border-primary);
   }
 
+  .btn.danger {
+    background: var(--text-negative);
+    color: white;
+  }
+
   .btn:hover {
     opacity: 0.9;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .modal-actions-spacer {
+    flex: 1;
+  }
+
+  /* Confirm modal */
+  .confirm-overlay {
+    z-index: 1001;
+  }
+
+  .confirm-modal {
+    max-width: 400px;
+  }
+
+  .confirm-note {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: var(--spacing-sm);
+  }
+
+  /* Split modal */
+  .split-modal {
+    max-width: 500px;
+  }
+
+  .split-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-md) 0;
+  }
+
+  .split-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+  }
+
+  .split-desc {
+    flex: 2;
+    padding: 8px 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .split-amount {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    text-align: right;
+  }
+
+  .btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  .btn-icon:hover {
+    background: var(--text-negative);
+    color: white;
+    border-color: var(--text-negative);
+  }
+
+  .add-split-btn {
+    width: 100%;
+    margin-top: var(--spacing-sm);
+  }
+
+  .split-summary {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .split-summary.error {
+    background: rgba(255, 100, 100, 0.15);
+    color: var(--text-negative);
   }
 </style>

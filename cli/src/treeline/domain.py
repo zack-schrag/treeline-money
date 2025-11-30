@@ -100,6 +100,10 @@ class Transaction(BaseModel):
     tags: tuple[str, ...] = ()
     created_at: datetime
     updated_at: datetime
+    # Soft delete support
+    deleted_at: datetime | None = None
+    # Split transaction support - children reference parent
+    parent_transaction_id: UUID | None = None
 
     # Note: Zero-amount transactions are valid (transfers, pending, corrections, etc.)
     # so we don't validate against zero amounts

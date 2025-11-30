@@ -3,29 +3,29 @@ import TaggingView from "./TaggingView.svelte";
 
 export const plugin: Plugin = {
   manifest: {
-    id: "tagging",
-    name: "Tagging",
+    id: "transactions",
+    name: "Transactions",
     version: "0.1.0",
-    description: "Tag transactions with keyboard-driven interface",
+    description: "Browse, tag, edit, and split transactions",
     author: "Treeline",
   },
 
   activate(context: PluginContext) {
     // Register view
     context.registerView({
-      id: "tagging",
-      name: "Tagging",
-      icon: "🏷️",
+      id: "transactions",
+      name: "Transactions",
+      icon: "💳",
       component: TaggingView,
     });
 
     // Add sidebar item
     context.registerSidebarItem({
       sectionId: "main",
-      id: "tagging",
-      label: "Tagging",
-      icon: "🏷️",
-      viewId: "tagging",
+      id: "transactions",
+      label: "Transactions",
+      icon: "💳",
+      viewId: "transactions",
     });
   },
 };
