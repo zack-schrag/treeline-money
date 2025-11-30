@@ -1190,6 +1190,7 @@
           description: split.description,
           transaction_date: editingTransaction.transaction_date,
           tags: [...editingTransaction.tags],
+          parent_transaction_id: parentId,
         });
       }
 
@@ -1629,6 +1630,28 @@
             {#each currentTxn.tags as tag}
               <span class="current-tag">{tag}</span>
             {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if currentTxn?.parent_transaction_id}
+        {@const siblingIndices = splitGroups.get(currentTxn.parent_transaction_id) || []}
+        {@const siblings = siblingIndices.map(i => transactions[i]).filter(Boolean)}
+        <div class="sidebar-section split-info">
+          <div class="sidebar-title">Split Transaction</div>
+          <div class="split-siblings">
+            {#each siblings as sibling}
+              <div class="split-sibling" class:current={sibling.transaction_id === currentTxn.transaction_id}>
+                <span class="sibling-desc">{sibling.description}</span>
+                <span class="sibling-amount" class:negative={sibling.amount < 0}>
+                  ${Math.abs(sibling.amount).toFixed(2)}
+                </span>
+              </div>
+            {/each}
+            <div class="split-total">
+              <span class="total-label">Total:</span>
+              <span class="total-amount">${Math.abs(siblings.reduce((sum, s) => sum + s.amount, 0)).toFixed(2)}</span>
+            </div>
           </div>
         </div>
       {/if}
@@ -2381,6 +2404,76 @@
     white-space: nowrap;
   }
 
+  .split-info {
+    border-top: 1px solid var(--border-primary);
+    padding-top: var(--spacing-md);
+  }
+
+  .split-siblings {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .split-sibling {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    gap: 8px;
+  }
+
+  .split-sibling.current {
+    background: var(--bg-tertiary);
+    border-left: 2px solid var(--accent-primary);
+    padding-left: 4px;
+  }
+
+  .sibling-desc {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+
+  .split-sibling.current .sibling-desc {
+    color: var(--text-primary);
+  }
+
+  .sibling-amount {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  .sibling-amount.negative {
+    color: var(--accent-danger);
+  }
+
+  .split-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 6px;
+    border-top: 1px solid var(--border-primary);
+    margin-top: 4px;
+  }
+
+  .total-label {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .total-amount {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
   .current-tags {
     display: flex;
     flex-wrap: wrap;
@@ -2520,59 +2613,55 @@
   /* Split transaction styles */
   .row.split-child {
     position: relative;
-    background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.03);
+    padding-left: calc(var(--spacing-lg) + 12px);
   }
 
-  .row.split-child:not(.split-last) {
-    border-bottom: 1px dashed var(--border-primary);
-  }
-
-  .row.split-first {
-    border-top: 1px solid var(--accent-primary);
-    margin-top: 4px;
-  }
-
-  .row.split-last {
-    border-bottom: 1px solid var(--accent-primary);
-    margin-bottom: 4px;
+  .row.split-child.cursor {
+    padding-left: calc(var(--spacing-lg) + 12px - 3px);
   }
 
   .split-indicator {
     position: absolute;
-    left: 4px;
+    left: var(--spacing-lg);
     top: 0;
     bottom: 0;
-    width: 16px;
+    width: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
+  .row.split-child.cursor .split-indicator {
+    left: calc(var(--spacing-lg) - 3px);
+  }
+
   .split-line {
     width: 2px;
     height: 100%;
-    background: var(--accent-primary);
-    opacity: 0.4;
+    background: var(--text-muted);
+    opacity: 0.3;
   }
 
   .row.split-first .split-line {
     border-radius: 2px 2px 0 0;
+    margin-top: 4px;
+    height: calc(100% - 4px);
   }
 
   .row.split-last .split-line {
     border-radius: 0 0 2px 2px;
+    margin-bottom: 4px;
+    height: calc(100% - 4px);
   }
 
   .split-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    font-size: 11px;
-    color: var(--accent-primary);
+    font-size: 10px;
+    color: var(--text-muted);
     margin-right: 4px;
-    opacity: 0.7;
+    opacity: 0.6;
   }
 
   .row-edit-btn:hover {
