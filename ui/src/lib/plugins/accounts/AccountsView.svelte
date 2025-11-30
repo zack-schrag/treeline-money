@@ -198,7 +198,7 @@
           institution_name: row[6] as string | null,
           created_at: row[7] as string,
           updated_at: row[8] as string,
-          transaction_count: row[9] as number,
+          transaction_count: (row[9] as number) ?? 0,
           first_transaction: row[10] as string | null,
           last_transaction: row[11] as string | null,
           computed_balance: 0, // Not used anymore, using snapshot balance

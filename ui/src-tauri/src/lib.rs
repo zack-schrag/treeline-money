@@ -70,11 +70,20 @@ fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String
     }
     .map_err(|e| format!("Failed to open database: {}", e))?;
 
-    // Check if this is a SELECT query or a write query (UPDATE/INSERT/DELETE)
+    // Check if this is a SELECT-like query or a write query (UPDATE/INSERT/DELETE)
     let trimmed = query.trim().to_uppercase();
-    let is_select = trimmed.starts_with("SELECT") || trimmed.starts_with("DESCRIBE") || trimmed.starts_with("SHOW");
+    let is_select = trimmed.starts_with("SELECT")
+        || trimmed.starts_with("WITH")  // CTEs that return results
+        || trimmed.starts_with("DESCRIBE")
+        || trimmed.starts_with("SHOW");
+    let is_write = trimmed.starts_with("UPDATE")
+        || trimmed.starts_with("INSERT")
+        || trimmed.starts_with("DELETE")
+        || trimmed.starts_with("CREATE")
+        || trimmed.starts_with("DROP")
+        || trimmed.starts_with("ALTER");
 
-    if !is_select {
+    if is_write {
         // For write queries, use execute() which returns affected row count
         let affected = conn.execute(&query, [])
             .map_err(|e| e.to_string())?;
