@@ -1102,6 +1102,10 @@
         transactions = [...transactions];
       }
 
+      // Generate suggestions for the new split transactions
+      const newSuggestions = await suggester.suggestBatch(newTransactions, 9);
+      suggestions = new Map([...suggestions, ...newSuggestions]);
+
       closeSplitModal();
       closeTagModal();
       await loadGlobalStats();
