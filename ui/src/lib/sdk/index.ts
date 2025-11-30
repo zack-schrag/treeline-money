@@ -48,8 +48,20 @@ export {
   isSyncNeeded,
   getDemoMode,
   setDemoMode,
+  // CSV Import
+  pickCsvFile,
+  getCsvHeaders,
+  importCsvPreview,
+  importCsvExecute,
 } from "./settings";
-export type { Settings, AppSettings, SyncResult } from "./settings";
+export type {
+  Settings,
+  AppSettings,
+  SyncResult,
+  ImportColumnMapping,
+  ImportPreviewResult,
+  ImportExecuteResult,
+} from "./settings";
 
 // Toast notifications
 export { toast, showToast, dismissToast, dismissAllToasts } from "./toast.svelte";

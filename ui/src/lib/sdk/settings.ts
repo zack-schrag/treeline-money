@@ -260,3 +260,96 @@ export async function getDemoMode(): Promise<boolean> {
 export async function setDemoMode(enabled: boolean): Promise<void> {
   await invoke("set_demo_mode", { enabled });
 }
+
+// ============================================================================
+// CSV Import
+// ============================================================================
+
+export interface ImportColumnMapping {
+  dateColumn?: string;
+  amountColumn?: string;
+  descriptionColumn?: string;
+  debitColumn?: string;
+  creditColumn?: string;
+}
+
+export interface ImportPreviewResult {
+  file: string;
+  flip_signs: boolean;
+  debit_negative: boolean;
+  preview: Array<{
+    date: string;
+    description: string | null;
+    amount: number;
+  }>;
+}
+
+export interface ImportExecuteResult {
+  discovered: number;
+  imported: number;
+  skipped: number;
+  fingerprints_checked: number;
+}
+
+/**
+ * Open file picker dialog for CSV files
+ */
+export async function pickCsvFile(): Promise<string | null> {
+  const result = await invoke<string | null>("pick_csv_file");
+  return result;
+}
+
+/**
+ * Get CSV column headers for mapping UI
+ */
+export async function getCsvHeaders(filePath: string): Promise<string[]> {
+  return invoke<string[]>("get_csv_headers", { filePath });
+}
+
+/**
+ * Preview CSV import (detect columns, show first few transactions)
+ */
+export async function importCsvPreview(
+  filePath: string,
+  accountId: string,
+  columnMapping: ImportColumnMapping = {},
+  flipSigns: boolean = false,
+  debitNegative: boolean = false
+): Promise<ImportPreviewResult> {
+  const jsonString = await invoke<string>("import_csv_preview", {
+    filePath,
+    accountId,
+    dateColumn: columnMapping.dateColumn || null,
+    amountColumn: columnMapping.amountColumn || null,
+    descriptionColumn: columnMapping.descriptionColumn || null,
+    debitColumn: columnMapping.debitColumn || null,
+    creditColumn: columnMapping.creditColumn || null,
+    flipSigns,
+    debitNegative,
+  });
+  return JSON.parse(jsonString) as ImportPreviewResult;
+}
+
+/**
+ * Execute CSV import
+ */
+export async function importCsvExecute(
+  filePath: string,
+  accountId: string,
+  columnMapping: ImportColumnMapping = {},
+  flipSigns: boolean = false,
+  debitNegative: boolean = false
+): Promise<ImportExecuteResult> {
+  const jsonString = await invoke<string>("import_csv_execute", {
+    filePath,
+    accountId,
+    dateColumn: columnMapping.dateColumn || null,
+    amountColumn: columnMapping.amountColumn || null,
+    descriptionColumn: columnMapping.descriptionColumn || null,
+    debitColumn: columnMapping.debitColumn || null,
+    creditColumn: columnMapping.creditColumn || null,
+    flipSigns,
+    debitNegative,
+  });
+  return JSON.parse(jsonString) as ImportExecuteResult;
+}

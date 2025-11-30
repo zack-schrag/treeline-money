@@ -434,6 +434,179 @@ async fn run_sync(app: AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Failed to parse sync output: {}", e))
 }
 
+/// Preview CSV import via CLI sidecar
+/// Returns JSON with detected columns and preview transactions
+#[tauri::command]
+async fn import_csv_preview(
+    app: AppHandle,
+    file_path: String,
+    account_id: String,
+    date_column: Option<String>,
+    amount_column: Option<String>,
+    description_column: Option<String>,
+    debit_column: Option<String>,
+    credit_column: Option<String>,
+    flip_signs: bool,
+    debit_negative: bool,
+) -> Result<String, String> {
+    let mut args = vec![
+        "import".to_string(),
+        file_path,
+        "--account-id".to_string(),
+        account_id,
+        "--preview".to_string(),
+        "--json".to_string(),
+    ];
+
+    if let Some(col) = date_column {
+        args.push("--date-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = amount_column {
+        args.push("--amount-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = description_column {
+        args.push("--description-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = debit_column {
+        args.push("--debit-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = credit_column {
+        args.push("--credit-column".to_string());
+        args.push(col);
+    }
+    if flip_signs {
+        args.push("--flip-signs".to_string());
+    }
+    if debit_negative {
+        args.push("--debit-negative".to_string());
+    }
+
+    let output = app
+        .shell()
+        .sidecar("tl")
+        .map_err(|e| format!("Failed to get sidecar: {}", e))?
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run import preview: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Import preview failed: {}", stderr));
+    }
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse import output: {}", e))
+}
+
+/// Execute CSV import via CLI sidecar
+#[tauri::command]
+async fn import_csv_execute(
+    app: AppHandle,
+    file_path: String,
+    account_id: String,
+    date_column: Option<String>,
+    amount_column: Option<String>,
+    description_column: Option<String>,
+    debit_column: Option<String>,
+    credit_column: Option<String>,
+    flip_signs: bool,
+    debit_negative: bool,
+) -> Result<String, String> {
+    let mut args = vec![
+        "import".to_string(),
+        file_path,
+        "--account-id".to_string(),
+        account_id,
+        "--json".to_string(),
+    ];
+
+    if let Some(col) = date_column {
+        args.push("--date-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = amount_column {
+        args.push("--amount-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = description_column {
+        args.push("--description-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = debit_column {
+        args.push("--debit-column".to_string());
+        args.push(col);
+    }
+    if let Some(col) = credit_column {
+        args.push("--credit-column".to_string());
+        args.push(col);
+    }
+    if flip_signs {
+        args.push("--flip-signs".to_string());
+    }
+    if debit_negative {
+        args.push("--debit-negative".to_string());
+    }
+
+    let output = app
+        .shell()
+        .sidecar("tl")
+        .map_err(|e| format!("Failed to get sidecar: {}", e))?
+        .args(&args)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run import: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Import failed: {}", stderr));
+    }
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse import output: {}", e))
+}
+
+/// Open file picker dialog for CSV files
+#[tauri::command]
+async fn pick_csv_file(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let file = app
+        .dialog()
+        .file()
+        .add_filter("CSV Files", &["csv"])
+        .blocking_pick_file();
+
+    Ok(file.map(|f| f.to_string()))
+}
+
+/// Get CSV headers for column mapping
+#[tauri::command]
+async fn get_csv_headers(file_path: String) -> Result<Vec<String>, String> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+
+    let file = File::open(&file_path)
+        .map_err(|e| format!("Failed to open file: {}", e))?;
+
+    let reader = BufReader::new(file);
+    let first_line = reader.lines().next()
+        .ok_or("CSV file is empty")?
+        .map_err(|e| format!("Failed to read first line: {}", e))?;
+
+    // Parse CSV header line
+    let headers: Vec<String> = first_line
+        .split(',')
+        .map(|h| h.trim().trim_matches('"').to_string())
+        .collect();
+
+    Ok(headers)
+}
+
 #[tauri::command]
 fn read_plugin_config(plugin_id: String, filename: String) -> Result<String, String> {
     let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -546,6 +719,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             status,
             discover_plugins,
@@ -559,7 +733,11 @@ pub fn run() {
             write_plugin_state,
             run_sync,
             get_demo_mode,
-            set_demo_mode
+            set_demo_mode,
+            import_csv_preview,
+            import_csv_execute,
+            pick_csv_file,
+            get_csv_headers
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
