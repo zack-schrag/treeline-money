@@ -53,6 +53,8 @@ export {
   getCsvHeaders,
   importCsvPreview,
   importCsvExecute,
+  // Integrations
+  setupSimplefin,
 } from "./settings";
 export type {
   Settings,

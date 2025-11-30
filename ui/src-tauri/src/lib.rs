@@ -415,12 +415,17 @@ fn set_demo_mode(enabled: bool) {
 
 /// Run the sync command via CLI sidecar
 #[tauri::command]
-async fn run_sync(app: AppHandle) -> Result<String, String> {
+async fn run_sync(app: AppHandle, dry_run: Option<bool>) -> Result<String, String> {
+    let mut args = vec!["sync", "--json"];
+    if dry_run.unwrap_or(false) {
+        args.push("--dry-run");
+    }
+
     let output = app
         .shell()
         .sidecar("tl")
         .map_err(|e| format!("Failed to get sidecar: {}", e))?
-        .args(["sync", "--json"])
+        .args(&args)
         .output()
         .await
         .map_err(|e| format!("Failed to run sync: {}", e))?;
@@ -607,6 +612,33 @@ async fn get_csv_headers(file_path: String) -> Result<Vec<String>, String> {
     Ok(headers)
 }
 
+/// Setup SimpleFIN integration via CLI sidecar
+#[tauri::command]
+async fn setup_simplefin(app: AppHandle, token: String) -> Result<String, String> {
+    let output = app
+        .shell()
+        .sidecar("tl")
+        .map_err(|e| format!("Failed to get sidecar: {}", e))?
+        .args(["setup", "simplefin", "--token", &token])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run setup: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // CLI outputs error messages to stdout with rich formatting
+        let error_msg = if !stdout.is_empty() {
+            stdout.to_string()
+        } else {
+            stderr.to_string()
+        };
+        return Err(format!("Setup failed: {}", error_msg));
+    }
+
+    Ok("SimpleFIN integration configured successfully".to_string())
+}
+
 #[tauri::command]
 fn read_plugin_config(plugin_id: String, filename: String) -> Result<String, String> {
     let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -720,6 +752,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             status,
             discover_plugins,
@@ -737,7 +770,8 @@ pub fn run() {
             import_csv_preview,
             import_csv_execute,
             pick_csv_file,
-            get_csv_headers
+            get_csv_headers,
+            setup_simplefin
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

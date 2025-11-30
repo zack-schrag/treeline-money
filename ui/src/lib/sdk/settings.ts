@@ -206,20 +206,28 @@ export interface SyncResult {
       new: number;
       skipped: number;
     };
+    provider_warnings?: string[];
     error?: string;
   }>;
 }
 
+export interface RunSyncOptions {
+  dryRun?: boolean;
+}
+
 /**
- * Run sync and update lastSyncDate
+ * Run sync and update lastSyncDate (unless dry run)
  */
-export async function runSync(): Promise<SyncResult> {
-  const jsonString = await invoke<string>("run_sync");
+export async function runSync(options: RunSyncOptions = {}): Promise<SyncResult> {
+  const { dryRun = false } = options;
+  const jsonString = await invoke<string>("run_sync", { dryRun });
   const result = JSON.parse(jsonString) as SyncResult;
 
-  // Update lastSyncDate on success
-  const today = new Date().toISOString().split("T")[0];
-  await setAppSetting("lastSyncDate", today);
+  // Update lastSyncDate on success (but not for dry runs)
+  if (!dryRun) {
+    const today = new Date().toISOString().split("T")[0];
+    await setAppSetting("lastSyncDate", today);
+  }
 
   return result;
 }
@@ -352,4 +360,15 @@ export async function importCsvExecute(
     debitNegative,
   });
   return JSON.parse(jsonString) as ImportExecuteResult;
+}
+
+// ============================================================================
+// Integrations
+// ============================================================================
+
+/**
+ * Setup SimpleFIN integration with a setup token
+ */
+export async function setupSimplefin(token: string): Promise<string> {
+  return invoke<string>("setup_simplefin", { token });
 }
