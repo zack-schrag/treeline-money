@@ -70,6 +70,25 @@ fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String
     }
     .map_err(|e| format!("Failed to open database: {}", e))?;
 
+    // Check if this is a SELECT query or a write query (UPDATE/INSERT/DELETE)
+    let trimmed = query.trim().to_uppercase();
+    let is_select = trimmed.starts_with("SELECT") || trimmed.starts_with("DESCRIBE") || trimmed.starts_with("SHOW");
+
+    if !is_select {
+        // For write queries, use execute() which returns affected row count
+        let affected = conn.execute(&query, [])
+            .map_err(|e| e.to_string())?;
+
+        let result = QueryResult {
+            columns: vec!["affected_rows".to_string()],
+            row_count: 1,
+            rows: vec![vec![serde_json::json!(affected)]],
+        };
+
+        return serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize result: {}", e));
+    }
+
     // Execute query and get arrow result
     let mut stmt = conn
         .prepare(&query)
