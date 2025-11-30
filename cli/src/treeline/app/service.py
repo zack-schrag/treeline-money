@@ -192,12 +192,20 @@ class SyncService:
 
         accounts = accounts_result.data or []
 
+        # Get integration settings to check for balances-only accounts
+        integration_settings = provider_options or {}
+        account_settings = integration_settings.get("accountSettings", {})
+
         # Get provider account IDs from existing accounts
-        provider_account_ids = [
-            acc.external_ids.get(integration_name_lower)
-            for acc in accounts
-            if acc.external_ids.get(integration_name_lower)
-        ]
+        # Exclude accounts marked as balancesOnly in integration settings
+        provider_account_ids = []
+        for acc in accounts:
+            provider_acc_id = acc.external_ids.get(integration_name_lower)
+            if provider_acc_id:
+                # Check if this account is marked as balances-only
+                acc_settings = account_settings.get(provider_acc_id, {})
+                if not acc_settings.get("balancesOnly", False):
+                    provider_account_ids.append(provider_acc_id)
 
         # Get discovered transactions
         discovered_result = await data_provider.get_transactions(

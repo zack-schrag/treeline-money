@@ -7,6 +7,8 @@
     runSync,
     executeQuery,
     setupSimplefin,
+    getIntegrationSettings,
+    updateIntegrationAccountSetting,
     toast,
     themeManager,
     type Settings,
@@ -30,15 +32,18 @@
   // SimpleFIN accounts and status
   interface SimplefinAccount {
     account_id: string;
+    simplefin_id: string;  // The provider's account ID (from external_ids)
     name: string;
     institution_name: string;
     account_type: string | null;
+    balances_only: boolean;
   }
   let simplefinAccounts = $state<SimplefinAccount[]>([]);
   let connectionWarnings = $state<string[]>([]);
   let isCheckingConnection = $state(false);
   let lastConnectionCheck = $state<Date | null>(null);
   let connectionCheckSuccess = $state<boolean | null>(null); // null = not checked, true = all good, false = has warnings
+  let simplefinSettings = $state<Record<string, unknown>>({});
 
   // SimpleFIN setup modal
   let showSetupModal = $state(false);
@@ -119,21 +124,48 @@
 
   async function loadSimplefinAccounts() {
     try {
+      // Load integration settings to get balancesOnly flags
+      simplefinSettings = await getIntegrationSettings("simplefin");
+      const accountSettings = (simplefinSettings.accountSettings || {}) as Record<string, { balancesOnly?: boolean }>;
+
       const result = await executeQuery(
-        `SELECT account_id, name, institution_name, account_type
+        `SELECT account_id, name, institution_name, account_type, json_extract_string(external_ids, '$.simplefin') as simplefin_id
          FROM sys_accounts
          WHERE json_extract_string(external_ids, '$.simplefin') IS NOT NULL
          ORDER BY institution_name, name`
       );
-      simplefinAccounts = result.rows.map((row) => ({
-        account_id: row[0] as string,
-        name: row[1] as string,
-        institution_name: row[2] as string,
-        account_type: row[3] as string | null,
-      }));
+      simplefinAccounts = result.rows.map((row) => {
+        const simplefinId = row[4] as string;
+        return {
+          account_id: row[0] as string,
+          simplefin_id: simplefinId,
+          name: row[1] as string,
+          institution_name: row[2] as string,
+          account_type: row[3] as string | null,
+          balances_only: accountSettings[simplefinId]?.balancesOnly || false,
+        };
+      });
     } catch (e) {
       console.error("Failed to load SimpleFIN accounts:", e);
       simplefinAccounts = [];
+    }
+  }
+
+  async function toggleBalancesOnly(account: SimplefinAccount) {
+    const newValue = !account.balances_only;
+    try {
+      await updateIntegrationAccountSetting("simplefin", account.simplefin_id, newValue);
+      // Update local state
+      account.balances_only = newValue;
+      // Force reactivity by reassigning the array
+      simplefinAccounts = [...simplefinAccounts];
+      toast.success(
+        newValue ? "Balances only enabled" : "Full sync enabled",
+        `${account.name} will ${newValue ? "only sync balances" : "sync transactions and balances"}`
+      );
+    } catch (e) {
+      console.error("Failed to update balances only setting:", e);
+      toast.error("Failed to update setting", e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -429,10 +461,20 @@
                         <div class="institution-accounts">
                           {#each accounts as account}
                             <div class="account-item">
-                              <span class="account-name">{account.name}</span>
-                              {#if account.account_type}
-                                <span class="account-type">{account.account_type}</span>
-                              {/if}
+                              <div class="account-info">
+                                <span class="account-name">{account.name}</span>
+                                {#if account.account_type}
+                                  <span class="account-type">{account.account_type}</span>
+                                {/if}
+                              </div>
+                              <label class="toggle-label" title={account.balances_only ? "Only syncing balances (no transactions)" : "Syncing balances and transactions"}>
+                                <input
+                                  type="checkbox"
+                                  checked={account.balances_only}
+                                  onchange={() => toggleBalancesOnly(account)}
+                                />
+                                <span class="toggle-text">{account.balances_only ? "Balances only" : "Full sync"}</span>
+                              </label>
                             </div>
                           {/each}
                         </div>
@@ -1517,10 +1559,22 @@
     align-items: center;
     padding: var(--spacing-xs) var(--spacing-sm);
     font-size: 13px;
+    gap: var(--spacing-sm);
+  }
+
+  .account-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex: 1;
+    min-width: 0;
   }
 
   .account-name {
     color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .account-type {
@@ -1529,6 +1583,28 @@
     background: var(--bg-secondary);
     padding: 2px 6px;
     border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .toggle-label input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+  }
+
+  .toggle-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
   }
 
   .no-accounts {

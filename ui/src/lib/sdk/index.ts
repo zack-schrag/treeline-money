@@ -55,6 +55,9 @@ export {
   importCsvExecute,
   // Integrations
   setupSimplefin,
+  // Integration Account Settings
+  getIntegrationSettings,
+  updateIntegrationAccountSetting,
 } from "./settings";
 export type {
   Settings,

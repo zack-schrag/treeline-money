@@ -372,3 +372,58 @@ export async function importCsvExecute(
 export async function setupSimplefin(token: string): Promise<string> {
   return invoke<string>("setup_simplefin", { token });
 }
+
+// ============================================================================
+// Integration Account Settings
+// ============================================================================
+
+/**
+ * Get integration settings from the database
+ */
+export async function getIntegrationSettings(integrationName: string): Promise<Record<string, unknown>> {
+  const result = await invoke<string>("execute_query", {
+    query: `SELECT integration_settings FROM sys_integrations WHERE integration_name = '${integrationName}'`,
+    readonly: true,
+  });
+  const parsed = JSON.parse(result);
+  if (parsed.rows && parsed.rows.length > 0 && parsed.rows[0][0]) {
+    return JSON.parse(parsed.rows[0][0]);
+  }
+  return {};
+}
+
+/**
+ * Update the balancesOnly setting for a specific account within an integration
+ * When true, sync will only fetch balances for this account (not transactions)
+ *
+ * @param integrationName - The integration name (e.g., "simplefin")
+ * @param providerAccountId - The provider's account ID (e.g., SimpleFIN account ID)
+ * @param balancesOnly - Whether to only sync balances for this account
+ */
+export async function updateIntegrationAccountSetting(
+  integrationName: string,
+  providerAccountId: string,
+  balancesOnly: boolean
+): Promise<void> {
+  // Get current integration settings
+  const settings = await getIntegrationSettings(integrationName);
+
+  // Initialize accountSettings if it doesn't exist
+  if (!settings.accountSettings) {
+    settings.accountSettings = {};
+  }
+
+  // Update the specific account's settings
+  const accountSettings = settings.accountSettings as Record<string, { balancesOnly?: boolean }>;
+  if (!accountSettings[providerAccountId]) {
+    accountSettings[providerAccountId] = {};
+  }
+  accountSettings[providerAccountId].balancesOnly = balancesOnly;
+
+  // Write back to database
+  const settingsJson = JSON.stringify(settings).replace(/'/g, "''"); // Escape single quotes for SQL
+  await invoke<string>("execute_query", {
+    query: `UPDATE sys_integrations SET integration_settings = '${settingsJson}' WHERE integration_name = '${integrationName}'`,
+    readonly: false,
+  });
+}
