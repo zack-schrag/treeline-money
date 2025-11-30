@@ -176,6 +176,7 @@
     let query = `
       SELECT
         transaction_id,
+        account_id,
         transaction_date,
         description,
         amount,
@@ -222,11 +223,12 @@
   function parseRows(rows: unknown[][]): Transaction[] {
     return rows.map(row => ({
       transaction_id: row[0] as string,
-      transaction_date: row[1] as string,
-      description: row[2] as string,
-      amount: row[3] as number,
-      tags: (row[4] as string[]) || [],
-      account_name: row[5] as string,
+      account_id: row[1] as string,
+      transaction_date: row[2] as string,
+      description: row[3] as string,
+      amount: row[4] as number,
+      tags: (row[5] as string[]) || [],
+      account_name: row[6] as string,
     }));
   }
 

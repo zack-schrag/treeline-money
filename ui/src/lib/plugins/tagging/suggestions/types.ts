@@ -7,10 +7,12 @@
 
 export interface Transaction {
   transaction_id: string;
+  account_id: string;
   description: string;
   amount: number;
   tags: string[];
   account_name?: string;
+  transaction_date: string;
 }
 
 export interface TagSuggestion {
