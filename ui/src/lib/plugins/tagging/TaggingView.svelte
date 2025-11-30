@@ -1556,11 +1556,6 @@
             role="button"
             tabindex="-1"
           >
-            {#if txn.parent_transaction_id}
-              <div class="split-indicator" title="Split transaction">
-                <span class="split-line"></span>
-              </div>
-            {/if}
             <div class="row-date">{txn.transaction_date}</div>
             <div class="row-account">{txn.account_name || ''}</div>
             <div class="row-desc">
@@ -2610,48 +2605,32 @@
     opacity: 1;
   }
 
-  /* Split transaction styles */
+  /* Split transaction styles - subtle box grouping */
   .row.split-child {
     position: relative;
-    padding-left: calc(var(--spacing-lg) + 12px);
+    border-left: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
+    margin-left: 8px;
+    margin-right: 8px;
+    border-bottom: none;
   }
 
-  .row.split-child.cursor {
-    padding-left: calc(var(--spacing-lg) + 12px - 3px);
+  .row.split-child:not(.split-last) {
+    border-bottom: 1px dashed var(--border-primary);
   }
 
-  .split-indicator {
-    position: absolute;
-    left: var(--spacing-lg);
-    top: 0;
-    bottom: 0;
-    width: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .row.split-child.cursor .split-indicator {
-    left: calc(var(--spacing-lg) - 3px);
-  }
-
-  .split-line {
-    width: 2px;
-    height: 100%;
-    background: var(--text-muted);
-    opacity: 0.3;
-  }
-
-  .row.split-first .split-line {
-    border-radius: 2px 2px 0 0;
+  .row.split-first {
+    border-top: 1px solid var(--border-primary);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
     margin-top: 4px;
-    height: calc(100% - 4px);
   }
 
-  .row.split-last .split-line {
-    border-radius: 0 0 2px 2px;
+  .row.split-last {
+    border-bottom: 1px solid var(--border-primary);
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
     margin-bottom: 4px;
-    height: calc(100% - 4px);
   }
 
   .split-badge {
@@ -2661,7 +2640,6 @@
     font-size: 10px;
     color: var(--text-muted);
     margin-right: 4px;
-    opacity: 0.6;
   }
 
   .row-edit-btn:hover {
