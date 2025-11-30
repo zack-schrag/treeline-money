@@ -1,6 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { executeQuery, registry, getPluginSettings, setPluginSettings } from "../../sdk";
+  import {
+    executeQuery,
+    registry,
+    getPluginSettings,
+    setPluginSettings,
+    pickCsvFile,
+    getCsvHeaders,
+    importCsvPreview,
+    importCsvExecute,
+    showToast,
+  } from "../../sdk";
+  import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
   import type {
     AccountWithStats,
     BalanceClassification,
@@ -84,6 +95,26 @@
     initial_balance: "",
     institution_name: "",
   });
+
+  // Account row menu
+  let menuOpenForAccount = $state<string | null>(null);
+
+  // CSV Import modal
+  let showImportModal = $state(false);
+  let importAccountId = $state("");
+  let importAccountName = $state("");
+  let importFilePath = $state("");
+  let importFileName = $state("");
+  let importHeaders = $state<string[]>([]);
+  let importColumnMapping = $state<ImportColumnMapping>({});
+  let importFlipSigns = $state(false);
+  let importDebitNegative = $state(false);
+  let importPreview = $state<ImportPreviewResult | null>(null);
+  let importResult = $state<ImportExecuteResult | null>(null);
+  let importError = $state<string | null>(null);
+  let isImporting = $state(false);
+  let isLoadingPreview = $state(false);
+  let previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
@@ -738,6 +769,176 @@ LIMIT 100`;
     }
   }
 
+  // ============================================================================
+  // CSV Import Functions
+  // ============================================================================
+
+  function openImportModal(account: AccountWithStats) {
+    importAccountId = account.account_id;
+    importAccountName = account.nickname || account.name;
+    importFilePath = "";
+    importFileName = "";
+    importHeaders = [];
+    importColumnMapping = {};
+    importFlipSigns = false;
+    importDebitNegative = false;
+    importPreview = null;
+    importResult = null;
+    importError = null;
+    isImporting = false;
+    showImportModal = true;
+    menuOpenForAccount = null;
+  }
+
+  function closeImportModal() {
+    showImportModal = false;
+  }
+
+  async function handleFileSelect() {
+    try {
+      const path = await pickCsvFile();
+      if (!path) return;
+
+      importFilePath = path;
+      importFileName = path.split("/").pop() || path;
+      importHeaders = await getCsvHeaders(path);
+      importColumnMapping = autoDetectColumns(importHeaders);
+      importError = null;
+    } catch (e) {
+      importError = e instanceof Error ? e.message : "Failed to read CSV file";
+    }
+  }
+
+  function autoDetectColumns(headers: string[]): ImportColumnMapping {
+    const mapping: ImportColumnMapping = {};
+    const lowerHeaders = headers.map(h => h.toLowerCase());
+
+    // Date patterns
+    const datePatterns = ["date", "transaction date", "trans date", "posted"];
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (datePatterns.some(p => lowerHeaders[i].includes(p))) {
+        mapping.dateColumn = headers[i];
+        break;
+      }
+    }
+
+    // Amount patterns
+    const amountPatterns = ["amount", "total"];
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (amountPatterns.some(p => lowerHeaders[i].includes(p)) && !lowerHeaders[i].includes("debit") && !lowerHeaders[i].includes("credit")) {
+        mapping.amountColumn = headers[i];
+        break;
+      }
+    }
+
+    // Always try to detect Debit/Credit columns
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (lowerHeaders[i].includes("debit") || lowerHeaders[i].includes("withdrawal")) {
+        mapping.debitColumn = headers[i];
+      }
+      if (lowerHeaders[i].includes("credit") || lowerHeaders[i].includes("deposit")) {
+        mapping.creditColumn = headers[i];
+      }
+    }
+
+    // Description patterns
+    const descPatterns = ["description", "desc", "memo", "payee", "merchant", "details"];
+    for (let i = 0; i < lowerHeaders.length; i++) {
+      if (descPatterns.some(p => lowerHeaders[i].includes(p))) {
+        mapping.descriptionColumn = headers[i];
+        break;
+      }
+    }
+
+    return mapping;
+  }
+
+  async function refreshPreview() {
+    if (!importFilePath || !importAccountId || !importColumnMapping.dateColumn) {
+      return;
+    }
+
+    try {
+      isLoadingPreview = true;
+      importPreview = await importCsvPreview(
+        importFilePath,
+        importAccountId,
+        importColumnMapping,
+        importFlipSigns,
+        importDebitNegative
+      );
+      importError = null;
+    } catch (e) {
+      importPreview = null;
+    } finally {
+      isLoadingPreview = false;
+    }
+  }
+
+  function schedulePreviewRefresh() {
+    if (previewDebounceTimer) {
+      clearTimeout(previewDebounceTimer);
+    }
+    previewDebounceTimer = setTimeout(() => {
+      refreshPreview();
+    }, 300);
+  }
+
+  // Auto-refresh preview when settings change
+  $effect(() => {
+    const _ = [
+      importColumnMapping.dateColumn,
+      importColumnMapping.amountColumn,
+      importColumnMapping.descriptionColumn,
+      importColumnMapping.debitColumn,
+      importColumnMapping.creditColumn,
+      importFlipSigns,
+      importDebitNegative,
+    ];
+
+    if (importFilePath && importAccountId && showImportModal) {
+      schedulePreviewRefresh();
+    }
+  });
+
+  async function handleImportExecute() {
+    if (!importFilePath || !importAccountId) return;
+
+    try {
+      isImporting = true;
+      importError = null;
+
+      const result = await importCsvExecute(
+        importFilePath,
+        importAccountId,
+        importColumnMapping,
+        importFlipSigns,
+        importDebitNegative
+      );
+
+      importResult = result;
+      await loadAccounts();
+
+      showToast({
+        type: "success",
+        message: `Imported ${result.imported} transactions (${result.skipped} skipped)`
+      });
+    } catch (e) {
+      importError = e instanceof Error ? e.message : "Import failed";
+    } finally {
+      isImporting = false;
+    }
+  }
+
+  function toggleAccountMenu(accountId: string, e: MouseEvent) {
+    e.stopPropagation();
+    menuOpenForAccount = menuOpenForAccount === accountId ? null : accountId;
+  }
+
+  function closeAccountMenu() {
+    menuOpenForAccount = null;
+  }
+
   function formatCurrency(amount: number): string {
     return amount.toLocaleString("en-US", {
       style: "currency",
@@ -891,7 +1092,15 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <button class="row-menu-btn" onclick={(e) => { e.stopPropagation(); startEdit(account); }} title="Edit account">⋮</button>
+                <div class="row-menu">
+                  <button class="row-menu-btn" onclick={(e) => toggleAccountMenu(account.account_id, e)} title="Account actions">⋮</button>
+                  {#if menuOpenForAccount === account.account_id}
+                    <div class="row-menu-dropdown">
+                      <button onclick={() => { startEdit(account); closeAccountMenu(); }}>Edit</button>
+                      <button onclick={() => openImportModal(account)}>Import CSV</button>
+                    </div>
+                  {/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -926,7 +1135,15 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <button class="row-menu-btn" onclick={(e) => { e.stopPropagation(); startEdit(account); }} title="Edit account">⋮</button>
+                <div class="row-menu">
+                  <button class="row-menu-btn" onclick={(e) => toggleAccountMenu(account.account_id, e)} title="Account actions">⋮</button>
+                  {#if menuOpenForAccount === account.account_id}
+                    <div class="row-menu-dropdown">
+                      <button onclick={() => { startEdit(account); closeAccountMenu(); }}>Edit</button>
+                      <button onclick={() => openImportModal(account)}>Import CSV</button>
+                    </div>
+                  {/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -1246,6 +1463,185 @@ LIMIT 100`;
         <div class="modal-actions">
           <button class="btn secondary" onclick={cancelAddAccount}>Cancel</button>
           <button class="btn primary" onclick={saveAddAccount}>Add Account</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- CSV Import Modal -->
+  {#if showImportModal}
+    <div
+      class="modal-overlay"
+      onclick={closeImportModal}
+      onkeydown={(e) => e.key === "Escape" && closeImportModal()}
+      role="dialog"
+      tabindex="-1"
+    >
+      <div class="modal import-modal" onclick={(e) => e.stopPropagation()} role="document">
+        <div class="modal-header">
+          <span class="modal-title">Import CSV to {importAccountName}</span>
+          <button class="close-btn" onclick={closeImportModal}>×</button>
+        </div>
+
+        <div class="modal-body import-body">
+          {#if importError}
+            <div class="import-error">{importError}</div>
+          {/if}
+
+          {#if importResult}
+            <!-- Import complete -->
+            <div class="import-done">
+              <div class="done-icon">✓</div>
+              <p class="done-message">Import Complete</p>
+              <div class="import-stats">
+                <div class="stat">
+                  <span class="stat-value">{importResult.imported}</span>
+                  <span class="stat-label">Imported</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-value">{importResult.skipped}</span>
+                  <span class="stat-label">Skipped</span>
+                </div>
+              </div>
+            </div>
+          {:else if !importFilePath}
+            <!-- Step 1: Select file -->
+            <div class="import-step">
+              <p class="import-intro">Import transactions from a CSV file exported from your bank.</p>
+              <button class="file-select-btn" onclick={handleFileSelect}>
+                Select CSV File...
+              </button>
+            </div>
+          {:else}
+            <!-- Step 2: Configure and preview -->
+            <div class="import-step">
+              <div class="import-file-info">
+                <span class="file-label">File:</span>
+                <span class="file-name">{importFileName}</span>
+                <button class="btn-link" onclick={() => { importFilePath = ""; importHeaders = []; importColumnMapping = {}; importPreview = null; }}>Change</button>
+              </div>
+
+              <div class="column-mapping">
+                <div class="mapping-title">Column Mapping</div>
+                <div class="mapping-hint">Auto-detected. Adjust if needed.</div>
+
+                <div class="mapping-row">
+                  <label>Date Column</label>
+                  <select bind:value={importColumnMapping.dateColumn}>
+                    <option value="">-- Select --</option>
+                    {#each importHeaders as header}
+                      <option value={header}>{header}</option>
+                    {/each}
+                  </select>
+                </div>
+
+                <div class="mapping-row">
+                  <label>Description Column</label>
+                  <select bind:value={importColumnMapping.descriptionColumn}>
+                    <option value="">-- Select --</option>
+                    {#each importHeaders as header}
+                      <option value={header}>{header}</option>
+                    {/each}
+                  </select>
+                </div>
+
+                <div class="mapping-row">
+                  <label>Amount Column</label>
+                  <select bind:value={importColumnMapping.amountColumn}>
+                    <option value="">-- Select (or use Debit/Credit) --</option>
+                    {#each importHeaders as header}
+                      <option value={header}>{header}</option>
+                    {/each}
+                  </select>
+                </div>
+
+                <div class="mapping-divider">— OR use separate debit/credit columns —</div>
+
+                <div class="mapping-row">
+                  <label>Debit Column</label>
+                  <select bind:value={importColumnMapping.debitColumn}>
+                    <option value="">-- Select --</option>
+                    {#each importHeaders as header}
+                      <option value={header}>{header}</option>
+                    {/each}
+                  </select>
+                </div>
+
+                <div class="mapping-row">
+                  <label>Credit Column</label>
+                  <select bind:value={importColumnMapping.creditColumn}>
+                    <option value="">-- Select --</option>
+                    {#each importHeaders as header}
+                      <option value={header}>{header}</option>
+                    {/each}
+                  </select>
+                </div>
+              </div>
+
+              <div class="import-options">
+                <label class="checkbox-label">
+                  <input type="checkbox" bind:checked={importFlipSigns} />
+                  Flip signs (for credit cards where charges are positive)
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" bind:checked={importDebitNegative} />
+                  Negate debits (if debits show as positive numbers)
+                </label>
+              </div>
+
+              <!-- Live Preview -->
+              {#if importColumnMapping.dateColumn}
+                <div class="live-preview-section">
+                  <div class="live-preview-header">
+                    <span class="live-preview-title">Live Preview</span>
+                    {#if isLoadingPreview}
+                      <span class="preview-loading">Loading...</span>
+                    {/if}
+                  </div>
+
+                  <div class="preview-hint">
+                    <strong>Check the signs:</strong> Spending should be <span class="negative">negative (red)</span>,
+                    income should be <span class="positive">positive (green)</span>.
+                    If reversed, toggle "Flip signs" above.
+                  </div>
+
+                  {#if importPreview && importPreview.preview.length > 0}
+                    <div class="preview-table">
+                      <div class="preview-row header">
+                        <span class="preview-date">Date</span>
+                        <span class="preview-desc">Description</span>
+                        <span class="preview-amount">Amount</span>
+                      </div>
+                      {#each importPreview.preview.slice(0, 5) as txn}
+                        <div class="preview-row">
+                          <span class="preview-date">{txn.date}</span>
+                          <span class="preview-desc">{txn.description || ""}</span>
+                          <span class="preview-amount" class:negative={txn.amount < 0}>
+                            {txn.amount < 0 ? "-" : ""}${Math.abs(txn.amount).toFixed(2)}
+                          </span>
+                        </div>
+                      {/each}
+                    </div>
+                  {:else if !isLoadingPreview}
+                    <div class="preview-empty">Configure columns to see preview</div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <div class="modal-actions">
+          {#if importResult}
+            <button class="btn primary" onclick={closeImportModal}>Done</button>
+          {:else if isImporting}
+            <button class="btn secondary" disabled>Importing...</button>
+          {:else}
+            <button class="btn secondary" onclick={closeImportModal}>Cancel</button>
+            {#if importFilePath && importPreview && importPreview.preview.length > 0}
+              <button class="btn primary" onclick={handleImportExecute}>Import</button>
+            {/if}
+          {/if}
         </div>
       </div>
     </div>
@@ -1962,5 +2358,402 @@ LIMIT 100`;
     font-size: 11px;
     color: var(--text-muted);
     background: var(--bg-tertiary);
+  }
+
+  /* Row menu dropdown */
+  .row-menu {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .row-menu-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    min-width: 120px;
+    overflow: hidden;
+  }
+
+  .row-menu-dropdown button {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .row-menu-dropdown button:hover {
+    background: var(--bg-tertiary);
+  }
+
+  /* Import modal */
+  .import-modal {
+    max-width: 580px;
+    width: 90%;
+  }
+
+  .import-body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .import-error {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 100, 100, 0.15);
+    color: var(--text-negative);
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .import-step {
+    padding: var(--spacing-md) 0;
+  }
+
+  .import-intro {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: var(--spacing-lg);
+    text-align: center;
+  }
+
+  .file-select-btn {
+    width: 100%;
+    padding: var(--spacing-xl) var(--spacing-lg);
+    background: var(--bg-tertiary);
+    border: 2px dashed var(--border-primary);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s ease;
+  }
+
+  .file-select-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+
+  .import-file-info {
+    display: flex;
+    align-items: center;
+    padding: 10px var(--spacing-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    margin-bottom: var(--spacing-lg);
+    font-size: 13px;
+    gap: var(--spacing-md);
+  }
+
+  .file-label {
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .file-name {
+    flex: 1;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    font-weight: 500;
+  }
+
+  .btn-link:hover {
+    text-decoration: underline;
+  }
+
+  .column-mapping {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .mapping-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  .mapping-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .mapping-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .mapping-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .mapping-row label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .mapping-row select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  .mapping-row select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .mapping-divider {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: var(--spacing-sm) 0;
+    margin: var(--spacing-sm) 0;
+    border-top: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .import-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+  }
+
+  .live-preview-section {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .live-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .live-preview-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .preview-loading {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .preview-hint {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-md);
+    line-height: 1.5;
+  }
+
+  .preview-hint .negative {
+    color: var(--text-negative, #ef4444);
+    font-weight: 600;
+  }
+
+  .preview-hint .positive {
+    color: var(--text-positive, #22c55e);
+    font-weight: 600;
+  }
+
+  .preview-table {
+    width: 100%;
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .preview-row {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .preview-row:last-child {
+    border-bottom: none;
+  }
+
+  .preview-row.header {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .preview-row:not(.header):nth-child(odd) {
+    background: var(--bg-secondary);
+  }
+
+  .preview-date {
+    width: 90px;
+    flex-shrink: 0;
+    padding: 8px 10px;
+    font-family: var(--font-mono);
+  }
+
+  .preview-desc {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .preview-amount {
+    width: 90px;
+    flex-shrink: 0;
+    padding: 8px 10px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .preview-amount.negative {
+    color: var(--text-negative, #ef4444);
+  }
+
+  .preview-amount:not(.negative) {
+    color: var(--text-positive, #22c55e);
+  }
+
+  .preview-empty {
+    text-align: center;
+    padding: var(--spacing-lg);
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  .import-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-xl) var(--spacing-lg);
+    gap: var(--spacing-md);
+  }
+
+  .done-icon {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--text-positive, #22c55e);
+    color: white;
+    border-radius: 50%;
+    font-size: 28px;
+    font-weight: bold;
+  }
+
+  .done-message {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .import-stats {
+    display: flex;
+    gap: var(--spacing-xl);
+    margin-top: var(--spacing-md);
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 80px;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent-primary);
+    font-family: var(--font-mono);
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
   }
 </style>
