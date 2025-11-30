@@ -13,6 +13,7 @@ export interface Transaction {
   tags: string[];
   account_name?: string;
   transaction_date: string;
+  parent_transaction_id?: string | null;
 }
 
 export interface TagSuggestion {
