@@ -296,10 +296,9 @@
   onMount(async () => {
     loadSettings();
     await loadIntegrations();
-    // If SimpleFIN is connected, load accounts and check connection
+    // If SimpleFIN is connected, load accounts
     if (integrations.some((i) => i.integration_name === "simplefin")) {
       loadSimplefinAccounts();
-      checkConnection();
     }
   });
 </script>
