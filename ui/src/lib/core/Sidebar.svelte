@@ -82,7 +82,7 @@
         <Icon name="settings" size={16} />
       </span>
       <span class="item-label">Settings</span>
-      <span class="item-shortcut">⌘ ,</span>
+      <span class="item-shortcut">⌘,</span>
     </button>
     <button class="sidebar-item" onclick={() => registry.executeCommand("core:command-palette")}>
       <span class="item-icon">
@@ -193,7 +193,7 @@
   }
 
   .item-shortcut {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-muted);
     font-family: var(--font-mono);
   }
