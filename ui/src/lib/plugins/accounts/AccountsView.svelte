@@ -11,6 +11,7 @@
     importCsvExecute,
     showToast,
   } from "../../sdk";
+  import { ActionBar, type ActionItem } from "../../shared";
   import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
   import type {
     AccountWithStats,
@@ -508,6 +509,10 @@
         cursorIndex = allAccounts.length - 1;
         scrollToCursor();
         break;
+      case "d":
+        e.preventDefault();
+        if (currentAccount) deleteAccount(currentAccount);
+        break;
     }
   }
 
@@ -769,6 +774,49 @@ LIMIT 100`;
     }
   }
 
+  async function deleteAccount(account: AccountWithStats) {
+    // Only allow deleting accounts with no transactions
+    if (account.transaction_count > 0) {
+      showToast({
+        type: "error",
+        title: `Cannot delete account with ${account.transaction_count} transactions`,
+      });
+      return;
+    }
+
+    try {
+      // Delete balance snapshots first
+      await executeQuery(
+        `DELETE FROM sys_balance_snapshots WHERE account_id = '${account.account_id}'`,
+        { readonly: false }
+      );
+
+      // Delete the account
+      await executeQuery(
+        `DELETE FROM sys_accounts WHERE account_id = '${account.account_id}'`,
+        { readonly: false }
+      );
+
+      // Remove from config if present
+      const newConfig = { ...config };
+      delete newConfig.classificationOverrides[account.account_id];
+      newConfig.excludedFromNetWorth = newConfig.excludedFromNetWorth.filter(
+        (id) => id !== account.account_id
+      );
+      await saveConfig(newConfig);
+
+      showToast({
+        type: "success",
+        title: `Deleted ${account.nickname || account.name}`,
+      });
+
+      await loadAccounts();
+    } catch (e) {
+      console.error("Failed to delete account:", e);
+      error = e instanceof Error ? e.message : "Failed to delete account";
+    }
+  }
+
   // ============================================================================
   // CSV Import Functions
   // ============================================================================
@@ -921,7 +969,7 @@ LIMIT 100`;
 
       showToast({
         type: "success",
-        message: `Imported ${result.imported} transactions (${result.skipped} skipped)`
+        title: `Imported ${result.imported} transactions (${result.skipped} skipped)`
       });
     } catch (e) {
       importError = e instanceof Error ? e.message : "Import failed";
@@ -979,6 +1027,18 @@ LIMIT 100`;
     return account.balance ?? account.computed_balance;
   }
 
+  // Action bar items
+  let actionBarItems = $derived<ActionItem[]>([
+    { keys: ["j", "k"], label: "nav", action: () => {} },
+    { keys: ["Enter"], label: "view", action: () => currentAccount && showPreview(currentAccount) },
+    { keys: ["e"], label: "edit", action: () => currentAccount && startEdit(currentAccount) },
+    { keys: ["a"], label: "add", action: startAddAccount },
+    { keys: ["d"], label: "delete", action: () => currentAccount && deleteAccount(currentAccount) },
+    { keys: ["h", "l"], label: "date", action: () => {} },
+    { keys: ["t"], label: "today", action: goToToday, disabled: isToday },
+    { keys: ["r"], label: "refresh", action: loadAccounts },
+  ]);
+
   onMount(async () => {
     await loadAccounts();
     // Focus container for keyboard navigation
@@ -1017,16 +1077,7 @@ LIMIT 100`;
     </div>
   </div>
 
-  <!-- Help bar -->
-  <div class="help-bar">
-    <span><kbd>j</kbd><kbd>k</kbd> nav</span>
-    <span><kbd>Enter</kbd> transactions</span>
-    <span><kbd>e</kbd> edit</span>
-    <span><kbd>a</kbd> add</span>
-    <span><kbd>h</kbd><kbd>l</kbd> date</span>
-    <span><kbd>t</kbd> today</span>
-    <span><kbd>r</kbd> refresh</span>
-  </div>
+  <ActionBar actions={actionBarItems} />
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -1749,28 +1800,6 @@ LIMIT 100`;
   .today-btn:disabled {
     opacity: 0.4;
     cursor: default;
-  }
-
-  .help-bar {
-    padding: 6px var(--spacing-lg);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-primary);
-    display: flex;
-    gap: var(--spacing-lg);
-    font-size: 11px;
-    color: var(--text-muted);
-    flex-wrap: wrap;
-  }
-
-  .help-bar kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    margin-right: 2px;
   }
 
   .error-bar {

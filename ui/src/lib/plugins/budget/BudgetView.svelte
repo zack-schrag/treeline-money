@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings } from "../../sdk";
+  import { ActionBar, type ActionItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
@@ -498,6 +499,16 @@
         e.preventDefault();
         cycleMonth(-1);
         break;
+      case "g":
+        e.preventDefault();
+        cursorIndex = 0;
+        scrollToCursor();
+        break;
+      case "G":
+        e.preventDefault();
+        cursorIndex = allActuals.length - 1;
+        scrollToCursor();
+        break;
     }
   }
 
@@ -567,6 +578,18 @@
     }
   });
 
+  // Action bar items
+  let actionBarItems = $derived<ActionItem[]>([
+    { keys: ["j", "k"], label: "nav", action: () => {} },
+    { keys: ["Enter"], label: "view", action: () => currentActual && loadTransactionsForCategory(currentActual) },
+    { keys: ["e"], label: "edit", action: () => currentCategory && startEditCategory(currentCategory) },
+    { keys: ["a"], label: "add", action: () => startAddCategory("expense") },
+    { keys: ["d"], label: "delete", action: () => currentCategory && deleteCategory(currentCategory) },
+    { keys: ["h", "l"], label: "month", action: () => {} },
+    { keys: ["g", "G"], label: "first/last", action: () => {} },
+    { keys: ["\u2318\u2191", "\u2318\u2193"], label: "reorder", action: () => {} },
+  ]);
+
   onMount(() => {
     loadAll();
   });
@@ -599,16 +622,7 @@
     {/if}
   </div>
 
-  <!-- Help bar -->
-  <div class="help-bar">
-    <span><kbd>j</kbd><kbd>k</kbd> nav</span>
-    <span><kbd>Enter</kbd> details</span>
-    <span><kbd>e</kbd> edit</span>
-    <span><kbd>a</kbd> add</span>
-    <span><kbd>d</kbd> delete</span>
-    <span><kbd>⌘↑</kbd><kbd>⌘↓</kbd> reorder</span>
-    <span><kbd>h</kbd><kbd>l</kbd> month</span>
-  </div>
+  <ActionBar actions={actionBarItems} />
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -917,28 +931,6 @@
   .template-btn:hover {
     background: var(--bg-primary);
     color: var(--text-primary);
-  }
-
-  .help-bar {
-    padding: 6px var(--spacing-lg);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-primary);
-    display: flex;
-    gap: var(--spacing-lg);
-    font-size: 11px;
-    color: var(--text-muted);
-    flex-wrap: wrap;
-  }
-
-  .help-bar kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    margin-right: 2px;
   }
 
   .error-bar {

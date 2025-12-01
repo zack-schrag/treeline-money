@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { executeQuery, showToast } from "../../sdk";
+  import { ActionBar, type ActionItem } from "../../shared";
   import { FrequencyBasedSuggester, type TagSuggestion, type Transaction } from "./suggestions";
 
   // Initialize suggester
@@ -442,9 +443,16 @@
         startCustomTagging();
         break;
       case "Enter":
+      case "e":
         e.preventDefault();
         if (transactions[cursorIndex]) {
           openTagModal(transactions[cursorIndex]);
+        }
+        break;
+      case "d":
+        e.preventDefault();
+        if (transactions[cursorIndex]) {
+          deleteCurrentTransaction();
         }
         break;
       case "c":
@@ -1114,6 +1122,15 @@
     }
   }
 
+  // Delete current transaction (keyboard shortcut)
+  function deleteCurrentTransaction() {
+    const txn = transactions[cursorIndex];
+    if (!txn) return;
+    // Open modal and show delete confirmation
+    openTagModal(txn);
+    showDeleteConfirm = true;
+  }
+
   // Delete transaction
   async function deleteTransaction() {
     if (!editingTransaction) return;
@@ -1407,6 +1424,18 @@
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  // Action bar items
+  let actionBarItems = $derived<ActionItem[]>([
+    { keys: ["j", "k"], label: "nav", action: () => {} },
+    { keys: ["e"], label: "edit", action: () => transactions[cursorIndex] && openTagModal(transactions[cursorIndex]) },
+    { keys: ["d"], label: "delete", action: deleteCurrentTransaction },
+    { keys: ["a"], label: "bulk tag", action: startBulkTagging },
+    { keys: ["t"], label: "tag", action: startCustomTagging },
+    { keys: ["/"], label: "search", action: startSearch },
+    { keys: ["u"], label: "untagged", action: toggleFilterMode },
+    { keys: ["n"], label: "next untagged", action: skipToNextUntagged },
+  ]);
+
   onMount(async () => {
     // Load persisted account filter
     selectedAccounts = loadPersistedAccounts();
@@ -1563,19 +1592,7 @@
     </div>
   </div>
 
-  <!-- Help bar -->
-  <div class="help-bar">
-    <span><kbd>j</kbd><kbd>k</kbd> nav</span>
-    <span><kbd>1-9</kbd> quick tag</span>
-    <span><kbd>t</kbd> edit tags</span>
-    <span><kbd>c</kbd> clear</span>
-    <span><kbd>a</kbd> bulk tag</span>
-    <span><kbd>+</kbd> add</span>
-    <span><kbd>/</kbd> search</span>
-    <span><kbd>f</kbd> account</span>
-    <span><kbd>u</kbd> untagged</span>
-    <span><kbd>n</kbd> next</span>
-  </div>
+  <ActionBar actions={actionBarItems} />
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -2350,28 +2367,6 @@
   .selected-count {
     color: var(--accent-primary);
     font-weight: 600;
-  }
-
-  .help-bar {
-    padding: 6px var(--spacing-lg);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-primary);
-    display: flex;
-    gap: var(--spacing-lg);
-    font-size: 11px;
-    color: var(--text-muted);
-    flex-wrap: wrap;
-  }
-
-  .help-bar kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    margin-right: 2px;
   }
 
   .error-bar {
