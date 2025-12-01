@@ -684,6 +684,7 @@
                 ]}
                 isOpen={menuOpenForId === actual.id}
                 onToggle={(e) => toggleMenu(actual.id, e)}
+                onClose={closeMenu}
               />
             </div>
           {/each}
@@ -729,6 +730,7 @@
                 ]}
                 isOpen={menuOpenForId === actual.id}
                 onToggle={(e) => toggleMenu(actual.id, e)}
+                onClose={closeMenu}
               />
             </div>
           {/each}

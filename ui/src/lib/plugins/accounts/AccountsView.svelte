@@ -1147,10 +1147,11 @@ LIMIT 100`;
                   items={[
                     { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
                     { label: "Import CSV", action: () => openImportModal(account) },
-                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0 },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
                   ]}
                   isOpen={menuOpenForAccount === account.account_id}
                   onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  onClose={closeAccountMenu}
                   title="Account actions"
                 />
               </div>
@@ -1191,10 +1192,11 @@ LIMIT 100`;
                   items={[
                     { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
                     { label: "Import CSV", action: () => openImportModal(account) },
-                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0 },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
                   ]}
                   isOpen={menuOpenForAccount === account.account_id}
                   onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  onClose={closeAccountMenu}
                   title="Account actions"
                 />
               </div>

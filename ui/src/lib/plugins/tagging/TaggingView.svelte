@@ -1671,6 +1671,7 @@
               items={getRowMenuItems(txn)}
               isOpen={contextMenuTxn?.transaction_id === txn.transaction_id}
               onToggle={(e) => openContextMenu(txn, e)}
+              onClose={closeContextMenu}
               title="Transaction actions"
             />
           </div>

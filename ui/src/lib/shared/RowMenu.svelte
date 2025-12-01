@@ -6,10 +6,11 @@
    * <RowMenu
    *   items={[
    *     { label: "Edit", action: () => editItem() },
-   *     { label: "Delete", action: () => deleteItem(), danger: true },
+   *     { label: "Delete", action: () => deleteItem(), danger: true, disabled: true, disabledReason: "Cannot delete" },
    *   ]}
    *   isOpen={openMenuId === item.id}
    *   onToggle={() => toggleMenu(item.id)}
+   *   onClose={() => closeMenu()}
    * />
    */
 
@@ -22,6 +23,8 @@
     danger?: boolean;
     /** Whether this item is disabled */
     disabled?: boolean;
+    /** Reason why the item is disabled (shown as tooltip) */
+    disabledReason?: string;
   }
 
   interface Props {
@@ -31,11 +34,13 @@
     isOpen: boolean;
     /** Called when the button is clicked to toggle the menu */
     onToggle: (e: MouseEvent) => void;
+    /** Called when clicking outside the menu to close it */
+    onClose?: () => void;
     /** Optional title for the button */
     title?: string;
   }
 
-  let { items, isOpen, onToggle, title = "Actions" }: Props = $props();
+  let { items, isOpen, onToggle, onClose, title = "Actions" }: Props = $props();
 
   function handleItemClick(item: RowMenuItem, e: MouseEvent) {
     e.stopPropagation();
@@ -48,7 +53,21 @@
     e.stopPropagation();
     onToggle(e);
   }
+
+  function handleBackdropClick(e: MouseEvent) {
+    e.stopPropagation();
+    onClose?.();
+  }
 </script>
+
+{#if isOpen}
+  <!-- Invisible backdrop to catch clicks outside the menu -->
+  <button
+    class="menu-backdrop"
+    onclick={handleBackdropClick}
+    aria-label="Close menu"
+  ></button>
+{/if}
 
 <div class="row-menu">
   <button
@@ -69,8 +88,12 @@
           onclick={(e) => handleItemClick(item, e)}
           disabled={item.disabled}
           role="menuitem"
+          title={item.disabled && item.disabledReason ? item.disabledReason : undefined}
         >
           {item.label}
+          {#if item.disabled && item.disabledReason}
+            <span class="disabled-hint">({item.disabledReason})</span>
+          {/if}
         </button>
       {/each}
     </div>
@@ -78,6 +101,15 @@
 </div>
 
 <style>
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 99;
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+
   .row-menu {
     position: relative;
     flex-shrink: 0;
@@ -156,5 +188,11 @@
   .menu-item.disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .disabled-hint {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
   }
 </style>
