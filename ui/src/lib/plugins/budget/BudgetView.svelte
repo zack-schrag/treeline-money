@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings } from "../../sdk";
-  import { ActionBar, type ActionItem } from "../../shared";
+  import { ActionBar, type ActionItem, Modal } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
@@ -785,63 +785,57 @@
     </div>
   </div>
 
-  <!-- Transactions Modal -->
-  {#if showTransactions && drillDownCategory}
-    <div class="modal-overlay" onclick={closeDrillDown} onkeydown={(e) => e.key === "Escape" && closeDrillDown()} role="dialog" tabindex="-1">
-      <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">{drillDownCategory.category} — {selectedMonth}</span>
-          <button class="close-btn" onclick={closeDrillDown}>×</button>
-        </div>
-        {#if drillDownLoading}
-          <div class="modal-loading">Loading...</div>
-        {:else if drillDownTransactions.length === 0}
-          <div class="modal-empty">No transactions</div>
-        {:else}
-          <div class="txn-list">
-            {#each drillDownTransactions as txn}
-              <div class="txn-row">
-                <span class="txn-date">{txn.transaction_date}</span>
-                <span class="txn-desc">{txn.description}</span>
-                <span class="txn-amount" class:negative={txn.amount < 0}>${formatAmount(txn.amount)}</span>
-              </div>
-            {/each}
+  <Modal
+    open={showTransactions && !!drillDownCategory}
+    title="{drillDownCategory?.category ?? ''} — {selectedMonth}"
+    onclose={closeDrillDown}
+    width="500px"
+  >
+    {#if drillDownLoading}
+      <div class="modal-loading">Loading...</div>
+    {:else if drillDownTransactions.length === 0}
+      <div class="modal-empty">No transactions</div>
+    {:else}
+      <div class="txn-list">
+        {#each drillDownTransactions as txn}
+          <div class="txn-row">
+            <span class="txn-date">{txn.transaction_date}</span>
+            <span class="txn-desc">{txn.description}</span>
+            <span class="txn-amount" class:negative={txn.amount < 0}>${formatAmount(txn.amount)}</span>
           </div>
-          <div class="modal-footer">
-            <span>{drillDownTransactions.length} transactions</span>
-            <span class="mono">Total: {formatCurrency(drillDownTransactions.reduce((s, t) => s + Math.abs(t.amount), 0))}</span>
-          </div>
-        {/if}
-        <div class="modal-actions">
-          <button class="btn danger" onclick={handleModalDelete}>Delete</button>
-          <button class="btn secondary" onclick={handleModalEdit}>Edit</button>
-        </div>
+        {/each}
       </div>
-    </div>
-  {/if}
+      <div class="modal-footer">
+        <span>{drillDownTransactions.length} transactions</span>
+        <span class="mono">Total: {formatCurrency(drillDownTransactions.reduce((s, t) => s + Math.abs(t.amount), 0))}</span>
+      </div>
+    {/if}
 
-  <!-- Editor Modal -->
-  {#if isEditing}
-    <div class="modal-overlay" onclick={cancelEdit} onkeydown={(e) => e.key === "Escape" && cancelEdit()} role="dialog" tabindex="-1">
-      <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">{editingCategory ? "Edit" : "Add"} Category</span>
-          <button class="close-btn" onclick={cancelEdit}>×</button>
-        </div>
-        <div class="form">
-          <label>Type<select bind:value={editorForm.type}><option value="income">Income</option><option value="expense">Expense</option></select></label>
-          <label>Name<input type="text" bind:value={editorForm.category} placeholder="e.g., Groceries" /></label>
-          <label>Expected<input type="number" bind:value={editorForm.expected} min="0" step="100" /></label>
-          <label>Tags (comma-separated)<input type="text" bind:value={editorForm.tags} placeholder="e.g., groceries, food" /></label>
-          <label class="checkbox"><input type="checkbox" bind:checked={editorForm.require_all} /> Require ALL tags</label>
-        </div>
-        <div class="modal-actions">
-          <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
-          <button class="btn primary" onclick={saveCategory}>Save</button>
-        </div>
-      </div>
+    {#snippet actions()}
+      <button class="btn danger" onclick={handleModalDelete}>Delete</button>
+      <button class="btn secondary" onclick={handleModalEdit}>Edit</button>
+    {/snippet}
+  </Modal>
+
+  <Modal
+    open={isEditing}
+    title="{editingCategory ? 'Edit' : 'Add'} Category"
+    onclose={cancelEdit}
+    width="500px"
+  >
+    <div class="form">
+      <label>Type<select bind:value={editorForm.type}><option value="income">Income</option><option value="expense">Expense</option></select></label>
+      <label>Name<input type="text" bind:value={editorForm.category} placeholder="e.g., Groceries" /></label>
+      <label>Expected<input type="number" bind:value={editorForm.expected} min="0" step="100" /></label>
+      <label>Tags (comma-separated)<input type="text" bind:value={editorForm.tags} placeholder="e.g., groceries, food" /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={editorForm.require_all} /> Require ALL tags</label>
     </div>
-  {/if}
+
+    {#snippet actions()}
+      <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
+      <button class="btn primary" onclick={saveCategory}>Save</button>
+    {/snippet}
+  </Modal>
 </div>
 
 <style>
@@ -1264,51 +1258,7 @@
   .positive { color: var(--accent-success, #22c55e) !important; }
   .negative { color: var(--accent-danger, #ef4444) !important; }
 
-  /* Modal */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .modal {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    width: 500px;
-    max-width: 90vw;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .modal-title {
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 20px;
-    color: var(--text-muted);
-    cursor: pointer;
-    line-height: 1;
-  }
-
-  .close-btn:hover { color: var(--text-primary); }
-
+  /* Modal content styles */
   .modal-loading, .modal-empty {
     padding: var(--spacing-xl);
     text-align: center;
@@ -1392,41 +1342,6 @@
   .form input:focus, .form select:focus {
     outline: none;
     border-color: var(--accent-primary);
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .btn {
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn.primary {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-  }
-
-  .btn.secondary {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-primary);
-  }
-
-  .btn:hover { opacity: 0.9; }
-
-  .btn.danger {
-    background: var(--accent-danger, #ef4444);
-    color: white;
   }
 
   /* Custom select styling */

@@ -11,7 +11,7 @@
     importCsvExecute,
     showToast,
   } from "../../sdk";
-  import { ActionBar, type ActionItem } from "../../shared";
+  import { ActionBar, type ActionItem, Modal } from "../../shared";
   import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
   import type {
     AccountWithStats,
@@ -1311,392 +1311,354 @@ LIMIT 100`;
     </div>
   </div>
 
-  <!-- Transaction Preview Modal -->
-  {#if showTransactionPreview && previewAccount}
-    <div
-      class="modal-overlay"
-      onclick={closePreview}
-      onkeydown={(e) => e.key === "Escape" && closePreview()}
-      role="dialog"
-      tabindex="-1"
-    >
-      <div class="modal preview-modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">{previewAccount.nickname || previewAccount.name}</span>
-          <button class="close-btn" onclick={closePreview}>×</button>
-        </div>
-        {#if previewLoading}
-          <div class="modal-loading">Loading...</div>
-        {:else if previewTransactions.length === 0}
-          <div class="modal-empty">No transactions</div>
-        {:else}
-          <div class="txn-list">
-            {#each previewTransactions as txn}
-              <div class="txn-row">
-                <span class="txn-date">{txn.transaction_date}</span>
-                <span class="txn-desc">{txn.description}</span>
-                <span class="txn-amount" class:negative={txn.amount < 0}>{formatCurrency(txn.amount)}</span>
-              </div>
-            {/each}
+  <Modal
+    open={showTransactionPreview && !!previewAccount}
+    title={previewAccount?.nickname || previewAccount?.name || ""}
+    onclose={closePreview}
+    width="500px"
+    class="preview-modal"
+  >
+    {#if previewLoading}
+      <div class="modal-loading">Loading...</div>
+    {:else if previewTransactions.length === 0}
+      <div class="modal-empty">No transactions</div>
+    {:else}
+      <div class="txn-list">
+        {#each previewTransactions as txn}
+          <div class="txn-row">
+            <span class="txn-date">{txn.transaction_date}</span>
+            <span class="txn-desc">{txn.description}</span>
+            <span class="txn-amount" class:negative={txn.amount < 0}>{formatCurrency(txn.amount)}</span>
           </div>
-          <div class="modal-footer">
-            <span>{previewTransactions.length} transactions (showing latest 50)</span>
-          </div>
-        {/if}
-        <div class="modal-actions">
-          <button class="btn secondary" onclick={closePreview}>Close</button>
-          <button class="btn secondary" onclick={editFromPreview}>Edit</button>
-          <button class="btn primary" onclick={openInQuery}>Open in Query →</button>
+        {/each}
+      </div>
+      <div class="modal-footer">
+        <span>{previewTransactions.length} transactions (showing latest 50)</span>
+      </div>
+    {/if}
+
+    {#snippet actions()}
+      <button class="btn secondary" onclick={closePreview}>Close</button>
+      <button class="btn secondary" onclick={editFromPreview}>Edit</button>
+      <button class="btn primary" onclick={openInQuery}>Open in Query</button>
+    {/snippet}
+  </Modal>
+
+  <Modal
+    open={isEditing && !!editingAccount}
+    title="Edit Account"
+    onclose={cancelEdit}
+  >
+    <div class="form">
+      <label>
+        Account Name (from source)
+        <input type="text" value={editingAccount?.name ?? ""} disabled />
+      </label>
+      <label>
+        Nickname (displayed instead of account name)
+        <input
+          type="text"
+          bind:value={editForm.nickname}
+          placeholder="e.g., Emergency Fund"
+        />
+      </label>
+      <label>
+        Type
+        <input
+          type="text"
+          bind:value={editForm.account_type}
+          placeholder="depository, credit, investment, loan, other"
+        />
+        <span class="form-hint">depository, credit, investment, loan, other</span>
+      </label>
+      <div class="form-group">
+        <span class="form-label">Balance Classification</span>
+        <div class="radio-group">
+          <label class="radio">
+            <input
+              type="radio"
+              name="classification"
+              value="asset"
+              bind:group={editForm.classification}
+            />
+            Asset
+            {#if editingAccount && getDefaultClassification(editForm.account_type || editingAccount.account_type) === "asset"}
+              <span class="default-badge">default</span>
+            {/if}
+          </label>
+          <label class="radio">
+            <input
+              type="radio"
+              name="classification"
+              value="liability"
+              bind:group={editForm.classification}
+            />
+            Liability
+            {#if editingAccount && getDefaultClassification(editForm.account_type || editingAccount.account_type) === "liability"}
+              <span class="default-badge">default</span>
+            {/if}
+          </label>
         </div>
       </div>
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={editForm.excluded_from_net_worth} />
+        Exclude from net worth calculation
+      </label>
     </div>
-  {/if}
 
-  <!-- Edit Modal -->
-  {#if isEditing && editingAccount}
-    <div
-      class="modal-overlay"
-      onclick={cancelEdit}
-      onkeydown={(e) => e.key === "Escape" && cancelEdit()}
-      role="dialog"
-      tabindex="-1"
-    >
-      <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">Edit Account</span>
-          <button class="close-btn" onclick={cancelEdit}>×</button>
+    {#snippet actions()}
+      <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
+      <button class="btn primary" onclick={saveEdit}>Save</button>
+    {/snippet}
+  </Modal>
+
+  <Modal
+    open={isAddingAccount}
+    title="Add Manual Account"
+    onclose={cancelAddAccount}
+  >
+    <div class="form">
+      <label>
+        Account Name *
+        <input
+          type="text"
+          bind:value={addAccountForm.name}
+          placeholder="e.g., Home Equity, Cash"
+        />
+      </label>
+      <label>
+        Nickname (optional)
+        <input
+          type="text"
+          bind:value={addAccountForm.nickname}
+          placeholder="Display name"
+        />
+      </label>
+      <label>
+        Institution (optional)
+        <input
+          type="text"
+          bind:value={addAccountForm.institution_name}
+          placeholder="e.g., Zillow, Manual"
+        />
+      </label>
+      <label>
+        Type
+        <input
+          type="text"
+          bind:value={addAccountForm.account_type}
+          placeholder="depository, credit, investment, loan, other"
+        />
+        <span class="form-hint">depository, credit, investment, loan, other</span>
+      </label>
+      <div class="form-group">
+        <span class="form-label">Balance Classification</span>
+        <div class="radio-group">
+          <label class="radio">
+            <input
+              type="radio"
+              name="add-classification"
+              value="asset"
+              bind:group={addAccountForm.classification}
+            />
+            Asset
+          </label>
+          <label class="radio">
+            <input
+              type="radio"
+              name="add-classification"
+              value="liability"
+              bind:group={addAccountForm.classification}
+            />
+            Liability
+          </label>
         </div>
-        <div class="form">
-          <label>
-            Account Name (from source)
-            <input type="text" value={editingAccount.name} disabled />
-          </label>
-          <label>
-            Nickname (displayed instead of account name)
-            <input
-              type="text"
-              bind:value={editForm.nickname}
-              placeholder="e.g., Emergency Fund"
-            />
-          </label>
-          <label>
-            Type
-            <input
-              type="text"
-              bind:value={editForm.account_type}
-              placeholder="depository, credit, investment, loan, other"
-            />
-            <span class="form-hint">depository, credit, investment, loan, other</span>
-          </label>
-          <div class="form-group">
-            <span class="form-label">Balance Classification</span>
-            <div class="radio-group">
-              <label class="radio">
-                <input
-                  type="radio"
-                  name="classification"
-                  value="asset"
-                  bind:group={editForm.classification}
-                />
-                Asset
-                {#if getDefaultClassification(editForm.account_type || editingAccount.account_type) === "asset"}
-                  <span class="default-badge">default</span>
+      </div>
+      <label>
+        Initial Balance (optional)
+        <input
+          type="text"
+          bind:value={addAccountForm.initial_balance}
+          placeholder="0.00"
+        />
+        <span class="form-hint">Current balance as of today</span>
+      </label>
+    </div>
+
+    {#snippet actions()}
+      <button class="btn secondary" onclick={cancelAddAccount}>Cancel</button>
+      <button class="btn primary" onclick={saveAddAccount}>Add Account</button>
+    {/snippet}
+  </Modal>
+
+  <Modal
+    open={showImportModal}
+    title="Import CSV to {importAccountName}"
+    onclose={closeImportModal}
+    width="550px"
+    class="import-modal"
+  >
+    <div class="import-body">
+      {#if importError}
+        <div class="import-error">{importError}</div>
+      {/if}
+
+      {#if importResult}
+        <!-- Import complete -->
+        <div class="import-done">
+          <div class="done-icon">✓</div>
+          <p class="done-message">Import Complete</p>
+          <div class="import-stats">
+            <div class="stat">
+              <span class="stat-value">{importResult.imported}</span>
+              <span class="stat-label">Imported</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">{importResult.skipped}</span>
+              <span class="stat-label">Skipped</span>
+            </div>
+          </div>
+        </div>
+      {:else if !importFilePath}
+        <!-- Step 1: Select file -->
+        <div class="import-step">
+          <p class="import-intro">Import transactions from a CSV file exported from your bank.</p>
+          <button class="file-select-btn" onclick={handleFileSelect}>
+            Select CSV File...
+          </button>
+        </div>
+      {:else}
+        <!-- Step 2: Configure and preview -->
+        <div class="import-step">
+          <div class="import-file-info">
+            <span class="file-label">File:</span>
+            <span class="file-name">{importFileName}</span>
+            <button class="btn-link" onclick={() => { importFilePath = ""; importHeaders = []; importColumnMapping = {}; importPreview = null; }}>Change</button>
+          </div>
+
+          <div class="column-mapping">
+            <div class="mapping-title">Column Mapping</div>
+            <div class="mapping-hint">Auto-detected. Adjust if needed.</div>
+
+            <div class="mapping-row">
+              <label>Date Column</label>
+              <select bind:value={importColumnMapping.dateColumn}>
+                <option value="">-- Select --</option>
+                {#each importHeaders as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="mapping-row">
+              <label>Description Column</label>
+              <select bind:value={importColumnMapping.descriptionColumn}>
+                <option value="">-- Select --</option>
+                {#each importHeaders as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="mapping-row">
+              <label>Amount Column</label>
+              <select bind:value={importColumnMapping.amountColumn}>
+                <option value="">-- Select (or use Debit/Credit) --</option>
+                {#each importHeaders as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="mapping-divider">— OR use separate debit/credit columns —</div>
+
+            <div class="mapping-row">
+              <label>Debit Column</label>
+              <select bind:value={importColumnMapping.debitColumn}>
+                <option value="">-- Select --</option>
+                {#each importHeaders as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="mapping-row">
+              <label>Credit Column</label>
+              <select bind:value={importColumnMapping.creditColumn}>
+                <option value="">-- Select --</option>
+                {#each importHeaders as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+
+          <div class="import-options">
+            <label class="checkbox-label">
+              <input type="checkbox" bind:checked={importFlipSigns} />
+              Flip signs (for credit cards where charges are positive)
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" bind:checked={importDebitNegative} />
+              Negate debits (if debits show as positive numbers)
+            </label>
+          </div>
+
+          <!-- Live Preview -->
+          {#if importColumnMapping.dateColumn}
+            <div class="live-preview-section">
+              <div class="live-preview-header">
+                <span class="live-preview-title">Live Preview</span>
+                {#if isLoadingPreview}
+                  <span class="preview-loading">Loading...</span>
                 {/if}
-              </label>
-              <label class="radio">
-                <input
-                  type="radio"
-                  name="classification"
-                  value="liability"
-                  bind:group={editForm.classification}
-                />
-                Liability
-                {#if getDefaultClassification(editForm.account_type || editingAccount.account_type) === "liability"}
-                  <span class="default-badge">default</span>
-                {/if}
-              </label>
-            </div>
-          </div>
-          <label class="checkbox">
-            <input type="checkbox" bind:checked={editForm.excluded_from_net_worth} />
-            Exclude from net worth calculation
-          </label>
-        </div>
-        <div class="modal-actions">
-          <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
-          <button class="btn primary" onclick={saveEdit}>Save</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Add Account Modal -->
-  {#if isAddingAccount}
-    <div
-      class="modal-overlay"
-      onclick={cancelAddAccount}
-      onkeydown={(e) => e.key === "Escape" && cancelAddAccount()}
-      role="dialog"
-      tabindex="-1"
-    >
-      <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">Add Manual Account</span>
-          <button class="close-btn" onclick={cancelAddAccount}>×</button>
-        </div>
-        <div class="form">
-          <label>
-            Account Name *
-            <input
-              type="text"
-              bind:value={addAccountForm.name}
-              placeholder="e.g., Home Equity, Cash"
-            />
-          </label>
-          <label>
-            Nickname (optional)
-            <input
-              type="text"
-              bind:value={addAccountForm.nickname}
-              placeholder="Display name"
-            />
-          </label>
-          <label>
-            Institution (optional)
-            <input
-              type="text"
-              bind:value={addAccountForm.institution_name}
-              placeholder="e.g., Zillow, Manual"
-            />
-          </label>
-          <label>
-            Type
-            <input
-              type="text"
-              bind:value={addAccountForm.account_type}
-              placeholder="depository, credit, investment, loan, other"
-            />
-            <span class="form-hint">depository, credit, investment, loan, other</span>
-          </label>
-          <div class="form-group">
-            <span class="form-label">Balance Classification</span>
-            <div class="radio-group">
-              <label class="radio">
-                <input
-                  type="radio"
-                  name="add-classification"
-                  value="asset"
-                  bind:group={addAccountForm.classification}
-                />
-                Asset
-              </label>
-              <label class="radio">
-                <input
-                  type="radio"
-                  name="add-classification"
-                  value="liability"
-                  bind:group={addAccountForm.classification}
-                />
-                Liability
-              </label>
-            </div>
-          </div>
-          <label>
-            Initial Balance (optional)
-            <input
-              type="text"
-              bind:value={addAccountForm.initial_balance}
-              placeholder="0.00"
-            />
-            <span class="form-hint">Current balance as of today</span>
-          </label>
-        </div>
-        <div class="modal-actions">
-          <button class="btn secondary" onclick={cancelAddAccount}>Cancel</button>
-          <button class="btn primary" onclick={saveAddAccount}>Add Account</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- CSV Import Modal -->
-  {#if showImportModal}
-    <div
-      class="modal-overlay"
-      onclick={closeImportModal}
-      onkeydown={(e) => e.key === "Escape" && closeImportModal()}
-      role="dialog"
-      tabindex="-1"
-    >
-      <div class="modal import-modal" onclick={(e) => e.stopPropagation()} role="document">
-        <div class="modal-header">
-          <span class="modal-title">Import CSV to {importAccountName}</span>
-          <button class="close-btn" onclick={closeImportModal}>×</button>
-        </div>
-
-        <div class="modal-body import-body">
-          {#if importError}
-            <div class="import-error">{importError}</div>
-          {/if}
-
-          {#if importResult}
-            <!-- Import complete -->
-            <div class="import-done">
-              <div class="done-icon">✓</div>
-              <p class="done-message">Import Complete</p>
-              <div class="import-stats">
-                <div class="stat">
-                  <span class="stat-value">{importResult.imported}</span>
-                  <span class="stat-label">Imported</span>
-                </div>
-                <div class="stat">
-                  <span class="stat-value">{importResult.skipped}</span>
-                  <span class="stat-label">Skipped</span>
-                </div>
-              </div>
-            </div>
-          {:else if !importFilePath}
-            <!-- Step 1: Select file -->
-            <div class="import-step">
-              <p class="import-intro">Import transactions from a CSV file exported from your bank.</p>
-              <button class="file-select-btn" onclick={handleFileSelect}>
-                Select CSV File...
-              </button>
-            </div>
-          {:else}
-            <!-- Step 2: Configure and preview -->
-            <div class="import-step">
-              <div class="import-file-info">
-                <span class="file-label">File:</span>
-                <span class="file-name">{importFileName}</span>
-                <button class="btn-link" onclick={() => { importFilePath = ""; importHeaders = []; importColumnMapping = {}; importPreview = null; }}>Change</button>
               </div>
 
-              <div class="column-mapping">
-                <div class="mapping-title">Column Mapping</div>
-                <div class="mapping-hint">Auto-detected. Adjust if needed.</div>
-
-                <div class="mapping-row">
-                  <label>Date Column</label>
-                  <select bind:value={importColumnMapping.dateColumn}>
-                    <option value="">-- Select --</option>
-                    {#each importHeaders as header}
-                      <option value={header}>{header}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                <div class="mapping-row">
-                  <label>Description Column</label>
-                  <select bind:value={importColumnMapping.descriptionColumn}>
-                    <option value="">-- Select --</option>
-                    {#each importHeaders as header}
-                      <option value={header}>{header}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                <div class="mapping-row">
-                  <label>Amount Column</label>
-                  <select bind:value={importColumnMapping.amountColumn}>
-                    <option value="">-- Select (or use Debit/Credit) --</option>
-                    {#each importHeaders as header}
-                      <option value={header}>{header}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                <div class="mapping-divider">— OR use separate debit/credit columns —</div>
-
-                <div class="mapping-row">
-                  <label>Debit Column</label>
-                  <select bind:value={importColumnMapping.debitColumn}>
-                    <option value="">-- Select --</option>
-                    {#each importHeaders as header}
-                      <option value={header}>{header}</option>
-                    {/each}
-                  </select>
-                </div>
-
-                <div class="mapping-row">
-                  <label>Credit Column</label>
-                  <select bind:value={importColumnMapping.creditColumn}>
-                    <option value="">-- Select --</option>
-                    {#each importHeaders as header}
-                      <option value={header}>{header}</option>
-                    {/each}
-                  </select>
-                </div>
+              <div class="preview-hint">
+                <strong>Check the signs:</strong> Spending should be <span class="negative">negative (red)</span>,
+                income should be <span class="positive">positive (green)</span>.
+                If reversed, toggle "Flip signs" above.
               </div>
 
-              <div class="import-options">
-                <label class="checkbox-label">
-                  <input type="checkbox" bind:checked={importFlipSigns} />
-                  Flip signs (for credit cards where charges are positive)
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" bind:checked={importDebitNegative} />
-                  Negate debits (if debits show as positive numbers)
-                </label>
-              </div>
-
-              <!-- Live Preview -->
-              {#if importColumnMapping.dateColumn}
-                <div class="live-preview-section">
-                  <div class="live-preview-header">
-                    <span class="live-preview-title">Live Preview</span>
-                    {#if isLoadingPreview}
-                      <span class="preview-loading">Loading...</span>
-                    {/if}
+              {#if importPreview && importPreview.preview.length > 0}
+                <div class="preview-table">
+                  <div class="preview-row header">
+                    <span class="preview-date">Date</span>
+                    <span class="preview-desc">Description</span>
+                    <span class="preview-amount">Amount</span>
                   </div>
-
-                  <div class="preview-hint">
-                    <strong>Check the signs:</strong> Spending should be <span class="negative">negative (red)</span>,
-                    income should be <span class="positive">positive (green)</span>.
-                    If reversed, toggle "Flip signs" above.
-                  </div>
-
-                  {#if importPreview && importPreview.preview.length > 0}
-                    <div class="preview-table">
-                      <div class="preview-row header">
-                        <span class="preview-date">Date</span>
-                        <span class="preview-desc">Description</span>
-                        <span class="preview-amount">Amount</span>
-                      </div>
-                      {#each importPreview.preview.slice(0, 5) as txn}
-                        <div class="preview-row">
-                          <span class="preview-date">{txn.date}</span>
-                          <span class="preview-desc">{txn.description || ""}</span>
-                          <span class="preview-amount" class:negative={txn.amount < 0}>
-                            {txn.amount < 0 ? "-" : ""}${Math.abs(txn.amount).toFixed(2)}
-                          </span>
-                        </div>
-                      {/each}
+                  {#each importPreview.preview.slice(0, 5) as txn}
+                    <div class="preview-row">
+                      <span class="preview-date">{txn.date}</span>
+                      <span class="preview-desc">{txn.description || ""}</span>
+                      <span class="preview-amount" class:negative={txn.amount < 0}>
+                        {txn.amount < 0 ? "-" : ""}${Math.abs(txn.amount).toFixed(2)}
+                      </span>
                     </div>
-                  {:else if !isLoadingPreview}
-                    <div class="preview-empty">Configure columns to see preview</div>
-                  {/if}
+                  {/each}
                 </div>
+              {:else if !isLoadingPreview}
+                <div class="preview-empty">Configure columns to see preview</div>
               {/if}
             </div>
           {/if}
         </div>
-
-        <div class="modal-actions">
-          {#if importResult}
-            <button class="btn primary" onclick={closeImportModal}>Done</button>
-          {:else if isImporting}
-            <button class="btn secondary" disabled>Importing...</button>
-          {:else}
-            <button class="btn secondary" onclick={closeImportModal}>Cancel</button>
-            {#if importFilePath && importPreview && importPreview.preview.length > 0}
-              <button class="btn primary" onclick={handleImportExecute}>Import</button>
-            {/if}
-          {/if}
-        </div>
-      </div>
+      {/if}
     </div>
-  {/if}
+
+    {#snippet actions()}
+      {#if importResult}
+        <button class="btn primary" onclick={closeImportModal}>Done</button>
+      {:else if isImporting}
+        <button class="btn secondary" disabled>Importing...</button>
+      {:else}
+        <button class="btn secondary" onclick={closeImportModal}>Cancel</button>
+        {#if importFilePath && importPreview && importPreview.preview.length > 0}
+          <button class="btn primary" onclick={handleImportExecute}>Import</button>
+        {/if}
+      {/if}
+    {/snippet}
+  </Modal>
 </div>
 
 <style>
@@ -2165,53 +2127,7 @@ LIMIT 100`;
     color: var(--text-muted);
   }
 
-  /* Modal */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .modal {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    width: 450px;
-    max-width: 90vw;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .modal-title {
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 20px;
-    color: var(--text-muted);
-    cursor: pointer;
-    line-height: 1;
-  }
-
-  .close-btn:hover {
-    color: var(--text-primary);
-  }
-
+  /* Form styles (used in modals) */
   .form {
     padding: var(--spacing-lg);
     display: flex;
@@ -2297,39 +2213,7 @@ LIMIT 100`;
     cursor: pointer;
   }
 
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .btn {
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn.primary {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-  }
-
-  .btn.secondary {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-primary);
-  }
-
-  .btn:hover {
-    opacity: 0.9;
-  }
-
-  /* Transaction Preview Modal */
+  /* Modal content styles */
   .preview-modal {
     width: 600px;
   }

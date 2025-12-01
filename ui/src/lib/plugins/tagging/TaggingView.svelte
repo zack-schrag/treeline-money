@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { executeQuery, showToast } from "../../sdk";
-  import { ActionBar, type ActionItem } from "../../shared";
+  import { ActionBar, type ActionItem, Modal } from "../../shared";
   import { FrequencyBasedSuggester, type TagSuggestion, type Transaction } from "./suggestions";
 
   // Initialize suggester
@@ -1796,305 +1796,265 @@
   </div>
 </div>
 
-<!-- Tag Edit Modal -->
-{#if isTagModalOpen && editingTransaction}
-  <div
-    class="modal-overlay"
-    onclick={closeTagModal}
-    onkeydown={handleModalKeyDown}
-    role="dialog"
-    tabindex="-1"
-  >
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-      <div class="modal-header">
-        <span class="modal-title">Edit Transaction</span>
-        <button class="close-btn" onclick={closeTagModal}>×</button>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div onkeydown={handleModalKeyDown}>
+<Modal
+  open={isTagModalOpen && !!editingTransaction}
+  title="Edit Transaction"
+  onclose={closeTagModal}
+>
+  {#if editingTransaction?.parent_transaction_id}
+    <div class="split-notice">
+      <span class="split-badge">⑂</span> Part of a split transaction
+    </div>
+  {/if}
+
+  <div class="modal-form">
+    <div class="form-row">
+      <div class="form-group flex-2">
+        <label for="modal-desc">Description</label>
+        <input
+          id="modal-desc"
+          type="text"
+          bind:this={modalInputEl}
+          bind:value={modalDescInput}
+          placeholder="Transaction description"
+        />
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label for="modal-date">Date</label>
+        <input
+          id="modal-date"
+          type="date"
+          bind:value={modalDateInput}
+        />
+      </div>
+      <div class="form-group">
+        <label for="modal-amount">Amount</label>
+        <input
+          id="modal-amount"
+          type="text"
+          bind:value={modalAmountInput}
+          placeholder="0.00"
+          class="amount-input"
+        />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="modal-tags">Tags (comma-separated)</label>
+      <input
+        id="modal-tags"
+        type="text"
+        bind:value={modalTagInput}
+        placeholder="e.g., groceries, food, weekly"
+      />
+    </div>
+
+    {#if currentSuggestions.length > 0}
+      <div class="suggested-tags">
+        <span class="suggested-label">Suggested:</span>
+        {#each currentSuggestions.slice(0, 5) as suggestion}
+          <button
+            class="suggested-tag-btn"
+            onclick={() => {
+              const current = modalTagInput.trim();
+              modalTagInput = current ? `${current}, ${suggestion.tag}` : suggestion.tag;
+            }}
+          >
+            {suggestion.tag}
+          </button>
+        {/each}
+      </div>
+    {/if}
+
+    <div class="account-info">
+      <span class="account-label">Account:</span>
+      <span class="account-value">{editingTransaction?.account_name || 'Unknown'}</span>
+    </div>
+  </div>
+
+  {#snippet actions()}
+    <button class="btn secondary" onclick={closeTagModal}>Cancel</button>
+    <button class="btn primary" onclick={saveTagModal}>Save</button>
+  {/snippet}
+</Modal>
+</div>
+
+<Modal
+  open={showUnsplitConfirm && !!editingTransaction}
+  title="Unsplit Transaction?"
+  onclose={() => showUnsplitConfirm = false}
+  width="400px"
+  class="confirm-modal"
+>
+  <div class="confirm-body">
+    <p>This will restore the original transaction and remove all split parts.</p>
+    <p class="confirm-note">The original transaction will be restored with its original amount.</p>
+  </div>
+
+  {#snippet actions()}
+    <button class="btn secondary" onclick={() => showUnsplitConfirm = false}>Cancel</button>
+    <button class="btn primary" onclick={unsplitTransaction}>Unsplit</button>
+  {/snippet}
+</Modal>
+
+<Modal
+  open={showDeleteConfirm && !!editingTransaction}
+  title="Delete Transaction?"
+  onclose={() => showDeleteConfirm = false}
+  width="400px"
+  class="confirm-modal"
+>
+  <div class="confirm-body">
+    <p>Are you sure you want to delete this transaction?</p>
+    {#if editingTransaction}
+      <div class="txn-preview">
+        <div class="txn-preview-desc">{editingTransaction.description}</div>
+        <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
+          {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
+        </div>
+      </div>
+    {/if}
+    <p class="confirm-note">This transaction won't be re-imported during sync.</p>
+  </div>
+
+  {#snippet actions()}
+    <button class="btn secondary" onclick={() => showDeleteConfirm = false}>Cancel</button>
+    <button class="btn danger" onclick={deleteTransaction}>Delete</button>
+  {/snippet}
+</Modal>
+
+<Modal
+  open={showSplitModal && !!editingTransaction}
+  title="Split Transaction"
+  onclose={closeSplitModal}
+  width="500px"
+  class="split-modal"
+>
+  {#if editingTransaction}
+    <div class="split-body">
+      <div class="txn-preview">
+        <div class="txn-preview-desc">{editingTransaction.description}</div>
+        <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
+          Original: {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
+        </div>
       </div>
 
-      <div class="modal-body">
-        {#if editingTransaction.parent_transaction_id}
-          <div class="split-notice">
-            <span class="split-badge">⑂</span> Part of a split transaction
-          </div>
-        {/if}
-
-        <div class="form-row">
-          <div class="form-group flex-2">
-            <label for="modal-desc">Description</label>
+      <div class="split-rows">
+        {#each splitAmounts as split, i}
+          <div class="split-row">
             <input
-              id="modal-desc"
               type="text"
-              bind:this={modalInputEl}
-              bind:value={modalDescInput}
-              placeholder="Transaction description"
+              class="split-desc"
+              bind:value={split.description}
+              placeholder="Description"
             />
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="modal-date">Date</label>
             <input
-              id="modal-date"
-              type="date"
-              bind:value={modalDateInput}
-            />
-          </div>
-          <div class="form-group">
-            <label for="modal-amount">Amount</label>
-            <input
-              id="modal-amount"
               type="text"
-              bind:value={modalAmountInput}
+              class="split-amount"
+              bind:value={split.amount}
               placeholder="0.00"
-              class="amount-input"
             />
+            {#if splitAmounts.length > 2}
+              <button class="btn-icon" onclick={() => removeSplitRow(i)}>×</button>
+            {/if}
           </div>
-        </div>
-
-        <div class="form-group">
-          <label for="modal-tags">Tags (comma-separated)</label>
-          <input
-            id="modal-tags"
-            type="text"
-            bind:value={modalTagInput}
-            onkeydown={handleModalKeyDown}
-            placeholder="e.g., groceries, food, weekly"
-          />
-        </div>
-
-        {#if currentSuggestions.length > 0}
-          <div class="suggested-tags">
-            <span class="suggested-label">Suggested:</span>
-            {#each currentSuggestions.slice(0, 5) as suggestion}
-              <button
-                class="suggested-tag-btn"
-                onclick={() => {
-                  const current = modalTagInput.trim();
-                  modalTagInput = current ? `${current}, ${suggestion.tag}` : suggestion.tag;
-                }}
-              >
-                {suggestion.tag}
-              </button>
-            {/each}
-          </div>
-        {/if}
-
-        <div class="account-info">
-          <span class="account-label">Account:</span>
-          <span class="account-value">{editingTransaction.account_name || 'Unknown'}</span>
-        </div>
+        {/each}
       </div>
 
-      <div class="modal-actions">
-        <button class="btn secondary" onclick={closeTagModal}>Cancel</button>
-        <button class="btn primary" onclick={saveTagModal}>Save</button>
+      <button class="btn secondary add-split-btn" onclick={addSplitRow}>+ Add Row</button>
+
+      {#if true}
+        {@const splitTotal = splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)}
+        {@const remaining = editingTransaction.amount - splitTotal}
+        <div class="split-summary" class:error={Math.abs(remaining) > 0.01}>
+          Total: ${splitTotal.toFixed(2)} | Remaining: ${remaining.toFixed(2)}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  {#snippet actions()}
+    <button class="btn secondary" onclick={closeSplitModal}>Cancel</button>
+    <button
+      class="btn primary"
+      onclick={executeSplit}
+      disabled={!editingTransaction || Math.abs(editingTransaction.amount - splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)) > 0.01}
+    >
+      Split
+    </button>
+  {/snippet}
+</Modal>
+
+<Modal
+  open={showAddModal}
+  title="Add Transaction"
+  onclose={closeAddModal}
+>
+  <div class="modal-form">
+    <div class="form-row">
+      <div class="form-group flex-2">
+        <label for="add-desc">Description</label>
+        <input
+          id="add-desc"
+          type="text"
+          bind:value={addDescInput}
+          placeholder="Transaction description"
+        />
       </div>
     </div>
-  </div>
-{/if}
 
-<!-- Unsplit Confirmation Modal -->
-{#if showUnsplitConfirm && editingTransaction}
-  <div
-    class="modal-overlay confirm-overlay"
-    onclick={() => showUnsplitConfirm = false}
-    onkeydown={(e) => e.key === "Escape" && (showUnsplitConfirm = false)}
-    role="dialog"
-    tabindex="-1"
-  >
-    <div class="modal confirm-modal" onclick={(e) => e.stopPropagation()} role="document">
-      <div class="modal-header">
-        <span class="modal-title">Unsplit Transaction?</span>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="add-date">Date</label>
+        <input
+          id="add-date"
+          type="date"
+          bind:value={addDateInput}
+        />
       </div>
-      <div class="modal-body">
-        <p>This will restore the original transaction and remove all split parts.</p>
-        <p class="confirm-note">The original transaction will be restored with its original amount.</p>
-      </div>
-      <div class="modal-actions">
-        <button class="btn secondary" onclick={() => showUnsplitConfirm = false}>Cancel</button>
-        <button class="btn primary" onclick={unsplitTransaction}>Unsplit</button>
+      <div class="form-group">
+        <label for="add-amount">Amount</label>
+        <input
+          id="add-amount"
+          type="text"
+          bind:value={addAmountInput}
+          placeholder="0.00 (negative for expense)"
+          class="amount-input"
+        />
       </div>
     </div>
-  </div>
-{/if}
 
-<!-- Delete Confirmation Modal -->
-{#if showDeleteConfirm && editingTransaction}
-  <div
-    class="modal-overlay confirm-overlay"
-    onclick={() => showDeleteConfirm = false}
-    onkeydown={(e) => e.key === "Escape" && (showDeleteConfirm = false)}
-    role="dialog"
-    tabindex="-1"
-  >
-    <div class="modal confirm-modal" onclick={(e) => e.stopPropagation()} role="document">
-      <div class="modal-header">
-        <span class="modal-title">Delete Transaction?</span>
-      </div>
-      <div class="modal-body">
-        <p>Are you sure you want to delete this transaction?</p>
-        <div class="txn-preview">
-          <div class="txn-preview-desc">{editingTransaction.description}</div>
-          <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
-            {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
-          </div>
-        </div>
-        <p class="confirm-note">This transaction won't be re-imported during sync.</p>
-      </div>
-      <div class="modal-actions">
-        <button class="btn secondary" onclick={() => showDeleteConfirm = false}>Cancel</button>
-        <button class="btn danger" onclick={deleteTransaction}>Delete</button>
-      </div>
+    <div class="form-group">
+      <label for="add-account">Account</label>
+      <select id="add-account" bind:value={addAccountId} class="account-select">
+        <option value="">Select an account...</option>
+        {#each accountsWithIds as account}
+          <option value={account.id}>{account.name}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="add-tags">Tags (comma-separated)</label>
+      <input
+        id="add-tags"
+        type="text"
+        bind:value={addTagsInput}
+        placeholder="e.g., groceries, food"
+      />
     </div>
   </div>
-{/if}
 
-<!-- Split Transaction Modal -->
-{#if showSplitModal && editingTransaction}
-  <div
-    class="modal-overlay"
-    onclick={closeSplitModal}
-    onkeydown={(e) => e.key === "Escape" && closeSplitModal()}
-    role="dialog"
-    tabindex="-1"
-  >
-    <div class="modal split-modal" onclick={(e) => e.stopPropagation()} role="document">
-      <div class="modal-header">
-        <span class="modal-title">Split Transaction</span>
-        <button class="close-btn" onclick={closeSplitModal}>×</button>
-      </div>
-      <div class="modal-body">
-        <div class="txn-preview">
-          <div class="txn-preview-desc">{editingTransaction.description}</div>
-          <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
-            Original: {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
-          </div>
-        </div>
-
-        <div class="split-rows">
-          {#each splitAmounts as split, i}
-            <div class="split-row">
-              <input
-                type="text"
-                class="split-desc"
-                bind:value={split.description}
-                placeholder="Description"
-              />
-              <input
-                type="text"
-                class="split-amount"
-                bind:value={split.amount}
-                placeholder="0.00"
-              />
-              {#if splitAmounts.length > 2}
-                <button class="btn-icon" onclick={() => removeSplitRow(i)}>×</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-
-        <button class="btn secondary add-split-btn" onclick={addSplitRow}>+ Add Row</button>
-
-        {#if true}
-          {@const splitTotal = splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)}
-          {@const remaining = editingTransaction.amount - splitTotal}
-          <div class="split-summary" class:error={Math.abs(remaining) > 0.01}>
-            Total: ${splitTotal.toFixed(2)} | Remaining: ${remaining.toFixed(2)}
-          </div>
-        {/if}
-      </div>
-      <div class="modal-actions">
-        <button class="btn secondary" onclick={closeSplitModal}>Cancel</button>
-        <button
-          class="btn primary"
-          onclick={executeSplit}
-          disabled={Math.abs(editingTransaction.amount - splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)) > 0.01}
-        >
-          Split
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
-
-<!-- Add Transaction Modal -->
-{#if showAddModal}
-  <div
-    class="modal-overlay"
-    onclick={closeAddModal}
-    onkeydown={(e) => e.key === "Escape" && closeAddModal()}
-    role="dialog"
-    tabindex="-1"
-  >
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
-      <div class="modal-header">
-        <span class="modal-title">Add Transaction</span>
-        <button class="close-btn" onclick={closeAddModal}>×</button>
-      </div>
-
-      <div class="modal-body">
-        <div class="form-row">
-          <div class="form-group flex-2">
-            <label for="add-desc">Description</label>
-            <input
-              id="add-desc"
-              type="text"
-              bind:value={addDescInput}
-              placeholder="Transaction description"
-            />
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="add-date">Date</label>
-            <input
-              id="add-date"
-              type="date"
-              bind:value={addDateInput}
-            />
-          </div>
-          <div class="form-group">
-            <label for="add-amount">Amount</label>
-            <input
-              id="add-amount"
-              type="text"
-              bind:value={addAmountInput}
-              placeholder="0.00 (negative for expense)"
-              class="amount-input"
-            />
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label for="add-account">Account</label>
-          <select id="add-account" bind:value={addAccountId} class="account-select">
-            <option value="">Select an account...</option>
-            {#each accountsWithIds as account}
-              <option value={account.id}>{account.name}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label for="add-tags">Tags (comma-separated)</label>
-          <input
-            id="add-tags"
-            type="text"
-            bind:value={addTagsInput}
-            placeholder="e.g., groceries, food"
-          />
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn secondary" onclick={closeAddModal}>Cancel</button>
-        <button class="btn primary" onclick={saveNewTransaction}>Add Transaction</button>
-      </div>
-    </div>
-  </div>
-{/if}
+  {#snippet actions()}
+    <button class="btn secondary" onclick={closeAddModal}>Cancel</button>
+    <button class="btn primary" onclick={saveNewTransaction}>Add Transaction</button>
+  {/snippet}
+</Modal>
 
 <style>
   .tagging-view {
@@ -2991,54 +2951,8 @@
     }
   }
 
-  /* Modal styles */
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .modal {
-    background: var(--bg-secondary);
-    border-radius: 8px;
-    width: 450px;
-    max-width: 90vw;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .modal-title {
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 20px;
-    color: var(--text-muted);
-    cursor: pointer;
-    line-height: 1;
-  }
-
-  .close-btn:hover {
-    color: var(--text-primary);
-  }
-
-  .modal-body {
+  /* Modal content styles */
+  .modal-form, .confirm-body, .split-body {
     padding: var(--spacing-lg);
     display: flex;
     flex-direction: column;
@@ -3198,61 +3112,6 @@
     background: var(--accent-primary);
     color: var(--bg-primary);
     border-color: var(--accent-primary);
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .btn {
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn.primary {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-  }
-
-  .btn.secondary {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-primary);
-  }
-
-  .btn.danger {
-    background: var(--text-negative);
-    color: white;
-  }
-
-  .btn:hover {
-    opacity: 0.9;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .modal-actions-spacer {
-    flex: 1;
-  }
-
-  /* Confirm modal */
-  .confirm-overlay {
-    z-index: 1001;
-  }
-
-  .confirm-modal {
-    max-width: 400px;
   }
 
   .confirm-note {
