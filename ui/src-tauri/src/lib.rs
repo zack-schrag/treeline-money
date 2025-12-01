@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
+#[cfg(debug_assertions)]
 use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,7 +73,7 @@ fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String
 
     // Check if this is a SELECT-like query or a write query (UPDATE/INSERT/DELETE)
     let trimmed = query.trim().to_uppercase();
-    let is_select = trimmed.starts_with("SELECT")
+    let _is_select = trimmed.starts_with("SELECT")
         || trimmed.starts_with("WITH")  // CTEs that return results
         || trimmed.starts_with("DESCRIBE")
         || trimmed.starts_with("SHOW");
