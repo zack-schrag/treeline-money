@@ -174,8 +174,13 @@ jobs:
         if: runner.os != 'Windows'
         run: chmod +x ui/src-tauri/binaries/tl-${{ matrix.target-triple }}
 
-      - name: List sidecar binaries
+      - name: List sidecar binaries (Unix)
+        if: runner.os != 'Windows'
         run: ls -la ui/src-tauri/binaries/
+
+      - name: List sidecar binaries (Windows)
+        if: runner.os == 'Windows'
+        run: dir ui\src-tauri\binaries\
 
       - name: Install UI dependencies
         working-directory: ui
