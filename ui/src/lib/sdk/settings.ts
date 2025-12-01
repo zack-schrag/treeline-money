@@ -168,6 +168,51 @@ export function clearSettingsCache(): void {
 }
 
 // ============================================================================
+// Plugin Enable/Disable
+// ============================================================================
+
+/**
+ * Check if a plugin is disabled
+ */
+export async function isPluginDisabled(pluginId: string): Promise<boolean> {
+  const settings = await getSettings();
+  return (settings.disabledPlugins || []).includes(pluginId);
+}
+
+/**
+ * Get list of disabled plugin IDs
+ */
+export async function getDisabledPlugins(): Promise<string[]> {
+  const settings = await getSettings();
+  return settings.disabledPlugins || [];
+}
+
+/**
+ * Enable a plugin (remove from disabled list)
+ * Requires app reload to take effect
+ */
+export async function enablePlugin(pluginId: string): Promise<void> {
+  const settings = await getSettings();
+  settings.disabledPlugins = (settings.disabledPlugins || []).filter(id => id !== pluginId);
+  await writeSettings(settings);
+}
+
+/**
+ * Disable a plugin (add to disabled list)
+ * Requires app reload to take effect
+ */
+export async function disablePlugin(pluginId: string): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.disabledPlugins) {
+    settings.disabledPlugins = [];
+  }
+  if (!settings.disabledPlugins.includes(pluginId)) {
+    settings.disabledPlugins.push(pluginId);
+  }
+  await writeSettings(settings);
+}
+
+// ============================================================================
 // Plugin State (separate from settings - runtime state, not user preferences)
 // ============================================================================
 

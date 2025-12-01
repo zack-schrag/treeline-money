@@ -48,6 +48,11 @@ export {
   isSyncNeeded,
   getDemoMode,
   setDemoMode,
+  // Plugin enable/disable
+  isPluginDisabled,
+  getDisabledPlugins,
+  enablePlugin,
+  disablePlugin,
   // CSV Import
   pickCsvFile,
   getCsvHeaders,

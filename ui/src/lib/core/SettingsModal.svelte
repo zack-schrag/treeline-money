@@ -10,11 +10,15 @@
     setupSimplefin,
     getIntegrationSettings,
     updateIntegrationAccountSetting,
+    getDisabledPlugins,
+    enablePlugin,
+    disablePlugin,
     toast,
     themeManager,
     type Settings,
     type AppSettings,
   } from "../sdk";
+  import { getCorePluginManifests } from "../plugins";
 
   interface Props {
     isOpen: boolean;
@@ -63,12 +67,23 @@
   let showDisconnectConfirm = $state(false);
   let disconnectingIntegration = $state<string | null>(null);
 
+  // Plugin state
+  interface PluginInfo {
+    id: string;
+    name: string;
+    description: string;
+    enabled: boolean;
+  }
+  let plugins = $state<PluginInfo[]>([]);
+  let pluginsNeedReload = $state(false);
+
   // Active section
-  type Section = "data" | "integrations" | "appearance" | "about";
+  type Section = "data" | "plugins" | "integrations" | "appearance" | "about";
   let activeSection = $state<Section>("data");
 
   const sections: { id: Section; label: string; icon: string }[] = [
     { id: "data", label: "Data", icon: "database" },
+    { id: "plugins", label: "Plugins", icon: "zap" },
     { id: "integrations", label: "Integrations", icon: "link" },
     { id: "appearance", label: "Appearance", icon: "palette" },
     { id: "about", label: "About", icon: "info" },
@@ -101,6 +116,42 @@
       integrations = [];
     } finally {
       isLoadingIntegrations = false;
+    }
+  }
+
+  async function loadPlugins() {
+    try {
+      const manifests = getCorePluginManifests();
+      const disabled = await getDisabledPlugins();
+      // Filter out the settings plugin - it can't be disabled
+      plugins = manifests
+        .filter(m => m.id !== "settings")
+        .map(m => ({
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          enabled: !disabled.includes(m.id),
+        }));
+    } catch (e) {
+      console.error("Failed to load plugins:", e);
+    }
+  }
+
+  async function togglePlugin(pluginId: string, enabled: boolean) {
+    try {
+      if (enabled) {
+        await enablePlugin(pluginId);
+      } else {
+        await disablePlugin(pluginId);
+      }
+      // Update local state
+      plugins = plugins.map(p =>
+        p.id === pluginId ? { ...p, enabled } : p
+      );
+      pluginsNeedReload = true;
+    } catch (e) {
+      console.error("Failed to toggle plugin:", e);
+      toast.error("Failed to update plugin", e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -333,7 +384,9 @@
   // Load data when modal opens
   $effect(() => {
     if (isOpen) {
+      pluginsNeedReload = false; // Reset on open
       loadSettings();
+      loadPlugins();
       loadIntegrations().then(() => {
         if (integrations.some((i) => i.integration_name === "simplefin")) {
           loadSimplefinAccounts();
@@ -416,6 +469,41 @@
                       Sync Now
                     {/if}
                   </button>
+                </div>
+              </section>
+            {:else if activeSection === "plugins"}
+              <section class="section">
+                <h3 class="section-title">Plugins</h3>
+
+                {#if pluginsNeedReload}
+                  <div class="reload-notice">
+                    <Icon name="info" size={14} />
+                    <span>Restart the app to apply plugin changes</span>
+                  </div>
+                {/if}
+
+                <div class="setting-group">
+                  <h4 class="group-title">Core Plugins</h4>
+                  <p class="group-desc">Enable or disable built-in functionality. Disabled plugins won't appear in the sidebar.</p>
+
+                  <div class="plugin-list">
+                    {#each plugins as plugin}
+                      <div class="plugin-item">
+                        <div class="plugin-info">
+                          <span class="plugin-name">{plugin.name}</span>
+                          <span class="plugin-desc">{plugin.description}</span>
+                        </div>
+                        <label class="toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={plugin.enabled}
+                            onchange={() => togglePlugin(plugin.id, !plugin.enabled)}
+                          />
+                          <span class="toggle-slider"></span>
+                        </label>
+                      </div>
+                    {/each}
+                  </div>
                 </div>
               </section>
             {:else if activeSection === "integrations"}
@@ -1688,5 +1776,112 @@
   .confirm-note {
     font-size: 12px !important;
     color: var(--text-muted) !important;
+  }
+
+  /* Plugins section */
+  .reload-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(239, 180, 68, 0.15);
+    border: 1px solid rgba(239, 180, 68, 0.3);
+    border-radius: 6px;
+    margin-bottom: var(--spacing-md);
+    font-size: 12px;
+    color: #efb444;
+  }
+
+  .group-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 var(--spacing-md) 0;
+    line-height: 1.4;
+  }
+
+  .plugin-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .plugin-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    gap: var(--spacing-md);
+  }
+
+  .plugin-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .plugin-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .plugin-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.3;
+  }
+
+  /* Toggle switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    transition: 0.2s;
+  }
+
+  .toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--text-muted);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .toggle-switch input:checked + .toggle-slider {
+    background-color: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(16px);
+    background-color: white;
   }
 </style>

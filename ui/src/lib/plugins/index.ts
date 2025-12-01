@@ -7,7 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { registry, themeManager } from "../sdk";
+import { registry, themeManager, getDisabledPlugins } from "../sdk";
 import type { Plugin, PluginContext } from "../sdk";
 
 // Import core plugins
@@ -83,10 +83,16 @@ export async function initializePlugins(): Promise<void> {
   // Load external plugins
   const externalPlugins = await loadExternalPlugins();
 
+  // Get list of disabled plugins
+  const disabledPlugins = await getDisabledPlugins();
+
   // Combine core and external plugins
   const allPlugins = [...corePlugins, ...externalPlugins];
 
   console.log(`Initializing ${allPlugins.length} plugin(s) (${corePlugins.length} core, ${externalPlugins.length} external)...`);
+  if (disabledPlugins.length > 0) {
+    console.log(`Disabled plugins: ${disabledPlugins.join(", ")}`);
+  }
 
   // Register core sidebar sections
   registry.registerSidebarSection({
@@ -95,13 +101,13 @@ export async function initializePlugins(): Promise<void> {
     order: 1,
   });
 
-  registry.registerSidebarSection({
-    id: "system",
-    title: "System",
-    order: 100, // High order to appear at the bottom
-  });
-
   for (const plugin of allPlugins) {
+    // Skip disabled plugins
+    if (disabledPlugins.includes(plugin.manifest.id)) {
+      console.log(`⊘ Skipped disabled plugin: ${plugin.manifest.name} (${plugin.manifest.id})`);
+      continue;
+    }
+
     try {
       // Create context with plugin API
       const context: PluginContext = {
@@ -124,4 +130,11 @@ export async function initializePlugins(): Promise<void> {
       console.error(`✗ Failed to load plugin: ${plugin.manifest.name}`, error);
     }
   }
+}
+
+/**
+ * Get list of all available core plugins (for settings UI)
+ */
+export function getCorePluginManifests() {
+  return corePlugins.map(p => p.manifest);
 }
