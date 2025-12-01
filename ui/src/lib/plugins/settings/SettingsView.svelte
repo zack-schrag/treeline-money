@@ -159,14 +159,40 @@
       account.balances_only = newValue;
       // Force reactivity by reassigning the array
       simplefinAccounts = [...simplefinAccounts];
-      toast.success(
-        newValue ? "Balances only enabled" : "Full sync enabled",
-        `${account.name} will ${newValue ? "only sync balances" : "sync transactions and balances"}`
-      );
     } catch (e) {
       console.error("Failed to update balances only setting:", e);
       toast.error("Failed to update setting", e instanceof Error ? e.message : String(e));
     }
+  }
+
+  async function setInstitutionBalancesOnly(institution: string, balancesOnly: boolean) {
+    const accounts = accountsByInstitution.get(institution) || [];
+    try {
+      for (const account of accounts) {
+        if (account.balances_only !== balancesOnly) {
+          await updateIntegrationAccountSetting("simplefin", account.simplefin_id, balancesOnly);
+          account.balances_only = balancesOnly;
+        }
+      }
+      // Force reactivity
+      simplefinAccounts = [...simplefinAccounts];
+      toast.success(
+        balancesOnly ? "Balances only enabled" : "Transaction sync enabled",
+        `All ${institution} accounts updated`
+      );
+    } catch (e) {
+      console.error("Failed to update institution settings:", e);
+      toast.error("Failed to update settings", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Check if all accounts in an institution have balances_only set
+  function getInstitutionSyncState(accounts: SimplefinAccount[]): "all" | "none" | "mixed" {
+    const allBalancesOnly = accounts.every(a => a.balances_only);
+    const noneBalancesOnly = accounts.every(a => !a.balances_only);
+    if (allBalancesOnly) return "none"; // none sync transactions
+    if (noneBalancesOnly) return "all"; // all sync transactions
+    return "mixed";
   }
 
   async function checkConnection() {
@@ -442,9 +468,14 @@
                         {/if}
                       </button>
                     </div>
+                    <div class="sync-settings-help">
+                      <span class="help-icon">ℹ</span>
+                      <span class="help-text">Choose what to sync for each account. Select "Balances only" if you don't need individual transactions.</span>
+                    </div>
                     {#each [...accountsByInstitution] as [institution, accounts]}
                       {@const hasWarning = connectionWarnings.some(w => w.includes(institution))}
                       {@const isCheckedOk = connectionCheckSuccess !== null && !hasWarning}
+                      {@const syncState = getInstitutionSyncState(accounts)}
                       <div class="institution-group" class:has-warning={hasWarning} class:checked-ok={isCheckedOk}>
                         <div class="institution-header">
                           <span class="institution-name">{institution}</span>
@@ -467,14 +498,22 @@
                                   <span class="account-type">{account.account_type}</span>
                                 {/if}
                               </div>
-                              <label class="toggle-label" title={account.balances_only ? "Only syncing balances (no transactions)" : "Syncing balances and transactions"}>
-                                <input
-                                  type="checkbox"
-                                  checked={account.balances_only}
-                                  onchange={() => toggleBalancesOnly(account)}
-                                />
-                                <span class="toggle-text">{account.balances_only ? "Balances only" : "Full sync"}</span>
-                              </label>
+                              <div class="segmented-toggle">
+                                <button
+                                  class="toggle-option"
+                                  class:active={!account.balances_only}
+                                  onclick={() => { if (account.balances_only) toggleBalancesOnly(account); }}
+                                >
+                                  Balances + Transactions
+                                </button>
+                                <button
+                                  class="toggle-option"
+                                  class:active={account.balances_only}
+                                  onclick={() => { if (!account.balances_only) toggleBalancesOnly(account); }}
+                                >
+                                  Balances only
+                                </button>
+                              </div>
                             </div>
                           {/each}
                         </div>
@@ -1586,25 +1625,59 @@
     flex-shrink: 0;
   }
 
-  .toggle-label {
+  /* Segmented toggle control */
+  .segmented-toggle {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    overflow: hidden;
     flex-shrink: 0;
   }
 
-  .toggle-label input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    cursor: pointer;
-    accent-color: var(--accent-primary);
-  }
-
-  .toggle-text {
+  .segmented-toggle .toggle-option {
+    background: var(--bg-secondary);
+    border: none;
+    padding: 4px 10px;
     font-size: 11px;
     color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
     white-space: nowrap;
+  }
+
+  .segmented-toggle .toggle-option:not(:last-child) {
+    border-right: 1px solid var(--border-primary);
+  }
+
+  .segmented-toggle .toggle-option:hover:not(.active) {
+    background: var(--bg-tertiary);
+  }
+
+  .segmented-toggle .toggle-option.active {
+    background: var(--accent-primary);
+    color: white;
+  }
+
+  .sync-settings-help {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .help-icon {
+    color: var(--text-muted);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .help-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
   }
 
   .no-accounts {
