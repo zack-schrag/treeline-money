@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { executeQuery, showToast } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal } from "../../shared";
+  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import { FrequencyBasedSuggester, type TagSuggestion, type Transaction } from "./suggestions";
 
   // Initialize suggester
@@ -84,6 +84,22 @@
 
   // Row context menu
   let contextMenuTxn = $state<Transaction | null>(null);
+
+  function getRowMenuItems(txn: Transaction): RowMenuItem[] {
+    const items: RowMenuItem[] = [
+      { label: "Edit", action: () => handleContextEdit() },
+    ];
+
+    if (txn.parent_transaction_id) {
+      items.push({ label: "Unsplit", action: () => handleContextUnsplit() });
+    } else {
+      items.push({ label: "Split", action: () => handleContextSplit() });
+    }
+
+    items.push({ label: "Delete", action: () => handleContextDelete(), danger: true });
+
+    return items;
+  }
 
   // Element refs
   let customTagInputEl: HTMLInputElement | null = null;
@@ -1651,32 +1667,12 @@
                 {/if}
               {/if}
             </div>
-            <div class="row-menu-wrapper">
-              <button
-                class="row-edit-btn"
-                onclick={(e) => openContextMenu(txn, e)}
-                title="Transaction actions"
-              >⋮</button>
-              {#if contextMenuTxn?.transaction_id === txn.transaction_id}
-                <div class="row-context-menu">
-                  <button class="context-menu-item" onclick={handleContextEdit}>
-                    Edit
-                  </button>
-                  {#if txn.parent_transaction_id}
-                    <button class="context-menu-item" onclick={handleContextUnsplit}>
-                      Unsplit
-                    </button>
-                  {:else}
-                    <button class="context-menu-item" onclick={handleContextSplit}>
-                      Split
-                    </button>
-                  {/if}
-                  <button class="context-menu-item danger" onclick={handleContextDelete}>
-                    Delete
-                  </button>
-                </div>
-              {/if}
-            </div>
+            <RowMenu
+              items={getRowMenuItems(txn)}
+              isOpen={contextMenuTxn?.transaction_id === txn.transaction_id}
+              onToggle={(e) => openContextMenu(txn, e)}
+              title="Transaction actions"
+            />
           </div>
         {/each}
         {#if isLoadingMore}
@@ -2609,26 +2605,6 @@
     font-size: 10px;
   }
 
-  .row-edit-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: transparent;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-  }
-
-  .row:hover .row-edit-btn,
-  .row.cursor .row-edit-btn {
-    opacity: 1;
-  }
-
   /* Split transaction styles - subtle box grouping */
   .row.split-child {
     position: relative;
@@ -2664,66 +2640,6 @@
     font-size: 10px;
     color: var(--text-muted);
     margin-right: 4px;
-  }
-
-  .row-edit-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-color: var(--text-muted);
-  }
-
-  /* Row context menu */
-  .row-menu-wrapper {
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .row-context-menu {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    z-index: 100;
-    min-width: 100px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    overflow: hidden;
-    margin-top: 4px;
-  }
-
-  .context-menu-item {
-    display: block;
-    width: 100%;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-
-  .context-menu-item:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .context-menu-item.danger {
-    color: var(--text-negative, #ef4444);
-  }
-
-  .context-menu-item.danger:hover {
-    background: rgba(239, 68, 68, 0.15);
-  }
-
-  .context-menu-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 99;
-    background: transparent;
-    border: none;
-    cursor: default;
   }
 
   .command-bar {

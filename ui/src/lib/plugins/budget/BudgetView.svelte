@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal } from "../../shared";
+  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   const PLUGIN_ID = "budget";
@@ -32,6 +32,18 @@
   let drillDownCategory = $state<BudgetActual | null>(null);
   let drillDownTransactions = $state<Transaction[]>([]);
   let drillDownLoading = $state(false);
+
+  // Row menu state
+  let menuOpenForId = $state<string | null>(null);
+
+  function closeMenu() {
+    menuOpenForId = null;
+  }
+
+  function toggleMenu(id: string, e: MouseEvent) {
+    e.stopPropagation();
+    menuOpenForId = menuOpenForId === id ? null : id;
+  }
 
   // Editor state
   let isEditing = $state(false);
@@ -664,7 +676,15 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{actual.percentUsed}%</div>
-              <button class="row-details-btn" onclick={(e) => { e.stopPropagation(); loadTransactionsForCategory(actual); }} title="View transactions">⋮</button>
+              <RowMenu
+                items={[
+                  { label: "View", action: () => { loadTransactionsForCategory(actual); closeMenu(); } },
+                  { label: "Edit", action: () => { const cat = categories.find(c => c.id === actual.id); if (cat) startEditCategory(cat); closeMenu(); } },
+                  { label: "Delete", action: () => { const cat = categories.find(c => c.id === actual.id); if (cat) deleteCategory(cat); closeMenu(); }, danger: true },
+                ]}
+                isOpen={menuOpenForId === actual.id}
+                onToggle={(e) => toggleMenu(actual.id, e)}
+              />
             </div>
           {/each}
           <button class="add-row" onclick={() => startAddCategory("income")}>+ Add income</button>
@@ -701,7 +721,15 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
-              <button class="row-details-btn" onclick={(e) => { e.stopPropagation(); loadTransactionsForCategory(actual); }} title="View transactions">⋮</button>
+              <RowMenu
+                items={[
+                  { label: "View", action: () => { loadTransactionsForCategory(actual); closeMenu(); } },
+                  { label: "Edit", action: () => { const cat = categories.find(c => c.id === actual.id); if (cat) startEditCategory(cat); closeMenu(); } },
+                  { label: "Delete", action: () => { const cat = categories.find(c => c.id === actual.id); if (cat) deleteCategory(cat); closeMenu(); }, danger: true },
+                ]}
+                isOpen={menuOpenForId === actual.id}
+                onToggle={(e) => toggleMenu(actual.id, e)}
+              />
             </div>
           {/each}
           <button class="add-row" onclick={() => startAddCategory("expense")}>+ Add category</button>
@@ -1059,31 +1087,6 @@
     flex-shrink: 0;
   }
 
-  .row-details-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: transparent;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-  }
-
-  .row:hover .row-details-btn,
-  .row.cursor .row-details-btn {
-    opacity: 1;
-  }
-
-  .row-details-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-color: var(--text-muted);
-  }
 
   .row-name {
     width: 140px;

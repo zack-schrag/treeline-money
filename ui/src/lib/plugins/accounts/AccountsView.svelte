@@ -11,7 +11,7 @@
     importCsvExecute,
     showToast,
   } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal } from "../../shared";
+  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
   import type {
     AccountWithStats,
@@ -1143,15 +1143,16 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <div class="row-menu">
-                  <button class="row-menu-btn" onclick={(e) => toggleAccountMenu(account.account_id, e)} title="Account actions">⋮</button>
-                  {#if menuOpenForAccount === account.account_id}
-                    <div class="row-menu-dropdown">
-                      <button onclick={() => { startEdit(account); closeAccountMenu(); }}>Edit</button>
-                      <button onclick={() => openImportModal(account)}>Import CSV</button>
-                    </div>
-                  {/if}
-                </div>
+                <RowMenu
+                  items={[
+                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Import CSV", action: () => openImportModal(account) },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0 },
+                  ]}
+                  isOpen={menuOpenForAccount === account.account_id}
+                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  title="Account actions"
+                />
               </div>
             {/each}
           </div>
@@ -1186,15 +1187,16 @@ LIMIT 100`;
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <div class="row-menu">
-                  <button class="row-menu-btn" onclick={(e) => toggleAccountMenu(account.account_id, e)} title="Account actions">⋮</button>
-                  {#if menuOpenForAccount === account.account_id}
-                    <div class="row-menu-dropdown">
-                      <button onclick={() => { startEdit(account); closeAccountMenu(); }}>Edit</button>
-                      <button onclick={() => openImportModal(account)}>Import CSV</button>
-                    </div>
-                  {/if}
-                </div>
+                <RowMenu
+                  items={[
+                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Import CSV", action: () => openImportModal(account) },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0 },
+                  ]}
+                  isOpen={menuOpenForAccount === account.account_id}
+                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  title="Account actions"
+                />
               </div>
             {/each}
           </div>
@@ -1939,31 +1941,6 @@ LIMIT 100`;
     flex-shrink: 0;
   }
 
-  .row-menu-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: transparent;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-muted);
-    font-size: 14px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-  }
-
-  .row:hover .row-menu-btn,
-  .row.cursor .row-menu-btn {
-    opacity: 1;
-  }
-
-  .row-menu-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-color: var(--text-muted);
-  }
 
   .net-worth-row {
     display: flex;
@@ -2273,40 +2250,6 @@ LIMIT 100`;
     background: var(--bg-tertiary);
   }
 
-  /* Row menu dropdown */
-  .row-menu {
-    position: relative;
-    flex-shrink: 0;
-  }
-
-  .row-menu-dropdown {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 100;
-    min-width: 120px;
-    overflow: hidden;
-  }
-
-  .row-menu-dropdown button {
-    display: block;
-    width: 100%;
-    padding: 8px 12px;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    font-size: 12px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .row-menu-dropdown button:hover {
-    background: var(--bg-tertiary);
-  }
 
   /* Import modal */
   .import-modal {
