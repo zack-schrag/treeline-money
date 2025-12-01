@@ -1,6 +1,5 @@
 import type { Plugin, PluginContext } from "../../sdk/types";
-import SettingsView from "./SettingsView.svelte";
-import { runSync, toast, getDemoMode, setDemoMode } from "../../sdk";
+import { runSync, toast, getDemoMode, setDemoMode, registry } from "../../sdk";
 
 export const plugin: Plugin = {
   manifest: {
@@ -12,32 +11,8 @@ export const plugin: Plugin = {
   },
 
   activate(context: PluginContext) {
-    // Register view
-    context.registerView({
-      id: "settings",
-      name: "Settings",
-      icon: "⚙",
-      component: SettingsView,
-    });
-
-    // Add sidebar item in footer section
-    context.registerSidebarItem({
-      sectionId: "system",
-      id: "settings",
-      label: "Settings",
-      icon: "⚙",
-      viewId: "settings",
-    });
-
-    // Register commands
-    context.registerCommand({
-      id: "settings:open",
-      name: "Open Settings",
-      category: "Settings",
-      execute: () => {
-        context.openView("settings");
-      },
-    });
+    // Settings view is now a modal opened via core:settings command
+    // This plugin just registers utility commands
 
     context.registerCommand({
       id: "data:sync",

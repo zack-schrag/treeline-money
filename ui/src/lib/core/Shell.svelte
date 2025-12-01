@@ -4,12 +4,14 @@
   import ContentArea from "./ContentArea.svelte";
   import StatusBar from "./StatusBar.svelte";
   import CommandPalette from "./CommandPalette.svelte";
+  import SettingsModal from "./SettingsModal.svelte";
   import ToastContainer from "./ToastContainer.svelte";
   import { registry } from "../sdk";
 
   let commandPaletteOpen = $state(false);
+  let settingsModalOpen = $state(false);
 
-  // Register the core command to open command palette
+  // Register core commands
   $effect(() => {
     registry.registerCommand({
       id: "core:command-palette",
@@ -20,6 +22,16 @@
         commandPaletteOpen = true;
       },
     });
+
+    registry.registerCommand({
+      id: "core:settings",
+      name: "Open Settings",
+      category: "Core",
+      shortcut: "⌘,",
+      execute: () => {
+        settingsModalOpen = true;
+      },
+    });
   });
 
   // Global keyboard shortcuts
@@ -28,6 +40,12 @@
     if ((e.metaKey || e.ctrlKey) && e.key === "k") {
       e.preventDefault();
       commandPaletteOpen = true;
+    }
+
+    // Settings: Cmd+, or Ctrl+,
+    if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+      e.preventDefault();
+      settingsModalOpen = true;
     }
 
     // Close tab: Cmd+W
@@ -64,6 +82,7 @@
   <StatusBar />
 
   <CommandPalette bind:isOpen={commandPaletteOpen} />
+  <SettingsModal isOpen={settingsModalOpen} onClose={() => settingsModalOpen = false} />
   <ToastContainer />
 </div>
 

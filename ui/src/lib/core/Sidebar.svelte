@@ -1,5 +1,22 @@
 <script lang="ts">
   import { registry } from "../sdk";
+  import { Icon } from "../shared";
+
+  // Icon mapping for sidebar items
+  const iconMap: Record<string, string> = {
+    "🏦": "bank",
+    "💰": "wallet",
+    "💳": "credit-card",
+    "🏷": "tag",
+    "⚡": "zap",
+    "⚙": "settings",
+    "📊": "chart",
+    "🔍": "search",
+  };
+
+  function getIconName(emoji: string): string {
+    return iconMap[emoji] || "database";
+  }
 
   // Reactive state
   let sections = $state(registry.sidebarSections);
@@ -14,7 +31,8 @@
   });
 
   function getItemsForSection(sectionId: string) {
-    return items.filter((item) => item.sectionId === sectionId);
+    // Filter out settings - it's now in the footer as a modal
+    return items.filter((item) => item.sectionId === sectionId && item.viewId !== "settings");
   }
 
   function handleItemClick(viewId: string) {
@@ -43,7 +61,9 @@
                 class:active={activeViewId === item.viewId}
                 onclick={() => handleItemClick(item.viewId)}
               >
-                <span class="item-icon">{item.icon}</span>
+                <span class="item-icon">
+                  <Icon name={getIconName(item.icon)} size={16} />
+                </span>
                 <span class="item-label">{item.label}</span>
                 {#if item.shortcut}
                   <span class="item-shortcut">{item.shortcut}</span>
@@ -57,8 +77,17 @@
   </nav>
 
   <div class="sidebar-footer">
+    <button class="sidebar-item" onclick={() => registry.executeCommand("core:settings")}>
+      <span class="item-icon">
+        <Icon name="settings" size={16} />
+      </span>
+      <span class="item-label">Settings</span>
+      <span class="item-shortcut">⌘,</span>
+    </button>
     <button class="sidebar-item" onclick={() => registry.executeCommand("core:command-palette")}>
-      <span class="item-icon">⌘</span>
+      <span class="item-icon">
+        <Icon name="command" size={16} />
+      </span>
       <span class="item-label">Commands</span>
       <span class="item-shortcut">⌘K</span>
     </button>
