@@ -82,14 +82,14 @@
         <Icon name="settings" size={16} />
       </span>
       <span class="item-label">Settings</span>
-      <span class="item-shortcut">⌘,</span>
+      <span class="item-shortcut">⌘ ,</span>
     </button>
     <button class="sidebar-item" onclick={() => registry.executeCommand("core:command-palette")}>
       <span class="item-icon">
         <Icon name="command" size={16} />
       </span>
       <span class="item-label">Commands</span>
-      <span class="item-shortcut">⌘K</span>
+      <span class="item-shortcut">⌘P</span>
     </button>
   </div>
 </aside>

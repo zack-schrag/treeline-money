@@ -17,7 +17,7 @@
       id: "core:command-palette",
       name: "Open Command Palette",
       category: "Core",
-      shortcut: "⌘K",
+      shortcut: "⌘P",
       execute: () => {
         commandPaletteOpen = true;
       },
@@ -36,8 +36,8 @@
 
   // Global keyboard shortcuts
   function handleKeydown(e: KeyboardEvent) {
-    // Command palette: Cmd+K or Ctrl+K
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    // Command palette: Cmd+P or Ctrl+P
+    if ((e.metaKey || e.ctrlKey) && e.key === "p") {
       e.preventDefault();
       commandPaletteOpen = true;
     }
