@@ -68,7 +68,7 @@ fi
 echo -e "${GREEN}Creating release ${VERSION}${NC}"
 echo ""
 
-# Update version in pyproject.toml
+# Update version in cli/pyproject.toml
 echo -e "${YELLOW}Updating version in cli/pyproject.toml...${NC}"
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
@@ -78,13 +78,35 @@ else
     sed -i "s/^version = \".*\"/version = \"${VERSION_NUMBER}\"/" cli/pyproject.toml
 fi
 
-# Verify the change
+# Verify the CLI change
 UPDATED_VERSION=$(grep "^version = " cli/pyproject.toml | cut -d'"' -f2)
 if [ "$UPDATED_VERSION" != "$VERSION_NUMBER" ]; then
     echo -e "${RED}Error: Failed to update version in pyproject.toml${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓ Updated version to ${VERSION_NUMBER}${NC}"
+echo -e "${GREEN}✓ Updated CLI version to ${VERSION_NUMBER}${NC}"
+
+# Update version in ui/src-tauri/tauri.conf.json
+echo -e "${YELLOW}Updating version in ui/src-tauri/tauri.conf.json...${NC}"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION_NUMBER}\"/" ui/src-tauri/tauri.conf.json
+else
+    # Linux
+    sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION_NUMBER}\"/" ui/src-tauri/tauri.conf.json
+fi
+echo -e "${GREEN}✓ Updated UI version to ${VERSION_NUMBER}${NC}"
+
+# Update version in ui/package.json
+echo -e "${YELLOW}Updating version in ui/package.json...${NC}"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS - match the version line specifically
+    sed -i '' "s/\"version\": \"[0-9]*\.[0-9]*\.[0-9]*\"/\"version\": \"${VERSION_NUMBER}\"/" ui/package.json
+else
+    # Linux
+    sed -i "s/\"version\": \"[0-9]*\.[0-9]*\.[0-9]*\"/\"version\": \"${VERSION_NUMBER}\"/" ui/package.json
+fi
+echo -e "${GREEN}✓ Updated package.json version to ${VERSION_NUMBER}${NC}"
 
 # Update uv.lock to match new version
 echo -e "${YELLOW}Updating uv.lock...${NC}"
@@ -95,7 +117,7 @@ echo -e "${GREEN}✓ Updated uv.lock${NC}"
 
 # Commit version bump
 echo -e "${YELLOW}Committing version bump...${NC}"
-git add cli/pyproject.toml cli/uv.lock
+git add cli/pyproject.toml cli/uv.lock ui/src-tauri/tauri.conf.json ui/package.json
 git commit -m "Bump version to ${VERSION}"
 echo -e "${GREEN}✓ Committed version bump${NC}"
 
@@ -122,9 +144,10 @@ echo -e "${GREEN}✓ Release ${VERSION} created successfully!${NC}"
 echo ""
 echo "The GitHub Actions workflow will now:"
 echo "  1. Run tests"
-echo "  2. Publish to PyPI"
-echo "  3. Build binaries for all platforms"
-echo "  4. Upload binaries to the GitHub Release"
+echo "  2. Publish CLI to PyPI"
+echo "  3. Build CLI binaries for all platforms"
+echo "  4. Build Tauri desktop apps (with bundled CLI)"
+echo "  5. Upload all binaries to the GitHub Release"
 echo ""
 echo "Monitor progress at: https://github.com/zack-schrag/treeline-money/actions"
 echo "View release at: https://github.com/zack-schrag/treeline-money/releases/tag/${VERSION}"

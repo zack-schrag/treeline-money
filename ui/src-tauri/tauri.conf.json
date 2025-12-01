@@ -34,9 +34,9 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "targets": "all",
     "icon": [],
-    "externalBin": ["/Users/schrag/code/treeline-money/cli/dist/tl"]
+    "externalBin": ["binaries/tl"]
   }
 }
