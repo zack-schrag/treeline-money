@@ -21,6 +21,10 @@ use uuid::Uuid;
 #[derive(Parser)]
 #[command(name = "tl", author, version, about = "Treeline - personal finance in your terminal")]
 struct Cli {
+    /// Show version information
+    #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
+    version: (),
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -148,6 +152,13 @@ async fn main() {
                 println!("\n{} {}", "Integration:".bold(), r.integration.cyan());
                 if let Some(error) = &r.error { println!("  {}: {}", "Error".red().bold(), error); continue; }
                 println!("  {}: {}", "Sync Type".cyan(), r.sync_type);
+                if let Some(start_date) = &r.start_date {
+                    if r.sync_type == "incremental" {
+                        println!("  {}: {} {} (with 7-day overlap)", "Date Range".cyan(), start_date, "to now".dimmed());
+                    } else {
+                        println!("  {}: {} {} (last 90 days)", "Date Range".cyan(), start_date, "to now".dimmed());
+                    }
+                }
                 println!("  {}: {}", "Accounts Synced".cyan(), r.accounts_synced);
                 if let Some(stats) = &r.transaction_stats {
                     println!("  {}: {} discovered, {} new, {} skipped", "Transactions".cyan(), stats.discovered, stats.new, stats.skipped);

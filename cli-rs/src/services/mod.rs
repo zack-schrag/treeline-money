@@ -85,15 +85,54 @@ pub struct SyncResult { pub results: Vec<IntegrationSyncResult>, pub new_account
 pub struct IntegrationSyncResult {
     pub integration: String, pub accounts_synced: usize, pub transactions_synced: usize,
     pub transaction_stats: Option<TransactionStats>, pub sync_type: String,
-    pub provider_warnings: Vec<String>, pub error: Option<String>,
+    pub start_date: Option<String>, pub provider_warnings: Vec<String>, pub error: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct TransactionStats { pub discovered: usize, pub new: usize, pub skipped: usize }
+
+struct SyncDateRange {
+    start: chrono::DateTime<Utc>,
+    end: chrono::DateTime<Utc>,
+    sync_type: String,
+}
 
 pub struct SyncService { repository: Arc<dyn Repository>, account_service: Arc<AccountService> }
 impl SyncService {
     pub fn new(repository: Arc<dyn Repository>, account_service: Arc<AccountService>) -> Self {
         SyncService { repository, account_service }
+    }
+
+    /// Calculate sync date range based on existing transactions.
+    /// - If transactions exist: incremental sync from (max_date - 7 days) to now
+    /// - If no transactions: initial sync for last 90 days
+    fn calculate_sync_date_range(&self) -> SyncDateRange {
+        let end = Utc::now();
+
+        // Query for the latest transaction date
+        let stats = self.repository.execute_query("SELECT MAX(transaction_date) as max_date FROM transactions");
+
+        if let Some(r) = stats.data {
+            if !r.rows.is_empty() && !r.rows[0].is_empty() {
+                if let Some(max_date_str) = r.rows[0].get(0).and_then(|v| v.as_str()) {
+                    // Parse the date and calculate incremental range
+                    if let Ok(max_date) = NaiveDate::parse_from_str(max_date_str, "%Y-%m-%d") {
+                        let start = max_date.and_hms_opt(0, 0, 0).unwrap().and_utc() - Duration::days(7);
+                        return SyncDateRange {
+                            start,
+                            end,
+                            sync_type: "incremental".to_string(),
+                        };
+                    }
+                }
+            }
+        }
+
+        // Fallback to initial 90-day sync
+        SyncDateRange {
+            start: end - Duration::days(90),
+            end,
+            sync_type: "initial".to_string(),
+        }
     }
 
     pub async fn sync_all_integrations(&self, dry_run: bool) -> ServiceResult<SyncResult> {
@@ -115,7 +154,7 @@ impl SyncService {
                 if !acc_result.success {
                     sync_results.push(IntegrationSyncResult {
                         integration: name, accounts_synced: 0, transactions_synced: 0, transaction_stats: None,
-                        sync_type: "unknown".to_string(), provider_warnings: Vec::new(), error: acc_result.error,
+                        sync_type: "unknown".to_string(), start_date: None, provider_warnings: Vec::new(), error: acc_result.error,
                     });
                     continue;
                 }
@@ -127,7 +166,7 @@ impl SyncService {
                 if !acc_result.success {
                     sync_results.push(IntegrationSyncResult {
                         integration: name, accounts_synced: 0, transactions_synced: 0, transaction_stats: None,
-                        sync_type: "unknown".to_string(), provider_warnings: Vec::new(), error: acc_result.error,
+                        sync_type: "unknown".to_string(), start_date: None, provider_warnings: Vec::new(), error: acc_result.error,
                     });
                     continue;
                 }
@@ -174,6 +213,9 @@ impl SyncService {
                 if account.account_type.is_none() { all_new_accounts.push(account.clone()); }
             }
 
+            // Calculate sync date range (incremental vs initial)
+            let date_range = self.calculate_sync_date_range();
+
             // Get transactions
             let (tx_with_accounts, tx_errors): (Vec<(String, Transaction)>, Vec<String>) = if name == "demo" {
                 let demo = DemoDataProvider::new();
@@ -181,7 +223,8 @@ impl SyncService {
                 if !tx_result.success {
                     sync_results.push(IntegrationSyncResult {
                         integration: name, accounts_synced: updated_accounts.len(), transactions_synced: 0,
-                        transaction_stats: None, sync_type: "initial".to_string(),
+                        transaction_stats: None, sync_type: date_range.sync_type.clone(),
+                        start_date: Some(date_range.start.format("%Y-%m-%d").to_string()),
                         provider_warnings: acc_errors, error: tx_result.error,
                     });
                     continue;
@@ -189,14 +232,13 @@ impl SyncService {
                 let tx_data = tx_result.data.unwrap();
                 (tx_data.transactions, tx_data.errors)
             } else {
-                // SimpleFIN - get last 90 days of transactions
-                let end = Utc::now();
-                let start = end - Duration::days(90);
-                let tx_result = SimpleFINProvider::get_transactions(access_url, Some(start), Some(end)).await;
+                // SimpleFIN - use calculated date range (incremental or initial)
+                let tx_result = SimpleFINProvider::get_transactions(access_url, Some(date_range.start), Some(date_range.end)).await;
                 if !tx_result.success {
                     sync_results.push(IntegrationSyncResult {
                         integration: name, accounts_synced: updated_accounts.len(), transactions_synced: 0,
-                        transaction_stats: None, sync_type: "initial".to_string(),
+                        transaction_stats: None, sync_type: date_range.sync_type.clone(),
+                        start_date: Some(date_range.start.format("%Y-%m-%d").to_string()),
                         provider_warnings: acc_errors, error: tx_result.error,
                     });
                     continue;
@@ -259,7 +301,8 @@ impl SyncService {
             sync_results.push(IntegrationSyncResult {
                 integration: name, accounts_synced: updated_accounts.len(), transactions_synced: to_insert.len(),
                 transaction_stats: Some(TransactionStats { discovered: mapped_txs.len(), new: new_count, skipped: skipped_count }),
-                sync_type: "initial".to_string(), provider_warnings: all_warnings, error: None,
+                sync_type: date_range.sync_type, start_date: Some(date_range.start.format("%Y-%m-%d").to_string()),
+                provider_warnings: all_warnings, error: None,
             });
         }
 
