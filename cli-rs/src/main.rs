@@ -5,9 +5,9 @@ mod infra;
 mod repository;
 mod services;
 
-use crate::infra::DuckDBRepository;
+use crate::infra::{ColumnMapping, DuckDBRepository};
 use crate::repository::Repository;
-use crate::services::{AccountService, BackfillService, DbService, StatusService, SyncService};
+use crate::services::{AccountService, BackfillService, DbService, ImportService, StatusService, SyncService};
 use chrono::NaiveDate;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
@@ -39,6 +39,20 @@ enum Commands {
     New { resource_type: String, #[arg(long)] account_id: Option<Uuid>, #[arg(long)] balance: Option<Decimal>, #[arg(long)] date: Option<NaiveDate> },
     /// Backfill historical data
     Backfill { resource_type: String, #[arg(long)] account_id: Option<Uuid>, #[arg(long, default_value = "90")] days: i64, #[arg(long)] dry_run: bool },
+    /// Import transactions from CSV
+    Import {
+        #[arg(long, short)] file: PathBuf,
+        #[arg(long)] account_id: Uuid,
+        #[arg(long)] date_column: Option<String>,
+        #[arg(long)] amount_column: Option<String>,
+        #[arg(long)] description_column: Option<String>,
+        #[arg(long)] debit_column: Option<String>,
+        #[arg(long)] credit_column: Option<String>,
+        #[arg(long)] flip_signs: bool,
+        #[arg(long)] debit_negative: bool,
+        #[arg(long)] preview: bool,
+        #[arg(long)] json: bool,
+    },
 }
 
 fn get_db_path() -> String {
@@ -68,6 +82,7 @@ async fn main() {
     let status_service = StatusService::new(repository.clone());
     let sync_service = SyncService::new(repository.clone(), account_service.clone());
     let backfill_service = BackfillService::new(repository.clone(), account_service.clone());
+    let import_service = ImportService::new(repository.clone());
 
     match cli.command {
         Commands::Status { json } => {
@@ -211,6 +226,91 @@ async fn main() {
                     println!("  Snapshots skipped: {}", r.snapshots_skipped);
                 }
                 _ => { eprintln!("{}: Unknown resource type: {}", "Error".red().bold(), resource_type); std::process::exit(1); }
+            }
+        }
+
+        Commands::Import { file, account_id, date_column, amount_column, description_column, debit_column, credit_column, flip_signs, debit_negative, preview, json } => {
+            let file_path = file.to_string_lossy().to_string();
+
+            // Build column mapping - auto-detect if not specified
+            let mapping = if date_column.is_some() || amount_column.is_some() || debit_column.is_some() {
+                ColumnMapping {
+                    date: date_column,
+                    description: description_column,
+                    amount: amount_column,
+                    debit: debit_column,
+                    credit: credit_column,
+                    posted_date: None,
+                }
+            } else {
+                // Auto-detect columns
+                let detect_result = import_service.detect_columns(&file_path);
+                if !detect_result.success {
+                    eprintln!("{}: {}", "Error".red().bold(), detect_result.error.unwrap_or_default());
+                    std::process::exit(1);
+                }
+                detect_result.data.unwrap()
+            };
+
+            // Validate we have required columns
+            if mapping.date.is_none() {
+                eprintln!("{}: Could not detect date column. Use --date-column to specify.", "Error".red().bold());
+                std::process::exit(1);
+            }
+            if mapping.amount.is_none() && mapping.debit.is_none() && mapping.credit.is_none() {
+                eprintln!("{}: Could not detect amount column. Use --amount-column or --debit-column/--credit-column.", "Error".red().bold());
+                std::process::exit(1);
+            }
+
+            if preview {
+                // Preview mode
+                let result = import_service.preview(&file_path, &mapping, 5, flip_signs, debit_negative);
+                if !result.success {
+                    eprintln!("{}: {}", "Error".red().bold(), result.error.unwrap_or_default());
+                    std::process::exit(1);
+                }
+                let transactions = result.data.unwrap();
+
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&transactions).unwrap_or_default());
+                } else {
+                    println!("\n{} (showing first {} rows)\n", "Preview".bold(), transactions.len());
+                    let mut table = Table::new();
+                    table.load_preset(UTF8_FULL);
+                    table.set_header(vec!["Date", "Description", "Amount"]);
+                    for tx in &transactions {
+                        let amount_str = format!("{:.2}", tx.amount);
+                        let amount_cell = if tx.amount < Decimal::ZERO {
+                            Cell::new(&amount_str).fg(Color::Red)
+                        } else {
+                            Cell::new(&amount_str).fg(Color::Green)
+                        };
+                        table.add_row(vec![
+                            Cell::new(tx.transaction_date.to_string()),
+                            Cell::new(tx.description.as_deref().unwrap_or("-")),
+                            amount_cell,
+                        ]);
+                    }
+                    println!("{}", table);
+                    println!("\nRun without --preview to import these transactions.");
+                }
+            } else {
+                // Import mode
+                let result = import_service.import_csv(&file_path, account_id, &mapping, flip_signs, debit_negative);
+                if !result.success {
+                    eprintln!("{}: {}", "Error".red().bold(), result.error.unwrap_or_default());
+                    std::process::exit(1);
+                }
+                let import_result = result.data.unwrap();
+
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&import_result).unwrap_or_default());
+                } else {
+                    println!("\n{} Import complete!", "✓".green().bold());
+                    println!("  Transactions discovered: {}", import_result.transactions_discovered);
+                    println!("  Transactions imported: {}", import_result.transactions_imported);
+                    println!("  Transactions skipped: {}", import_result.transactions_skipped);
+                }
             }
         }
     }

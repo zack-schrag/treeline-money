@@ -1,7 +1,7 @@
 //! Service layer implementations.
 
 use crate::domain::{Account, BalanceSnapshot, Integration, ServiceResult, Transaction};
-use crate::infra::DemoDataProvider;
+use crate::infra::{ColumnMapping, CSVProvider, DemoDataProvider, SimpleFINProvider};
 use crate::repository::Repository;
 use chrono::{Duration, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
@@ -105,25 +105,42 @@ impl SyncService {
 
         for integration in integrations {
             let name = integration.integration_name.clone();
-            let options: HashMap<String, serde_json::Value> = integration.integration_options;
+            let options = integration.integration_options.clone();
+            let access_url = options.get("accessUrl").and_then(|v| v.as_str()).unwrap_or_default();
 
-            // Sync accounts
-            let demo = DemoDataProvider::new();
-            let acc_result = demo.get_accounts();
-            if !acc_result.success {
-                sync_results.push(IntegrationSyncResult {
-                    integration: name, accounts_synced: 0, transactions_synced: 0, transaction_stats: None,
-                    sync_type: "unknown".to_string(), provider_warnings: Vec::new(), error: acc_result.error,
-                });
-                continue;
-            }
-            let acc_data = acc_result.data.unwrap();
+            // Get accounts based on provider type
+            let (accounts, acc_errors): (Vec<Account>, Vec<String>) = if name == "demo" {
+                let demo = DemoDataProvider::new();
+                let acc_result = demo.get_accounts();
+                if !acc_result.success {
+                    sync_results.push(IntegrationSyncResult {
+                        integration: name, accounts_synced: 0, transactions_synced: 0, transaction_stats: None,
+                        sync_type: "unknown".to_string(), provider_warnings: Vec::new(), error: acc_result.error,
+                    });
+                    continue;
+                }
+                let acc_data = acc_result.data.unwrap();
+                (acc_data.accounts, acc_data.errors)
+            } else {
+                // SimpleFIN
+                let acc_result = SimpleFINProvider::get_accounts(access_url).await;
+                if !acc_result.success {
+                    sync_results.push(IntegrationSyncResult {
+                        integration: name, accounts_synced: 0, transactions_synced: 0, transaction_stats: None,
+                        sync_type: "unknown".to_string(), provider_warnings: Vec::new(), error: acc_result.error,
+                    });
+                    continue;
+                }
+                let acc_data = acc_result.data.unwrap();
+                (acc_data.accounts, acc_data.errors)
+            };
+
             let existing = self.repository.get_accounts().data.unwrap_or_default();
 
             // Map accounts
             let mut updated_accounts = Vec::new();
             let mut new_accounts = Vec::new();
-            for discovered in acc_data.accounts {
+            for discovered in accounts {
                 let disc_ext = discovered.external_ids.get("simplefin");
                 let mut matched = false;
                 for existing_acc in &existing {
@@ -132,6 +149,7 @@ impl SyncService {
                         if d == e {
                             let mut updated = discovered.clone();
                             updated.id = existing_acc.id;
+                            updated.account_type = existing_acc.account_type.clone();
                             updated_accounts.push(updated);
                             matched = true;
                             break;
@@ -156,25 +174,44 @@ impl SyncService {
                 if account.account_type.is_none() { all_new_accounts.push(account.clone()); }
             }
 
-            // Sync transactions
-            let tx_result = demo.get_transactions();
-            if !tx_result.success {
-                sync_results.push(IntegrationSyncResult {
-                    integration: name, accounts_synced: updated_accounts.len(), transactions_synced: 0,
-                    transaction_stats: None, sync_type: "initial".to_string(),
-                    provider_warnings: acc_data.errors, error: tx_result.error,
-                });
-                continue;
-            }
-            let tx_data = tx_result.data.unwrap();
+            // Get transactions
+            let (tx_with_accounts, tx_errors): (Vec<(String, Transaction)>, Vec<String>) = if name == "demo" {
+                let demo = DemoDataProvider::new();
+                let tx_result = demo.get_transactions();
+                if !tx_result.success {
+                    sync_results.push(IntegrationSyncResult {
+                        integration: name, accounts_synced: updated_accounts.len(), transactions_synced: 0,
+                        transaction_stats: None, sync_type: "initial".to_string(),
+                        provider_warnings: acc_errors, error: tx_result.error,
+                    });
+                    continue;
+                }
+                let tx_data = tx_result.data.unwrap();
+                (tx_data.transactions, tx_data.errors)
+            } else {
+                // SimpleFIN - get last 90 days of transactions
+                let end = Utc::now();
+                let start = end - Duration::days(90);
+                let tx_result = SimpleFINProvider::get_transactions(access_url, Some(start), Some(end)).await;
+                if !tx_result.success {
+                    sync_results.push(IntegrationSyncResult {
+                        integration: name, accounts_synced: updated_accounts.len(), transactions_synced: 0,
+                        transaction_stats: None, sync_type: "initial".to_string(),
+                        provider_warnings: acc_errors, error: tx_result.error,
+                    });
+                    continue;
+                }
+                let tx_data = tx_result.data.unwrap();
+                (tx_data.transactions, tx_data.errors)
+            };
 
-            // Map transactions
+            // Map transactions to internal account IDs
             let account_id_map: HashMap<String, Uuid> = updated_accounts.iter()
                 .filter_map(|a| a.external_ids.get("simplefin").map(|ext| (ext.clone(), a.id)))
                 .collect();
 
             let mut mapped_txs = Vec::new();
-            for (provider_acc_id, mut tx) in tx_data.transactions {
+            for (provider_acc_id, mut tx) in tx_with_accounts {
                 if let Some(internal_id) = account_id_map.get(&provider_acc_id) {
                     tx.account_id = *internal_id;
                     tx.external_ids.remove("fingerprint");
@@ -216,23 +253,120 @@ impl SyncService {
                 let _ = self.repository.bulk_upsert_transactions(&to_insert);
             }
 
+            let mut all_warnings = acc_errors;
+            all_warnings.extend(tx_errors);
+
             sync_results.push(IntegrationSyncResult {
                 integration: name, accounts_synced: updated_accounts.len(), transactions_synced: to_insert.len(),
                 transaction_stats: Some(TransactionStats { discovered: mapped_txs.len(), new: new_count, skipped: skipped_count }),
-                sync_type: "initial".to_string(), provider_warnings: acc_data.errors, error: None,
+                sync_type: "initial".to_string(), provider_warnings: all_warnings, error: None,
             });
         }
 
         ServiceResult::ok(SyncResult { results: sync_results, new_accounts_without_type: all_new_accounts })
     }
 
-    pub async fn create_integration(&self, integration_name: &str, _options: &HashMap<String, String>) -> ServiceResult<()> {
-        let demo = DemoDataProvider::new();
-        let result = demo.create_integration();
-        if !result.success { return ServiceResult::fail(result.error.unwrap_or_default()); }
-        let settings = result.data.unwrap();
+    pub async fn create_integration(&self, integration_name: &str, options: &HashMap<String, String>) -> ServiceResult<()> {
+        let settings: HashMap<String, String> = if integration_name == "demo" {
+            let demo = DemoDataProvider::new();
+            let result = demo.create_integration();
+            if !result.success { return ServiceResult::fail(result.error.unwrap_or_default()); }
+            result.data.unwrap()
+        } else {
+            // SimpleFIN - exchange setup token for access URL
+            let setup_token = options.get("setupToken").map(|s| s.as_str()).unwrap_or_default();
+            let result = SimpleFINProvider::create_integration(setup_token).await;
+            if !result.success { return ServiceResult::fail(result.error.unwrap_or_default()); }
+            result.data.unwrap()
+        };
+
         let settings_value = serde_json::to_value(settings).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
         self.repository.upsert_integration(integration_name, &settings_value)
+    }
+}
+
+// Import Service for CSV imports
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub transactions_discovered: usize,
+    pub transactions_imported: usize,
+    pub transactions_skipped: usize,
+}
+
+pub struct ImportService { repository: Arc<dyn Repository> }
+impl ImportService {
+    pub fn new(repository: Arc<dyn Repository>) -> Self {
+        ImportService { repository }
+    }
+
+    pub fn detect_columns(&self, file_path: &str) -> ServiceResult<ColumnMapping> {
+        CSVProvider::detect_columns(file_path)
+    }
+
+    pub fn get_headers(&self, file_path: &str) -> ServiceResult<Vec<String>> {
+        CSVProvider::get_headers(file_path)
+    }
+
+    pub fn preview(&self, file_path: &str, mapping: &ColumnMapping, limit: usize, flip_signs: bool, debit_negative: bool) -> ServiceResult<Vec<Transaction>> {
+        CSVProvider::preview_transactions(file_path, mapping, limit, flip_signs, debit_negative)
+    }
+
+    pub fn import_csv(&self, file_path: &str, account_id: Uuid, mapping: &ColumnMapping, flip_signs: bool, debit_negative: bool) -> ServiceResult<ImportResult> {
+        // Verify account exists
+        let acc_result = self.repository.get_account_by_id(account_id);
+        if !acc_result.success {
+            return ServiceResult::fail("Account not found");
+        }
+
+        // Parse CSV
+        let tx_result = CSVProvider::get_transactions(file_path, mapping, flip_signs, debit_negative);
+        if !tx_result.success {
+            return ServiceResult::fail(tx_result.error.unwrap_or_default());
+        }
+        let mut transactions = tx_result.data.unwrap();
+
+        // Set account ID and generate fingerprints
+        for tx in &mut transactions {
+            tx.account_id = account_id;
+            tx.ensure_fingerprint();
+        }
+
+        let discovered = transactions.len();
+
+        // Check for existing transactions by fingerprint
+        let fingerprints: Vec<String> = transactions.iter()
+            .filter_map(|tx| tx.external_ids.get("fingerprint").cloned())
+            .collect();
+
+        let existing_counts = self.repository.get_transaction_counts_by_fingerprint(&fingerprints);
+        let existing_fps: std::collections::HashSet<String> = existing_counts.data.unwrap_or_default()
+            .into_iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|(fp, _)| fp)
+            .collect();
+
+        // Filter out existing transactions
+        let to_insert: Vec<Transaction> = transactions.into_iter()
+            .filter(|tx| {
+                tx.external_ids.get("fingerprint")
+                    .map(|fp| !existing_fps.contains(fp))
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        let new_count = to_insert.len();
+        let skipped = discovered - new_count;
+
+        // Insert new transactions
+        if !to_insert.is_empty() {
+            let _ = self.repository.bulk_upsert_transactions(&to_insert);
+        }
+
+        ServiceResult::ok(ImportResult {
+            transactions_discovered: discovered,
+            transactions_imported: new_count,
+            transactions_skipped: skipped,
+        })
     }
 }
 
