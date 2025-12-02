@@ -280,22 +280,22 @@ jobs:
         run: |
           # Find and upload all Tauri build artifacts
           # macOS
-          for f in artifacts/treeline-macos-*/bundle/dmg/*.dmg; do
+          for f in artifacts/treeline-macos-*/dmg/*.dmg; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
 
           # Linux
-          for f in artifacts/treeline-linux-*/bundle/deb/*.deb; do
+          for f in artifacts/treeline-linux-*/deb/*.deb; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
-          for f in artifacts/treeline-linux-*/bundle/appimage/*.AppImage; do
+          for f in artifacts/treeline-linux-*/appimage/*.AppImage; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
 
           # Windows
-          for f in artifacts/treeline-windows-*/bundle/msi/*.msi; do
+          for f in artifacts/treeline-windows-*/msi/*.msi; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
-          for f in artifacts/treeline-windows-*/bundle/nsis/*.exe; do
+          for f in artifacts/treeline-windows-*/nsis/*.exe; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
