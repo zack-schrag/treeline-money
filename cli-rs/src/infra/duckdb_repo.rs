@@ -98,14 +98,14 @@ const MIGRATION_000: &str = "CREATE TABLE IF NOT EXISTS sys_migrations (migratio
 const MIGRATION_001: &str = r#"
 CREATE TABLE IF NOT EXISTS sys_accounts (
     account_id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL, nickname VARCHAR, account_type VARCHAR,
-    currency VARCHAR NOT NULL DEFAULT 'USD', balance DECIMAL(15,2), external_ids VARCHAR DEFAULT '{}',
+    currency VARCHAR NOT NULL DEFAULT 'USD', balance DECIMAL(15,2), external_ids JSON DEFAULT '{}',
     institution_name VARCHAR, institution_url VARCHAR, institution_domain VARCHAR,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS sys_transactions (
     transaction_id VARCHAR PRIMARY KEY, account_id VARCHAR NOT NULL, amount DECIMAL(15,2) NOT NULL,
-    description VARCHAR, transaction_date DATE NOT NULL, posted_date DATE NOT NULL, tags VARCHAR DEFAULT '[]',
-    external_ids VARCHAR DEFAULT '{}', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    description VARCHAR, transaction_date DATE NOT NULL, posted_date DATE NOT NULL, tags JSON DEFAULT '[]',
+    external_ids JSON DEFAULT '{}', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, deleted_at TIMESTAMP, parent_transaction_id VARCHAR
 );
 CREATE TABLE IF NOT EXISTS sys_balance_snapshots (
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS sys_balance_snapshots (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS sys_integrations (
-    integration_name VARCHAR PRIMARY KEY, integration_settings VARCHAR NOT NULL,
+    integration_name VARCHAR PRIMARY KEY, integration_settings JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE OR REPLACE VIEW transactions AS SELECT t.*, a.name AS account_name, a.account_type, a.currency, a.institution_name FROM sys_transactions t LEFT JOIN sys_accounts a ON t.account_id = a.account_id;
