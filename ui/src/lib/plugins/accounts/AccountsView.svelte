@@ -10,6 +10,7 @@
     importCsvPreview,
     importCsvExecute,
     showToast,
+    getDemoMode,
   } from "../../sdk";
   import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
@@ -116,6 +117,7 @@
   let isImporting = $state(false);
   let isLoadingPreview = $state(false);
   let previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let importDemoModeWarning = $state(false);
 
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
@@ -793,7 +795,7 @@ LIMIT 100`;
   // CSV Import Functions
   // ============================================================================
 
-  function openImportModal(account: AccountWithStats) {
+  async function openImportModal(account: AccountWithStats) {
     importAccountId = account.account_id;
     importAccountName = account.nickname || account.name;
     importFilePath = "";
@@ -806,6 +808,7 @@ LIMIT 100`;
     importResult = null;
     importError = null;
     isImporting = false;
+    importDemoModeWarning = await getDemoMode();
     showImportModal = true;
     menuOpenForAccount = null;
   }
@@ -1487,6 +1490,16 @@ LIMIT 100`;
     class="import-modal"
   >
     <div class="import-body">
+      {#if importDemoModeWarning}
+        <div class="import-demo-warning">
+          <span class="warning-icon">🎭</span>
+          <div class="warning-content">
+            <strong>Demo Mode Active</strong>
+            <p>This data will be imported to the demo database, not your real data.</p>
+          </div>
+        </div>
+      {/if}
+
       {#if importError}
         <div class="import-error">{importError}</div>
       {/if}
@@ -2246,6 +2259,39 @@ LIMIT 100`;
   .import-body {
     max-height: 70vh;
     overflow-y: auto;
+  }
+
+  .import-demo-warning {
+    display: flex;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+    border-radius: 6px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .import-demo-warning .warning-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .import-demo-warning .warning-content {
+    flex: 1;
+  }
+
+  .import-demo-warning .warning-content strong {
+    display: block;
+    font-size: 12px;
+    color: #d97706;
+    margin-bottom: 2px;
+  }
+
+  .import-demo-warning .warning-content p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
   }
 
   .import-error {

@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Shell from "./lib/core/Shell.svelte";
+  import WelcomeModal from "./lib/core/WelcomeModal.svelte";
   import { initializePlugins } from "./lib/plugins";
-  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting } from "./lib/sdk";
+  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry } from "./lib/sdk";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
+  let showWelcome = $state(false);
+  let openSettingsAfterWelcome = $state(false);
 
   onMount(async () => {
     try {
@@ -14,19 +17,44 @@
       const savedTheme = await getAppSetting("theme");
       themeManager.setTheme(savedTheme === "system" ? "dark" : savedTheme);
 
+      // Check if first-time user
+      loadingStatus = "Checking setup...";
+      const hasCompletedOnboarding = await getAppSetting("hasCompletedOnboarding");
+
       // Load all plugins
       loadingStatus = "Loading plugins...";
       await initializePlugins();
 
       isLoading = false;
 
-      // Check if sync is needed (after UI is loaded so user sees the app)
-      checkAndRunSync();
+      // Show welcome modal for first-time users
+      if (!hasCompletedOnboarding) {
+        showWelcome = true;
+      } else {
+        // Check if sync is needed (after UI is loaded so user sees the app)
+        checkAndRunSync();
+      }
     } catch (error) {
       console.error("Initialization error:", error);
       loadingStatus = `Error: ${error}`;
     }
   });
+
+  function handleWelcomeComplete(openSettings: boolean = false) {
+    showWelcome = false;
+    if (openSettings) {
+      // Use a small delay to ensure Shell is rendered, then open settings
+      openSettingsAfterWelcome = true;
+      setTimeout(() => {
+        registry.executeCommand("core:settings");
+        openSettingsAfterWelcome = false;
+      }, 100);
+    } else {
+      // Demo mode was enabled, data was synced by enableDemo()
+      // Emit refresh to update views
+      registry.emit("data:refresh");
+    }
+  }
 
   async function checkAndRunSync() {
     try {
@@ -80,6 +108,9 @@
   </div>
 {:else}
   <Shell />
+  {#if showWelcome}
+    <WelcomeModal onComplete={handleWelcomeComplete} />
+  {/if}
 {/if}
 
 <style>

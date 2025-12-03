@@ -440,3 +440,12 @@ class TestSetupCommand:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = run_cli(["setup", "unknown"], tmpdir)
             assert result.returncode != 0
+
+    def test_setup_simplefin_blocked_in_demo_mode(self):
+        """Test that SimpleFIN setup is blocked in demo mode."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+
+            result = run_cli(["setup", "simplefin", "--token", "fake-token"], tmpdir)
+            assert result.returncode != 0
+            assert "demo mode" in result.stdout.lower()

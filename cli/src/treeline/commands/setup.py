@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 from rich.prompt import Prompt
 
+from treeline.config import is_demo_mode
 from treeline.theme import get_theme
 from treeline.utils import get_log_file_path
 
@@ -72,6 +73,15 @@ def register(app: typer.Typer, get_container: callable, ensure_initialized: call
         # Handle specific integrations
         integration_lower = integration.lower()
         if integration_lower == "simplefin":
+            # Block in demo mode
+            if is_demo_mode():
+                console.print(
+                    f"[{theme.warning}]Cannot set up integrations in demo mode[/{theme.warning}]"
+                )
+                console.print(
+                    f"[{theme.muted}]Use 'tl demo off' to switch to real mode first[/{theme.muted}]\n"
+                )
+                raise typer.Exit(1)
             _setup_simplefin(get_container, token)
         elif integration_lower == "demo":
             # Redirect to demo command

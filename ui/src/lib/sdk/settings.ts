@@ -18,6 +18,7 @@ export interface AppSettings {
   theme: "light" | "dark" | "system";
   lastSyncDate: string | null;
   autoSyncOnStartup: boolean;
+  hasCompletedOnboarding?: boolean;
 }
 
 /**

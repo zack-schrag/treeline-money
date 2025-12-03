@@ -13,6 +13,9 @@
     getDisabledPlugins,
     enablePlugin,
     disablePlugin,
+    getDemoMode,
+    disableDemo,
+    registry,
     toast,
     themeManager,
     type Settings,
@@ -77,6 +80,10 @@
   let plugins = $state<PluginInfo[]>([]);
   let pluginsNeedReload = $state(false);
 
+  // Demo mode state
+  let isDemoMode = $state(false);
+  let isExitingDemo = $state(false);
+
   // Active section
   type Section = "data" | "plugins" | "integrations" | "appearance" | "about";
   let activeSection = $state<Section>("data");
@@ -93,10 +100,28 @@
     isLoading = true;
     try {
       settings = await getSettings();
+      isDemoMode = await getDemoMode();
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function handleExitDemoMode() {
+    isExitingDemo = true;
+    try {
+      toast.info("Exiting demo mode...", "Switching to real data");
+      await disableDemo();
+      isDemoMode = false;
+      toast.success("Demo mode disabled", "Now using your real data");
+      registry.emit("data:refresh");
+      // Reload integrations since we're now in real mode
+      await loadIntegrations();
+    } catch (e) {
+      toast.error("Failed to exit demo mode", e instanceof Error ? e.message : String(e));
+    } finally {
+      isExitingDemo = false;
     }
   }
 
@@ -510,6 +535,22 @@
               <section class="section">
                 <h3 class="section-title">Integrations</h3>
 
+                {#if isDemoMode}
+                  <div class="demo-mode-notice">
+                    <div class="notice-icon">🎭</div>
+                    <div class="notice-content">
+                      <h4>Demo Mode Active</h4>
+                      <p>Integration setup is disabled while in demo mode to prevent mixing real data with sample data.</p>
+                      <button
+                        class="btn primary"
+                        onclick={handleExitDemoMode}
+                        disabled={isExitingDemo}
+                      >
+                        {isExitingDemo ? "Exiting..." : "Exit Demo Mode"}
+                      </button>
+                    </div>
+                  </div>
+                {:else}
                 <div class="integration-card">
                   <div class="integration-header">
                     <div class="integration-info">
@@ -654,6 +695,7 @@
                     </button>
                   {/if}
                 </div>
+                {/if}
               </section>
             {:else if activeSection === "appearance"}
               <section class="section">
@@ -1259,6 +1301,35 @@
   .link-separator {
     color: var(--text-muted);
     margin: 0 var(--spacing-sm);
+  }
+
+  /* Demo mode notice */
+  .demo-mode-notice {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg);
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.1) 0%, rgba(217, 119, 6, 0.1) 100%);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+    border-radius: 8px;
+  }
+
+  .demo-mode-notice .notice-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  .demo-mode-notice .notice-content h4 {
+    margin: 0 0 var(--spacing-xs) 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #d97706;
+  }
+
+  .demo-mode-notice .notice-content p {
+    margin: 0 0 var(--spacing-md) 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
   }
 
   /* Integration cards */

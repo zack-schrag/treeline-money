@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import Sidebar from "./Sidebar.svelte";
   import TabBar from "./TabBar.svelte";
   import ContentArea from "./ContentArea.svelte";
@@ -6,10 +7,38 @@
   import CommandPalette from "./CommandPalette.svelte";
   import SettingsModal from "./SettingsModal.svelte";
   import ToastContainer from "./ToastContainer.svelte";
-  import { registry } from "../sdk";
+  import { registry, getDemoMode, disableDemo, toast } from "../sdk";
 
   let commandPaletteOpen = $state(false);
   let settingsModalOpen = $state(false);
+  let isDemoMode = $state(false);
+  let isExitingDemo = $state(false);
+
+  // Check demo mode on mount and subscribe to refresh events
+  onMount(() => {
+    checkDemoMode();
+    const unsubscribe = registry.on("data:refresh", checkDemoMode);
+    return unsubscribe;
+  });
+
+  async function checkDemoMode() {
+    isDemoMode = await getDemoMode();
+  }
+
+  async function handleExitDemo() {
+    isExitingDemo = true;
+    try {
+      toast.info("Exiting demo mode...", "Switching to real data");
+      await disableDemo();
+      isDemoMode = false;
+      toast.success("Demo mode disabled", "Now using your real data");
+      registry.emit("data:refresh");
+    } catch (e) {
+      toast.error("Failed to exit demo mode", e instanceof Error ? e.message : String(e));
+    } finally {
+      isExitingDemo = false;
+    }
+  }
 
   // Register core commands
   $effect(() => {
@@ -76,6 +105,17 @@
 
   <div class="main-area">
     <TabBar />
+    {#if isDemoMode}
+      <div class="demo-banner">
+        <span class="demo-icon">🎭</span>
+        <span class="demo-text">
+          <strong>Demo Mode</strong> — Exploring with sample data
+        </span>
+        <button class="demo-exit-btn" onclick={handleExitDemo} disabled={isExitingDemo}>
+          {isExitingDemo ? "Exiting..." : "Exit Demo Mode"}
+        </button>
+      </div>
+    {/if}
     <ContentArea />
   </div>
 
@@ -102,6 +142,49 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .demo-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(90deg, #b45309 0%, #d97706 100%);
+    color: white;
+    font-size: 0.875rem;
+  }
+
+  .demo-icon {
+    font-size: 1rem;
+  }
+
+  .demo-text {
+    flex: 1;
+  }
+
+  .demo-text strong {
+    font-weight: 600;
+  }
+
+  .demo-exit-btn {
+    padding: 0.375rem 0.75rem;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .demo-exit-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .demo-exit-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
   }
 
   :global(footer.statusbar) {

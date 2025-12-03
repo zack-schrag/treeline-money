@@ -50,6 +50,7 @@ def register(app: typer.Typer, get_container: callable, ensure_initialized: call
           tl import transactions.csv --account-id <uuid> --preview
         """
         ensure_initialized()
+
         container = get_container()
         import_service = container.import_service()
         account_service = container.account_service()
