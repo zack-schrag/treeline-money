@@ -1,23 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { registry, getAppSetting, setAppSetting } from "../sdk";
-  import { Icon } from "../shared";
-
-  // Icon mapping for sidebar items
-  const iconMap: Record<string, string> = {
-    "🏦": "bank",
-    "💰": "wallet",
-    "💳": "credit-card",
-    "🏷": "tag",
-    "⚡": "zap",
-    "⚙": "settings",
-    "📊": "chart",
-    "🔍": "search",
-  };
-
-  function getIconName(emoji: string): string {
-    return iconMap[emoji] || "database";
-  }
+  import { Icon, getIconName } from "../shared";
 
   // Collapsed state
   let isCollapsed = $state(false);

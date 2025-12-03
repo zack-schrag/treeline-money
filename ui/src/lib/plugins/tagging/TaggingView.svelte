@@ -1,8 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { executeQuery, showToast, registry } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
-  import { FrequencyBasedSuggester, type TagSuggestion, type Transaction } from "./suggestions";
+  import { ActionBar, type ActionItem, RowMenu, type RowMenuItem } from "../../shared";
+  import { FrequencyBasedSuggester } from "./suggestions";
+  import type { Transaction, TagSuggestion, SplitAmount, AccountInfo } from "./types";
+  import DeleteConfirmModal from "./DeleteConfirmModal.svelte";
+  import UnsplitConfirmModal from "./UnsplitConfirmModal.svelte";
+  import SplitTransactionModal from "./SplitTransactionModal.svelte";
+  import AddTransactionModal from "./AddTransactionModal.svelte";
+  import EditTransactionModal from "./EditTransactionModal.svelte";
 
   // Initialize suggester
   const suggester = new FrequencyBasedSuggester();
@@ -29,7 +35,7 @@
   const ACCOUNT_FILTER_KEY = "tagging-selected-accounts";
   let selectedAccounts = $state<Set<string>>(new Set());
   let availableAccounts = $state<string[]>([]);
-  let accountsWithIds = $state<{ id: string; name: string }[]>([]);
+  let accountsWithIds = $state<AccountInfo[]>([]);
   let isAccountDropdownOpen = $state(false);
   let accountCursorIndex = $state(0);
 
@@ -66,21 +72,11 @@
   // Transaction edit modal
   let isTagModalOpen = $state(false);
   let editingTransaction = $state<Transaction | null>(null);
-  let modalTagInput = $state("");
-  let modalDescInput = $state("");
-  let modalAmountInput = $state("");
-  let modalDateInput = $state("");
-  let modalInputEl: HTMLInputElement | null = null;
-
   // Delete confirmation
   let showDeleteConfirm = $state(false);
 
   // Split modal
   let showSplitModal = $state(false);
-  let splitAmounts = $state<{ description: string; amount: string }[]>([
-    { description: "", amount: "" },
-    { description: "", amount: "" },
-  ]);
 
   // Row context menu
   let contextMenuTxn = $state<Transaction | null>(null);
@@ -1003,21 +999,12 @@
   // Transaction edit modal functions
   function openTagModal(txn: Transaction) {
     editingTransaction = txn;
-    modalTagInput = txn.tags.join(", ");
-    modalDescInput = txn.description;
-    modalAmountInput = txn.amount.toString();
-    modalDateInput = txn.transaction_date;
     isTagModalOpen = true;
-    setTimeout(() => modalInputEl?.focus(), 10);
   }
 
   function closeTagModal() {
     isTagModalOpen = false;
     editingTransaction = null;
-    modalTagInput = "";
-    modalDescInput = "";
-    modalAmountInput = "";
-    modalDateInput = "";
     containerEl?.focus();
   }
 
@@ -1068,35 +1055,23 @@
     closeContextMenu();
   }
 
-  async function saveTagModal() {
+  async function handleEditSave(data: {
+    description: string;
+    amount: number;
+    date: string;
+    tags: string[];
+  }) {
     if (!editingTransaction) return;
-
-    const newTags = modalTagInput.split(",").map(t => t.trim()).filter(t => t);
-    const newDesc = modalDescInput.trim();
-    const newAmount = parseFloat(modalAmountInput);
-    const newDate = modalDateInput.trim();
-
-    // Validate amount
-    if (isNaN(newAmount)) {
-      error = "Invalid amount";
-      return;
-    }
-
-    // Validate date format (basic check)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-      error = "Date must be in YYYY-MM-DD format";
-      return;
-    }
 
     // Find the transaction in our list and update it
     const idx = transactions.findIndex(t => t.transaction_id === editingTransaction!.transaction_id);
     if (idx >= 0) {
       transactions[idx] = {
         ...transactions[idx],
-        tags: newTags,
-        description: newDesc,
-        amount: newAmount,
-        transaction_date: newDate
+        tags: data.tags,
+        description: data.description,
+        amount: data.amount,
+        transaction_date: data.date
       };
       transactions = [...transactions];
 
@@ -1128,16 +1103,6 @@
     } catch (e) {
       console.error("Failed to persist transaction:", e);
       error = "Failed to save - changes may be lost";
-    }
-  }
-
-  function handleModalKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeTagModal();
-    } else if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      saveTagModal();
     }
   }
 
@@ -1178,29 +1143,11 @@
   // Split transaction
   function openSplitModal() {
     if (!editingTransaction) return;
-    splitAmounts = [
-      { description: editingTransaction.description || "", amount: "" },
-      { description: "", amount: "" },
-    ];
     showSplitModal = true;
   }
 
   function closeSplitModal() {
     showSplitModal = false;
-    splitAmounts = [
-      { description: "", amount: "" },
-      { description: "", amount: "" },
-    ];
-  }
-
-  function addSplitRow() {
-    splitAmounts = [...splitAmounts, { description: "", amount: "" }];
-  }
-
-  function removeSplitRow(index: number) {
-    if (splitAmounts.length > 2) {
-      splitAmounts = splitAmounts.filter((_, i) => i !== index);
-    }
   }
 
   function generateUUID(): string {
@@ -1211,21 +1158,8 @@
     });
   }
 
-  async function executeSplit() {
+  async function handleSplit(splitAmounts: SplitAmount[]) {
     if (!editingTransaction) return;
-
-    // Validate amounts sum to original
-    const originalAmount = editingTransaction.amount;
-    const splitTotal = splitAmounts.reduce((sum, s) => {
-      const amt = parseFloat(s.amount);
-      return sum + (isNaN(amt) ? 0 : amt);
-    }, 0);
-
-    // Allow small floating point differences
-    if (Math.abs(splitTotal - originalAmount) > 0.01) {
-      error = `Split amounts (${splitTotal.toFixed(2)}) must equal original amount (${originalAmount.toFixed(2)})`;
-      return;
-    }
 
     try {
       const now = new Date().toISOString();
@@ -1305,11 +1239,6 @@
 
   // Add transaction modal
   let showAddModal = $state(false);
-  let addDescInput = $state("");
-  let addAmountInput = $state("");
-  let addDateInput = $state(new Date().toISOString().split("T")[0]);
-  let addAccountId = $state("");
-  let addTagsInput = $state("");
 
   async function unsplitTransaction() {
     if (!editingTransaction || !editingTransaction.parent_transaction_id) return;
@@ -1344,11 +1273,6 @@
 
   // Add transaction functions
   function openAddModal() {
-    addDescInput = "";
-    addAmountInput = "";
-    addDateInput = new Date().toISOString().split("T")[0];
-    addAccountId = "";
-    addTagsInput = "";
     showAddModal = true;
   }
 
@@ -1357,39 +1281,20 @@
     containerEl?.focus();
   }
 
-  async function saveNewTransaction() {
-    // Validate inputs
-    const desc = addDescInput.trim();
-    if (!desc) {
-      error = "Description is required";
-      return;
-    }
-
-    const amount = parseFloat(addAmountInput);
-    if (isNaN(amount)) {
-      error = "Invalid amount";
-      return;
-    }
-
-    if (!addAccountId) {
-      error = "Please select an account";
-      return;
-    }
-
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(addDateInput)) {
-      error = "Date must be in YYYY-MM-DD format";
-      return;
-    }
-
-    const tags = addTagsInput.split(",").map(t => t.trim()).filter(t => t);
-
+  async function handleAddTransaction(data: {
+    description: string;
+    amount: number;
+    date: string;
+    accountId: string;
+    tags: string[];
+  }) {
     try {
       const now = new Date().toISOString();
       const txnId = generateUUID();
-      const escapedDesc = desc.replace(/'/g, "''");
+      const escapedDesc = data.description.replace(/'/g, "''");
 
       // Find account name for the selected account
-      const selectedAccount = accountsWithIds.find(a => a.id === addAccountId);
+      const selectedAccount = accountsWithIds.find(a => a.id === data.accountId);
       const accountName = selectedAccount?.name || "";
 
       await executeQuery(
@@ -1399,12 +1304,12 @@
           created_at, updated_at
         ) VALUES (
           '${txnId}',
-          '${addAccountId}',
-          ${amount},
+          '${data.accountId}',
+          ${data.amount},
           '${escapedDesc}',
-          '${addDateInput}',
-          '${addDateInput}',
-          ${tags.length > 0 ? `ARRAY[${tags.map((t) => `'${t}'`).join(",")}]` : "NULL"},
+          '${data.date}',
+          '${data.date}',
+          ${data.tags.length > 0 ? `ARRAY[${data.tags.map((t) => `'${t}'`).join(",")}]` : "NULL"},
           '{"manual": true}',
           '${now}',
           '${now}'
@@ -1415,12 +1320,12 @@
       // Add to local list
       const newTxn: Transaction = {
         transaction_id: txnId,
-        account_id: addAccountId,
+        account_id: data.accountId,
         account_name: accountName,
-        amount,
-        description: desc,
-        transaction_date: addDateInput,
-        tags,
+        amount: data.amount,
+        description: data.description,
+        transaction_date: data.date,
+        tags: data.tags,
         parent_transaction_id: null,
       };
 
@@ -1843,265 +1748,41 @@
   </div>
 </div>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div onkeydown={handleModalKeyDown}>
-<Modal
+<!-- Modals -->
+<EditTransactionModal
   open={isTagModalOpen && !!editingTransaction}
-  title="Edit Transaction"
+  transaction={editingTransaction}
+  suggestions={currentSuggestions}
   onclose={closeTagModal}
->
-  {#if editingTransaction?.parent_transaction_id}
-    <div class="split-notice">
-      <span class="split-badge">⑂</span> Part of a split transaction
-    </div>
-  {/if}
+  onsave={handleEditSave}
+/>
 
-  <div class="modal-form">
-    <div class="form-row">
-      <div class="form-group flex-2">
-        <label for="modal-desc">Description</label>
-        <input
-          id="modal-desc"
-          type="text"
-          bind:this={modalInputEl}
-          bind:value={modalDescInput}
-          placeholder="Transaction description"
-        />
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label for="modal-date">Date</label>
-        <input
-          id="modal-date"
-          type="date"
-          bind:value={modalDateInput}
-        />
-      </div>
-      <div class="form-group">
-        <label for="modal-amount">Amount</label>
-        <input
-          id="modal-amount"
-          type="text"
-          bind:value={modalAmountInput}
-          placeholder="0.00"
-          class="amount-input"
-        />
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label for="modal-tags">Tags (comma-separated)</label>
-      <input
-        id="modal-tags"
-        type="text"
-        bind:value={modalTagInput}
-        placeholder="e.g., groceries, food, weekly"
-      />
-    </div>
-
-    {#if currentSuggestions.length > 0}
-      <div class="suggested-tags">
-        <span class="suggested-label">Suggested:</span>
-        {#each currentSuggestions.slice(0, 5) as suggestion}
-          <button
-            class="suggested-tag-btn"
-            onclick={() => {
-              const current = modalTagInput.trim();
-              modalTagInput = current ? `${current}, ${suggestion.tag}` : suggestion.tag;
-            }}
-          >
-            {suggestion.tag}
-          </button>
-        {/each}
-      </div>
-    {/if}
-
-    <div class="account-info">
-      <span class="account-label">Account:</span>
-      <span class="account-value">{editingTransaction?.account_nickname || editingTransaction?.account_name || 'Unknown'}</span>
-    </div>
-  </div>
-
-  {#snippet actions()}
-    <button class="btn secondary" onclick={closeTagModal}>Cancel</button>
-    <button class="btn primary" onclick={saveTagModal}>Save</button>
-  {/snippet}
-</Modal>
-</div>
-
-<Modal
+<UnsplitConfirmModal
   open={showUnsplitConfirm && !!editingTransaction}
-  title="Unsplit Transaction?"
   onclose={() => showUnsplitConfirm = false}
-  width="400px"
-  class="confirm-modal"
->
-  <div class="confirm-body">
-    <p>This will restore the original transaction and remove all split parts.</p>
-    <p class="confirm-note">The original transaction will be restored with its original amount.</p>
-  </div>
+  onconfirm={unsplitTransaction}
+/>
 
-  {#snippet actions()}
-    <button class="btn secondary" onclick={() => showUnsplitConfirm = false}>Cancel</button>
-    <button class="btn primary" onclick={unsplitTransaction}>Unsplit</button>
-  {/snippet}
-</Modal>
-
-<Modal
+<DeleteConfirmModal
   open={showDeleteConfirm && !!editingTransaction}
-  title="Delete Transaction?"
+  transaction={editingTransaction}
   onclose={() => showDeleteConfirm = false}
-  width="400px"
-  class="confirm-modal"
->
-  <div class="confirm-body">
-    <p>Are you sure you want to delete this transaction?</p>
-    {#if editingTransaction}
-      <div class="txn-preview">
-        <div class="txn-preview-desc">{editingTransaction.description}</div>
-        <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
-          {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
-        </div>
-      </div>
-    {/if}
-    <p class="confirm-note">This transaction won't be re-imported during sync.</p>
-  </div>
+  onconfirm={deleteTransaction}
+/>
 
-  {#snippet actions()}
-    <button class="btn secondary" onclick={() => showDeleteConfirm = false}>Cancel</button>
-    <button class="btn danger" onclick={deleteTransaction}>Delete</button>
-  {/snippet}
-</Modal>
-
-<Modal
+<SplitTransactionModal
   open={showSplitModal && !!editingTransaction}
-  title="Split Transaction"
+  transaction={editingTransaction}
   onclose={closeSplitModal}
-  width="500px"
-  class="split-modal"
->
-  {#if editingTransaction}
-    <div class="split-body">
-      <div class="txn-preview">
-        <div class="txn-preview-desc">{editingTransaction.description}</div>
-        <div class="txn-preview-amount" class:negative={editingTransaction.amount < 0}>
-          Original: {editingTransaction.amount < 0 ? '-' : ''}${formatAmount(editingTransaction.amount)}
-        </div>
-      </div>
+  onsplit={handleSplit}
+/>
 
-      <div class="split-rows">
-        {#each splitAmounts as split, i}
-          <div class="split-row">
-            <input
-              type="text"
-              class="split-desc"
-              bind:value={split.description}
-              placeholder="Description"
-            />
-            <input
-              type="text"
-              class="split-amount"
-              bind:value={split.amount}
-              placeholder="0.00"
-            />
-            {#if splitAmounts.length > 2}
-              <button class="btn-icon" onclick={() => removeSplitRow(i)}>×</button>
-            {/if}
-          </div>
-        {/each}
-      </div>
-
-      <button class="btn secondary add-split-btn" onclick={addSplitRow}>+ Add Row</button>
-
-      {#if true}
-        {@const splitTotal = splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)}
-        {@const remaining = editingTransaction.amount - splitTotal}
-        <div class="split-summary" class:error={Math.abs(remaining) > 0.01}>
-          Total: ${splitTotal.toFixed(2)} | Remaining: ${remaining.toFixed(2)}
-        </div>
-      {/if}
-    </div>
-  {/if}
-
-  {#snippet actions()}
-    <button class="btn secondary" onclick={closeSplitModal}>Cancel</button>
-    <button
-      class="btn primary"
-      onclick={executeSplit}
-      disabled={!editingTransaction || Math.abs(editingTransaction.amount - splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)) > 0.01}
-    >
-      Split
-    </button>
-  {/snippet}
-</Modal>
-
-<Modal
+<AddTransactionModal
   open={showAddModal}
-  title="Add Transaction"
+  accounts={accountsWithIds}
   onclose={closeAddModal}
->
-  <div class="modal-form">
-    <div class="form-row">
-      <div class="form-group flex-2">
-        <label for="add-desc">Description</label>
-        <input
-          id="add-desc"
-          type="text"
-          bind:value={addDescInput}
-          placeholder="Transaction description"
-        />
-      </div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label for="add-date">Date</label>
-        <input
-          id="add-date"
-          type="date"
-          bind:value={addDateInput}
-        />
-      </div>
-      <div class="form-group">
-        <label for="add-amount">Amount</label>
-        <input
-          id="add-amount"
-          type="text"
-          bind:value={addAmountInput}
-          placeholder="0.00 (negative for expense)"
-          class="amount-input"
-        />
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label for="add-account">Account</label>
-      <select id="add-account" bind:value={addAccountId} class="account-select">
-        <option value="">Select an account...</option>
-        {#each accountsWithIds as account}
-          <option value={account.id}>{account.name}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label for="add-tags">Tags (comma-separated)</label>
-      <input
-        id="add-tags"
-        type="text"
-        bind:value={addTagsInput}
-        placeholder="e.g., groceries, food"
-      />
-    </div>
-  </div>
-
-  {#snippet actions()}
-    <button class="btn secondary" onclick={closeAddModal}>Cancel</button>
-    <button class="btn primary" onclick={saveNewTransaction}>Add Transaction</button>
-  {/snippet}
-</Modal>
+  onsave={handleAddTransaction}
+/>
 
 <style>
   .tagging-view {
@@ -2966,249 +2647,4 @@
     }
   }
 
-  /* Modal content styles */
-  .modal-form, .confirm-body, .split-body {
-    padding: var(--spacing-lg);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-  }
-
-  .txn-preview {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-  }
-
-  .txn-preview-date {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .txn-preview-desc {
-    flex: 1;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .txn-preview-amount {
-    flex-shrink: 0;
-    font-weight: 600;
-  }
-
-  .txn-preview-amount.positive {
-    color: var(--accent-success, #22c55e);
-  }
-
-  .txn-preview-amount.negative {
-    color: var(--accent-danger, #ef4444);
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-  }
-
-  .form-group label {
-    font-size: 12px;
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-
-  .form-group input {
-    padding: 8px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
-  .form-group input:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-  }
-
-  .form-group.flex-2 {
-    flex: 2;
-  }
-
-  .form-row {
-    display: flex;
-    gap: var(--spacing-md);
-  }
-
-  .form-row .form-group {
-    flex: 1;
-  }
-
-  .amount-input {
-    text-align: right;
-    font-family: var(--font-mono);
-  }
-
-  .split-notice {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.1);
-    border: 1px solid var(--accent-primary);
-    border-radius: 4px;
-    font-size: 12px;
-    color: var(--accent-primary);
-  }
-
-  .account-info {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    font-size: 12px;
-    padding-top: var(--spacing-sm);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .account-label {
-    color: var(--text-muted);
-  }
-
-  .account-value {
-    color: var(--text-primary);
-    font-weight: 500;
-  }
-
-  .account-select {
-    padding: 8px 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-primary);
-    font-size: 14px;
-    width: 100%;
-    cursor: pointer;
-  }
-
-  .account-select:focus {
-    outline: none;
-    border-color: var(--accent-primary);
-  }
-
-  .suggested-tags {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--spacing-sm);
-  }
-
-  .suggested-label {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .suggested-tag-btn {
-    padding: 3px 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    color: var(--text-primary);
-    font-size: 11px;
-    cursor: pointer;
-  }
-
-  .suggested-tag-btn:hover {
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-color: var(--accent-primary);
-  }
-
-  .confirm-note {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: var(--spacing-sm);
-  }
-
-  /* Split modal */
-  .split-modal {
-    max-width: 500px;
-  }
-
-  .split-rows {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    margin: var(--spacing-md) 0;
-  }
-
-  .split-row {
-    display: flex;
-    gap: var(--spacing-sm);
-    align-items: center;
-  }
-
-  .split-desc {
-    flex: 2;
-    padding: 8px 12px;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-  }
-
-  .split-amount {
-    flex: 1;
-    padding: 8px 12px;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-    text-align: right;
-  }
-
-  .btn-icon {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-  }
-
-  .btn-icon:hover {
-    background: var(--text-negative);
-    color: white;
-    border-color: var(--text-negative);
-  }
-
-  .add-split-btn {
-    width: 100%;
-    margin-top: var(--spacing-sm);
-  }
-
-  .split-summary {
-    margin-top: var(--spacing-md);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-    font-size: 13px;
-    text-align: center;
-  }
-
-  .split-summary.error {
-    background: rgba(255, 100, 100, 0.15);
-    color: var(--text-negative);
-  }
 </style>

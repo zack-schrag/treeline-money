@@ -1,0 +1,724 @@
+<script lang="ts">
+  /**
+   * CsvImportModal - Modal for importing transactions from CSV files
+   */
+  import { onMount } from "svelte";
+  import { Modal, Icon } from "../../shared";
+  import {
+    pickCsvFile,
+    getCsvHeaders,
+    importCsvPreview,
+    importCsvExecute,
+    getDemoMode,
+    type ImportColumnMapping,
+    type ImportPreviewResult,
+    type ImportExecuteResult,
+  } from "../../sdk";
+
+  interface Props {
+    open: boolean;
+    accountId: string;
+    accountName: string;
+    onclose: () => void;
+    onsuccess: () => void;
+  }
+
+  let { open, accountId, accountName, onclose, onsuccess }: Props = $props();
+
+  // Import state
+  let filePath = $state("");
+  let fileName = $state("");
+  let headers = $state<string[]>([]);
+  let columnMapping = $state<ImportColumnMapping>({});
+  let flipSigns = $state(false);
+  let debitNegative = $state(false);
+  let preview = $state<ImportPreviewResult | null>(null);
+  let result = $state<ImportExecuteResult | null>(null);
+  let error = $state<string | null>(null);
+  let isImporting = $state(false);
+  let isLoadingPreview = $state(false);
+  let previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let demoModeWarning = $state(false);
+
+  // Reset state when modal opens
+  $effect(() => {
+    if (open) {
+      filePath = "";
+      fileName = "";
+      headers = [];
+      columnMapping = {};
+      flipSigns = false;
+      debitNegative = false;
+      preview = null;
+      result = null;
+      error = null;
+      isImporting = false;
+      isLoadingPreview = false;
+      checkDemoMode();
+    }
+  });
+
+  async function checkDemoMode() {
+    demoModeWarning = await getDemoMode();
+  }
+
+  // Auto-update preview when mapping or options change
+  $effect(() => {
+    if (filePath && accountId && open) {
+      // Trigger on any of these changing
+      const _ = [columnMapping, flipSigns, debitNegative];
+      debouncedPreview();
+    }
+  });
+
+  function debouncedPreview() {
+    if (previewDebounceTimer) {
+      clearTimeout(previewDebounceTimer);
+    }
+    previewDebounceTimer = setTimeout(() => {
+      loadPreview();
+    }, 300);
+  }
+
+  async function loadPreview() {
+    if (!filePath || !accountId) return;
+
+    isLoadingPreview = true;
+    try {
+      preview = await importCsvPreview(
+        filePath,
+        accountId,
+        columnMapping,
+        flipSigns,
+        debitNegative
+      );
+      error = null;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to preview CSV";
+    } finally {
+      isLoadingPreview = false;
+    }
+  }
+
+  async function handleFileSelect() {
+    const path = await pickCsvFile();
+    if (!path) return;
+
+    filePath = path;
+    fileName = path.split("/").pop() || path;
+
+    try {
+      headers = await getCsvHeaders(path);
+      // Auto-detect columns
+      columnMapping = autoDetectColumns(headers);
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Failed to read CSV headers";
+    }
+  }
+
+  function autoDetectColumns(headers: string[]): ImportColumnMapping {
+    const mapping: ImportColumnMapping = {};
+    const lowerHeaders = headers.map((h) => h.toLowerCase());
+
+    // Date detection
+    const datePatterns = ["date", "transaction date", "posted", "trans date"];
+    for (const pattern of datePatterns) {
+      const idx = lowerHeaders.findIndex((h) => h.includes(pattern));
+      if (idx >= 0) {
+        mapping.dateColumn = headers[idx];
+        break;
+      }
+    }
+
+    // Description detection
+    const descPatterns = ["description", "desc", "memo", "narrative", "details"];
+    for (const pattern of descPatterns) {
+      const idx = lowerHeaders.findIndex((h) => h.includes(pattern));
+      if (idx >= 0) {
+        mapping.descriptionColumn = headers[idx];
+        break;
+      }
+    }
+
+    // Amount detection
+    const amountPatterns = ["amount", "total"];
+    for (const pattern of amountPatterns) {
+      const idx = lowerHeaders.findIndex(
+        (h) => h.includes(pattern) && !h.includes("debit") && !h.includes("credit")
+      );
+      if (idx >= 0) {
+        mapping.amountColumn = headers[idx];
+        break;
+      }
+    }
+
+    // Debit/Credit detection (if no single amount column found)
+    if (!mapping.amountColumn) {
+      const debitIdx = lowerHeaders.findIndex((h) => h.includes("debit"));
+      const creditIdx = lowerHeaders.findIndex((h) => h.includes("credit"));
+      if (debitIdx >= 0) {
+        mapping.debitColumn = headers[debitIdx];
+      }
+      if (creditIdx >= 0) {
+        mapping.creditColumn = headers[creditIdx];
+      }
+    }
+
+    return mapping;
+  }
+
+  async function handleImportExecute() {
+    if (!filePath || !accountId) return;
+
+    isImporting = true;
+    error = null;
+
+    try {
+      result = await importCsvExecute(
+        filePath,
+        accountId,
+        columnMapping,
+        flipSigns,
+        debitNegative
+      );
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Import failed";
+    } finally {
+      isImporting = false;
+    }
+  }
+
+  function handleClose() {
+    if (result) {
+      onsuccess();
+    }
+    onclose();
+  }
+
+  function handleChangeFile() {
+    filePath = "";
+    headers = [];
+    columnMapping = {};
+    preview = null;
+  }
+</script>
+
+<Modal
+  open={open}
+  title="Import CSV to {accountName}"
+  onclose={handleClose}
+  width="550px"
+>
+  <div class="import-body">
+    {#if demoModeWarning}
+      <div class="import-demo-warning">
+        <span class="warning-icon"><Icon name="beaker" size={16} /></span>
+        <div class="warning-content">
+          <strong>Demo Mode Active</strong>
+          <p>This data will be imported to the demo database, not your real data.</p>
+        </div>
+      </div>
+    {/if}
+
+    {#if error}
+      <div class="import-error">{error}</div>
+    {/if}
+
+    {#if result}
+      <!-- Import complete -->
+      <div class="import-done">
+        <div class="done-icon">✓</div>
+        <p class="done-message">Import Complete</p>
+        <div class="import-stats">
+          <div class="stat">
+            <span class="stat-value">{result.imported}</span>
+            <span class="stat-label">Imported</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value">{result.skipped}</span>
+            <span class="stat-label">Skipped</span>
+          </div>
+        </div>
+      </div>
+    {:else if !filePath}
+      <!-- Step 1: Select file -->
+      <div class="import-step">
+        <p class="import-intro">Import transactions from a CSV file exported from your bank.</p>
+        <button class="file-select-btn" onclick={handleFileSelect}>
+          Select CSV File...
+        </button>
+      </div>
+    {:else}
+      <!-- Step 2: Configure and preview -->
+      <div class="import-step">
+        <div class="import-file-info">
+          <span class="file-label">File:</span>
+          <span class="file-name">{fileName}</span>
+          <button class="btn-link" onclick={handleChangeFile}>Change</button>
+        </div>
+
+        <div class="column-mapping">
+          <div class="mapping-title">Column Mapping</div>
+          <div class="mapping-hint">Auto-detected. Adjust if needed.</div>
+
+          <div class="mapping-row">
+            <label>Date Column</label>
+            <select bind:value={columnMapping.dateColumn}>
+              <option value="">-- Select --</option>
+              {#each headers as header}
+                <option value={header}>{header}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="mapping-row">
+            <label>Description Column</label>
+            <select bind:value={columnMapping.descriptionColumn}>
+              <option value="">-- Select --</option>
+              {#each headers as header}
+                <option value={header}>{header}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="mapping-row">
+            <label>Amount Column</label>
+            <select bind:value={columnMapping.amountColumn}>
+              <option value="">-- Select (or use Debit/Credit) --</option>
+              {#each headers as header}
+                <option value={header}>{header}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="mapping-divider">— OR use separate debit/credit columns —</div>
+
+          <div class="mapping-row">
+            <label>Debit Column</label>
+            <select bind:value={columnMapping.debitColumn}>
+              <option value="">-- Select --</option>
+              {#each headers as header}
+                <option value={header}>{header}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="mapping-row">
+            <label>Credit Column</label>
+            <select bind:value={columnMapping.creditColumn}>
+              <option value="">-- Select --</option>
+              {#each headers as header}
+                <option value={header}>{header}</option>
+              {/each}
+            </select>
+          </div>
+        </div>
+
+        <div class="import-options">
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={flipSigns} />
+            Flip signs (for credit cards where charges are positive)
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={debitNegative} />
+            Negate debits (if debits show as positive numbers)
+          </label>
+        </div>
+
+        <!-- Live Preview -->
+        {#if columnMapping.dateColumn && (columnMapping.amountColumn || columnMapping.debitColumn || columnMapping.creditColumn)}
+          <div class="live-preview-section">
+            <div class="live-preview-header">
+              <span class="live-preview-title">Live Preview</span>
+              {#if isLoadingPreview}
+                <span class="preview-loading">Loading...</span>
+              {/if}
+            </div>
+
+            <div class="preview-hint">
+              <strong>Check the signs:</strong> Spending should be <span class="negative">negative (red)</span>,
+              income should be <span class="positive">positive (green)</span>.
+              If reversed, toggle "Flip signs" above.
+            </div>
+
+            {#if preview && preview.preview.length > 0}
+              <div class="preview-table">
+                <div class="preview-row header">
+                  <span class="preview-date">Date</span>
+                  <span class="preview-desc">Description</span>
+                  <span class="preview-amount">Amount</span>
+                </div>
+                {#each preview.preview.slice(0, 5) as txn}
+                  <div class="preview-row">
+                    <span class="preview-date">{txn.date}</span>
+                    <span class="preview-desc">{txn.description || ""}</span>
+                    <span class="preview-amount" class:negative={txn.amount < 0}>
+                      {txn.amount < 0 ? "-" : ""}${Math.abs(txn.amount).toFixed(2)}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {:else if !isLoadingPreview}
+              <div class="preview-empty">Configure columns to see preview</div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  {#snippet actions()}
+    {#if result}
+      <button class="btn primary" onclick={handleClose}>Done</button>
+    {:else if isImporting}
+      <button class="btn secondary" disabled>Importing...</button>
+    {:else}
+      <button class="btn secondary" onclick={handleClose}>Cancel</button>
+      {#if filePath && preview && preview.preview.length > 0}
+        <button class="btn primary" onclick={handleImportExecute}>Import</button>
+      {/if}
+    {/if}
+  {/snippet}
+</Modal>
+
+<style>
+  .import-body {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .import-demo-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: rgba(251, 191, 36, 0.15);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    border-radius: 6px;
+    color: var(--text-primary);
+  }
+
+  .warning-icon {
+    color: rgb(251, 191, 36);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .warning-content strong {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  .warning-content p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .import-error {
+    padding: var(--spacing-md);
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 6px;
+    color: var(--accent-danger, #ef4444);
+    font-size: 13px;
+  }
+
+  .import-done {
+    text-align: center;
+    padding: var(--spacing-xl);
+  }
+
+  .done-icon {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto var(--spacing-md);
+    background: var(--accent-success, #22c55e);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+  }
+
+  .done-message {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 var(--spacing-lg);
+  }
+
+  .import-stats {
+    display: flex;
+    justify-content: center;
+    gap: var(--spacing-xl);
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .import-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .import-intro {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .file-select-btn {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--bg-tertiary);
+    border: 2px dashed var(--border-primary);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .file-select-btn:hover {
+    border-color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.1);
+  }
+
+  .import-file-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+  }
+
+  .file-label {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .file-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .btn-link:hover {
+    text-decoration: underline;
+  }
+
+  .column-mapping {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .mapping-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .mapping-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .mapping-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+
+  .mapping-row label {
+    width: 130px;
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .mapping-row select {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  .mapping-row select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .mapping-row select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px;
+  }
+
+  .mapping-divider {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: var(--spacing-sm) 0;
+  }
+
+  .import-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .checkbox-label input {
+    margin: 0;
+  }
+
+  .live-preview-section {
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .live-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .live-preview-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .preview-loading {
+    font-size: 11px;
+    color: var(--accent-primary);
+    font-style: italic;
+  }
+
+  .preview-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-sm);
+    line-height: 1.5;
+  }
+
+  .preview-hint .negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .preview-hint .positive {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .preview-table {
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .preview-row {
+    display: flex;
+    padding: 6px 10px;
+    gap: var(--spacing-md);
+    font-size: 12px;
+  }
+
+  .preview-row.header {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .preview-row:not(.header) {
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .preview-date {
+    width: 80px;
+    flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  .preview-desc {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+
+  .preview-amount {
+    width: 70px;
+    text-align: right;
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    color: var(--accent-success, #22c55e);
+  }
+
+  .preview-amount.negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .preview-empty {
+    padding: var(--spacing-md);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+</style>

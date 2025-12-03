@@ -1,23 +1,7 @@
 <script lang="ts">
   import { registry } from "../sdk";
   import type { Tab } from "../sdk";
-  import { Icon } from "../shared";
-
-  // Icon mapping for tab icons (same as Sidebar)
-  const iconMap: Record<string, string> = {
-    "🏦": "bank",
-    "💰": "wallet",
-    "💳": "credit-card",
-    "🏷": "tag",
-    "⚡": "zap",
-    "⚙": "settings",
-    "📊": "chart",
-    "🔍": "search",
-  };
-
-  function getIconName(emoji: string): string {
-    return iconMap[emoji] || "database";
-  }
+  import { Icon, getIconName } from "../shared";
 
   let tabs = $state<Tab[]>(registry.tabs);
   let activeTabId = $state<string | null>(registry.activeTabId);
