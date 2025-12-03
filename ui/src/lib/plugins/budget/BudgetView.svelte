@@ -91,14 +91,14 @@
   let incomeSummary = $derived.by(() => {
     const expected = incomeActuals.reduce((sum, a) => sum + a.expected, 0);
     const actual = incomeActuals.reduce((sum, a) => sum + a.actual, 0);
-    const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
+    const percent = expected > 0 ? Math.floor((actual / expected) * 100) : 0;
     return { expected, actual, percent };
   });
 
   let budgetSummary = $derived.by(() => {
     const expected = budgetActuals.reduce((sum, a) => sum + a.expected, 0);
     const actual = budgetActuals.reduce((sum, a) => sum + a.actual, 0);
-    const percent = expected > 0 ? Math.round((actual / expected) * 100) : 0;
+    const percent = expected > 0 ? Math.floor((actual / expected) * 100) : 0;
     return { expected, actual, percent };
   });
 
@@ -106,7 +106,7 @@
   let remainingSummary = $derived.by(() => {
     const expected = incomeSummary.expected - budgetSummary.expected;
     const actual = incomeSummary.actual - budgetSummary.actual;
-    const percent = expected > 0 ? Math.round((actual / expected) * 100) : (actual > 0 ? 100 : 0);
+    const percent = expected > 0 ? Math.floor((actual / expected) * 100) : (actual > 0 ? 100 : 0);
     return { expected, actual, percent };
   });
 
@@ -286,7 +286,7 @@
       return categories.map(cat => {
         const actual = totalsById.get(cat.id) || 0;
         const variance = cat.type === "income" ? actual - cat.expected : cat.expected - actual;
-        const percentUsed = cat.expected > 0 ? Math.round((actual / cat.expected) * 100) : (actual > 0 ? 100 : 0);
+        const percentUsed = cat.expected > 0 ? Math.floor((actual / cat.expected) * 100) : (actual > 0 ? 100 : 0);
         return { id: cat.id, type: cat.type, category: cat.category, expected: cat.expected, actual, variance, percentUsed };
       });
     } catch (e) {
