@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { executeQuery, showToast } from "../../sdk";
+  import { onMount, onDestroy } from "svelte";
+  import { executeQuery, showToast, registry } from "../../sdk";
   import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import { FrequencyBasedSuggester, type TagSuggestion, type Transaction } from "./suggestions";
 
@@ -1452,6 +1452,16 @@
     { keys: ["n"], label: "next untagged", action: skipToNextUntagged },
   ]);
 
+  // Subscribe to global refresh events
+  let unsubscribeRefresh: (() => void) | null = null;
+
+  async function reloadAll() {
+    await suggester.loadTagData();
+    allTags = suggester.getAllTags();
+    await Promise.all([loadGlobalStats(), loadAvailableAccounts()]);
+    await loadTransactions();
+  }
+
   onMount(async () => {
     // Load persisted account filter
     selectedAccounts = loadPersistedAccounts();
@@ -1474,6 +1484,15 @@
 
     await loadTransactions();
     containerEl?.focus();
+
+    // Listen for data refresh events (e.g., demo mode toggle)
+    unsubscribeRefresh = registry.on("data:refresh", () => {
+      reloadAll();
+    });
+  });
+
+  onDestroy(() => {
+    unsubscribeRefresh?.();
   });
 
   function getTargetCount(): number {

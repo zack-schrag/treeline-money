@@ -204,6 +204,10 @@ class Repository(ABC):
         pass
 
     @abstractmethod
+    async def delete_integration(self, integration_name: str) -> Result[None]:
+        pass
+
+    @abstractmethod
     async def get_integration_settings(
         self, integration_name: str
     ) -> Result[Dict[str, Any]]:

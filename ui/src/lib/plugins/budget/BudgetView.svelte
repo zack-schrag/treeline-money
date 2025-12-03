@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { executeQuery, getPluginSettings, setPluginSettings } from "../../sdk";
+  import { executeQuery, getPluginSettings, setPluginSettings, registry } from "../../sdk";
   import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
@@ -602,8 +602,20 @@
     { keys: ["\u2318\u2191", "\u2318\u2193"], label: "reorder", action: () => {} },
   ]);
 
+  // Subscribe to global refresh events
+  let unsubscribeRefresh: (() => void) | null = null;
+
   onMount(() => {
     loadAll();
+
+    // Listen for data refresh events (e.g., demo mode toggle)
+    unsubscribeRefresh = registry.on("data:refresh", () => {
+      loadAll();
+    });
+  });
+
+  onDestroy(() => {
+    unsubscribeRefresh?.();
   });
 </script>
 

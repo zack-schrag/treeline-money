@@ -1,6 +1,5 @@
 """Dependency injection container for the application."""
 
-import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -8,27 +7,20 @@ from treeline.abstractions import (
     DataAggregationProvider,
     IntegrationProvider,
     Repository,
-    TagSuggester,
 )
-from treeline.app.service import (
-    AccountService,
-    DbService,
-    ImportService,
-    IntegrationService,
-    StatusService,
-    SyncService,
-    TaggingService,
-)
+from treeline.app.account_service import AccountService
 from treeline.app.backfill_service import BackfillService
+from treeline.app.db_service import DbService
+from treeline.app.import_service import ImportService
+from treeline.app.integration_service import IntegrationService
 from treeline.app.plugin_service import PluginService
-from treeline.infra.tag_suggesters import (
-    FrequencyTagSuggester,
-    CombinedTagSuggester,
-)
-from treeline.infra.csv_provider import CSVProvider
+from treeline.app.status_service import StatusService
+from treeline.app.sync_service import SyncService
+from treeline.app.tagging_service import TaggingService
+from treeline.infra.csv import CSVProvider
+from treeline.infra.demo import DemoDataProvider
 from treeline.infra.duckdb import DuckDBRepository
 from treeline.infra.simplefin import SimpleFINProvider
-from treeline.infra.demo_provider import DemoDataProvider
 
 
 class Container:
@@ -54,20 +46,14 @@ class Container:
     def provider_registry(self) -> Dict[str, DataAggregationProvider]:
         """Get the provider registry.
 
-        In demo mode (TREELINE_DEMO_MODE=true), bank data providers return mock data.
-        CSV import always uses the real CSVProvider since it imports from actual files.
+        Providers are registered by name. The 'demo' provider returns mock data
+        for testing. CSV import always uses the real CSVProvider.
         """
         if "provider_registry" not in self._instances:
-            demo_mode = os.getenv("TREELINE_DEMO_MODE", "").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-            demo_provider = DemoDataProvider()
-
             self._instances["provider_registry"] = {
-                "simplefin": demo_provider if demo_mode else SimpleFINProvider(),
-                "csv": CSVProvider(),  # Always use real CSV provider, even in demo mode
+                "simplefin": SimpleFINProvider(),
+                "demo": DemoDataProvider(),
+                "csv": CSVProvider(),
             }
         return self._instances["provider_registry"]
 
@@ -75,23 +61,31 @@ class Container:
         """Get the sync service instance."""
         if "sync_service" not in self._instances:
             self._instances["sync_service"] = SyncService(
-                self.provider_registry(), self.repository(), self.account_service()
+                self.provider_registry(),
+                self.repository(),
+                self.account_service(),
+                self.integration_service(),
             )
         return self._instances["sync_service"]
 
-    def integration_service(self, integration_name: str) -> IntegrationService:
-        """Get an integration service for a specific provider."""
+    def integration_service(self) -> IntegrationService:
+        """Get the integration service instance."""
+        if "integration_service" not in self._instances:
+            self._instances["integration_service"] = IntegrationService(self.repository())
+        return self._instances["integration_service"]
+
+    def get_integration_provider(self, integration_name: str) -> IntegrationProvider:
+        """Get an integration provider by name."""
         provider = self.provider_registry().get(integration_name)
         if not provider:
             raise ValueError(f"Unknown integration: {integration_name}")
 
-        # Integration services are not cached since they're provider-specific
         if not isinstance(provider, IntegrationProvider):
             raise ValueError(
                 f"Provider {integration_name} does not support integration setup"
             )
 
-        return IntegrationService(provider, self.repository())
+        return provider
 
     def account_service(self) -> AccountService:
         """Get the account service instance."""
@@ -111,32 +105,11 @@ class Container:
             self._instances["db_service"] = DbService(self.repository())
         return self._instances["db_service"]
 
-    def _default_tag_suggester(self) -> TagSuggester:
-        """
-        Get the default tag suggester (combined frequency + common tags).
-
-        Returns:
-            TagSuggester instance
-        """
-        frequency_suggester = FrequencyTagSuggester(self.repository())
-        return CombinedTagSuggester(frequency_suggester)
-
-    def tagging_service(
-        self, tag_suggester: TagSuggester | None = None
-    ) -> TaggingService:
-        """
-        Get a tagging service instance with provided or default tag suggester.
-
-        Args:
-            tag_suggester: Optional tag suggestion algorithm to use. If None, uses default.
-
-        Returns:
-            TaggingService instance
-        """
-        if tag_suggester is None:
-            tag_suggester = self._default_tag_suggester()
-
-        return TaggingService(self.repository(), tag_suggester)
+    def tagging_service(self) -> TaggingService:
+        """Get the tagging service instance."""
+        if "tagging_service" not in self._instances:
+            self._instances["tagging_service"] = TaggingService(self.repository())
+        return self._instances["tagging_service"]
 
     def import_service(self) -> ImportService:
         """Get the import service instance."""

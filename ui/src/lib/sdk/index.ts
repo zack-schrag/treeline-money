@@ -48,6 +48,8 @@ export {
   isSyncNeeded,
   getDemoMode,
   setDemoMode,
+  enableDemo,
+  disableDemo,
   // Plugin enable/disable
   isPluginDisabled,
   getDisabledPlugins,

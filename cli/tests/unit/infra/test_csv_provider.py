@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from treeline.domain import Ok, Fail
-from treeline.infra.csv_provider import CSVProvider
+from treeline.infra.csv import CSVProvider
 
 
 @pytest.mark.asyncio

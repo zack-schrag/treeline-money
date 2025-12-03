@@ -314,6 +314,20 @@ export async function setDemoMode(enabled: boolean): Promise<void> {
   await invoke("set_demo_mode", { enabled });
 }
 
+/**
+ * Enable demo mode via CLI (sets up demo integration and syncs demo data)
+ */
+export async function enableDemo(): Promise<void> {
+  await invoke("enable_demo");
+}
+
+/**
+ * Disable demo mode via CLI
+ */
+export async function disableDemo(): Promise<void> {
+  await invoke("disable_demo");
+}
+
 // ============================================================================
 // CSV Import
 // ============================================================================

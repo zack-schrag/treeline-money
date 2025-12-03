@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import {
     executeQuery,
     registry,
@@ -1011,6 +1011,9 @@ LIMIT 100`;
     { keys: ["r"], label: "refresh", action: loadAccounts },
   ]);
 
+  // Subscribe to global refresh events
+  let unsubscribeRefresh: (() => void) | null = null;
+
   onMount(async () => {
     await loadAccounts();
     // Focus container for keyboard navigation
@@ -1020,6 +1023,15 @@ LIMIT 100`;
     if (action === "add") {
       startAddAccount();
     }
+
+    // Listen for data refresh events (e.g., demo mode toggle)
+    unsubscribeRefresh = registry.on("data:refresh", () => {
+      loadAccounts();
+    });
+  });
+
+  onDestroy(() => {
+    unsubscribeRefresh?.();
   });
 </script>
 

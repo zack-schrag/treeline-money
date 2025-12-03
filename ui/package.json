@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "TL_DEV_CLI=1 tauri dev",
+    "tauri:dev:bundled": "tauri dev",
     "tauri:build": "npm run build:cli && tauri build"
   },
   "devDependencies": {

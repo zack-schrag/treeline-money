@@ -703,6 +703,31 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to list integrations: {str(e)}")
 
+    async def delete_integration(self, integration_name: str) -> Result[None]:
+        """Delete an integration by name."""
+        try:
+            conn = self._get_connection()
+
+            # Check if integration exists
+            result = conn.execute(
+                "SELECT 1 FROM sys_integrations WHERE integration_name = ?",
+                [integration_name],
+            ).fetchone()
+
+            if not result:
+                conn.close()
+                return Fail(f"Integration '{integration_name}' not found")
+
+            conn.execute(
+                "DELETE FROM sys_integrations WHERE integration_name = ?",
+                [integration_name],
+            )
+
+            conn.close()
+            return Ok(None)
+        except Exception as e:
+            return Fail(f"Failed to delete integration: {str(e)}")
+
     async def get_integration_settings(
         self, integration_name: str
     ) -> Result[Dict[str, Any]]:

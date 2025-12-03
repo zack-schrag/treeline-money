@@ -4,10 +4,60 @@ use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::PathBuf;
 use tauri::AppHandle;
+use tauri_plugin_shell::process::Output;
 use tauri_plugin_shell::ShellExt;
 
 #[cfg(debug_assertions)]
 use tauri::Manager;
+
+/// Run the CLI with the given arguments.
+/// In dev mode (TL_DEV_CLI=1), runs `uv run tl` from the cli directory.
+/// Otherwise uses the bundled sidecar binary.
+async fn run_cli<I, S>(app: &AppHandle, args: I) -> Result<Output, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_string()).collect();
+
+    let dev_cli = std::env::var("TL_DEV_CLI")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    if dev_cli {
+        // Dev mode: run `uv run tl` from the cli directory
+        let cli_dir = std::env::var("TL_CLI_DIR")
+            .unwrap_or_else(|_| {
+                // Default: assume cli/ is sibling to ui/
+                let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                PathBuf::from(manifest_dir)
+                    .parent()  // ui/
+                    .and_then(|p| p.parent())  // repo root
+                    .map(|p| p.join("cli"))
+                    .unwrap_or_else(|| PathBuf::from("../cli"))
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+        app.shell()
+            .command("uv")
+            .args(["run", "tl"])
+            .args(&args)
+            .current_dir(&cli_dir)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run dev CLI: {}", e))
+    } else {
+        // Production: use bundled sidecar
+        app.shell()
+            .sidecar("tl")
+            .map_err(|e| format!("Failed to get sidecar: {}", e))?
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run CLI: {}", e))
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PluginManifest {
@@ -35,14 +85,10 @@ struct QueryResult {
 /// Get the path to the DuckDB database file.
 /// Centralized location for database path logic.
 fn get_db_path() -> Result<PathBuf, String> {
-    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let treeline_dir = get_treeline_dir()?;
 
-    let treeline_dir = home_dir.join(".treeline");
-
-    // Check for demo mode
-    let demo_mode = std::env::var("TREELINE_DEMO_MODE")
-        .map(|v| v.to_lowercase() == "true" || v == "1" || v == "yes")
-        .unwrap_or(false);
+    // Check for demo mode (uses same logic as get_demo_mode)
+    let demo_mode = get_demo_mode();
 
     let db_filename = if demo_mode {
         "demo.duckdb"
@@ -280,14 +326,7 @@ fn arrow_value_to_json(column: &dyn arrow::array::Array, row_idx: usize) -> serd
 
 #[tauri::command]
 async fn status(app: AppHandle) -> Result<String, String> {
-    let output = app
-        .shell()
-        .sidecar("tl")
-        .unwrap() // TODO - handle error
-        .args(["status", "--json"])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let output = run_cli(&app, &["status", "--json"]).await?;
 
     // Return raw JSON string, let frontend parse it
     String::from_utf8(output.stdout).map_err(|e| e.to_string())
@@ -396,25 +435,77 @@ fn write_plugin_state(plugin_id: String, content: String) -> Result<(), String> 
         .map_err(|e| format!("Failed to write plugin state: {}", e))
 }
 
-/// Get current demo mode status
+/// Get current demo mode status from config.json
 #[tauri::command]
 fn get_demo_mode() -> bool {
-    std::env::var("TREELINE_DEMO_MODE")
-        .map(|v| v.to_lowercase() == "true" || v == "1" || v == "yes")
-        .unwrap_or(false)
-}
+    // First check env var (for CI/testing)
+    if let Ok(env_val) = std::env::var("TREELINE_DEMO_MODE") {
+        let lower = env_val.to_lowercase();
+        if lower == "true" || lower == "1" || lower == "yes" {
+            return true;
+        }
+        if lower == "false" || lower == "0" || lower == "no" {
+            return false;
+        }
+    }
 
-/// Set demo mode (requires app restart to take full effect)
-#[tauri::command]
-fn set_demo_mode(enabled: bool) {
-    if enabled {
-        std::env::set_var("TREELINE_DEMO_MODE", "true");
-    } else {
-        std::env::remove_var("TREELINE_DEMO_MODE");
+    // Fall back to config file (same as CLI)
+    let config_path = match get_treeline_dir() {
+        Ok(dir) => dir.join("config.json"),
+        Err(_) => return false,
+    };
+
+    if !config_path.exists() {
+        return false;
+    }
+
+    match fs::read_to_string(&config_path) {
+        Ok(content) => {
+            if let Ok(config) = serde_json::from_str::<JsonValue>(&content) {
+                config.get("demo_mode").and_then(|v| v.as_bool()).unwrap_or(false)
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
     }
 }
 
-/// Run the sync command via CLI sidecar
+/// Set demo mode in config.json (same file the CLI uses)
+#[tauri::command]
+fn set_demo_mode(enabled: bool) -> Result<(), String> {
+    let treeline_dir = get_treeline_dir()?;
+
+    // Ensure directory exists
+    if !treeline_dir.exists() {
+        fs::create_dir_all(&treeline_dir)
+            .map_err(|e| format!("Failed to create treeline directory: {}", e))?;
+    }
+
+    let config_path = treeline_dir.join("config.json");
+
+    // Read existing config or create new
+    let mut config: serde_json::Map<String, JsonValue> = if config_path.exists() {
+        let content = fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config: {}", e))?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+
+    // Update demo_mode
+    config.insert("demo_mode".to_string(), JsonValue::Bool(enabled));
+
+    // Write back
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(())
+}
+
+/// Run the sync command via CLI
 #[tauri::command]
 async fn run_sync(app: AppHandle, dry_run: Option<bool>) -> Result<String, String> {
     let mut args = vec!["sync", "--json"];
@@ -422,14 +513,7 @@ async fn run_sync(app: AppHandle, dry_run: Option<bool>) -> Result<String, Strin
         args.push("--dry-run");
     }
 
-    let output = app
-        .shell()
-        .sidecar("tl")
-        .map_err(|e| format!("Failed to get sidecar: {}", e))?
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run sync: {}", e))?;
+    let output = run_cli(&app, &args).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -440,7 +524,37 @@ async fn run_sync(app: AppHandle, dry_run: Option<bool>) -> Result<String, Strin
         .map_err(|e| format!("Failed to parse sync output: {}", e))
 }
 
-/// Preview CSV import via CLI sidecar
+/// Enable demo mode via CLI (sets up demo integration and syncs demo data)
+#[tauri::command]
+async fn enable_demo(app: AppHandle) -> Result<(), String> {
+    let output = run_cli(&app, &["demo", "on"]).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Failed to enable demo mode: {}", error_msg));
+    }
+
+    Ok(())
+}
+
+/// Disable demo mode via CLI
+#[tauri::command]
+async fn disable_demo(app: AppHandle) -> Result<(), String> {
+    let output = run_cli(&app, &["demo", "off"]).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Failed to disable demo mode: {}", error_msg));
+    }
+
+    Ok(())
+}
+
+/// Preview CSV import via CLI
 /// Returns JSON with detected columns and preview transactions
 #[tauri::command]
 async fn import_csv_preview(
@@ -491,14 +605,7 @@ async fn import_csv_preview(
         args.push("--debit-negative".to_string());
     }
 
-    let output = app
-        .shell()
-        .sidecar("tl")
-        .map_err(|e| format!("Failed to get sidecar: {}", e))?
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run import preview: {}", e))?;
+    let output = run_cli(&app, &args).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -509,7 +616,7 @@ async fn import_csv_preview(
         .map_err(|e| format!("Failed to parse import output: {}", e))
 }
 
-/// Execute CSV import via CLI sidecar
+/// Execute CSV import via CLI
 #[tauri::command]
 async fn import_csv_execute(
     app: AppHandle,
@@ -558,14 +665,7 @@ async fn import_csv_execute(
         args.push("--debit-negative".to_string());
     }
 
-    let output = app
-        .shell()
-        .sidecar("tl")
-        .map_err(|e| format!("Failed to get sidecar: {}", e))?
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run import: {}", e))?;
+    let output = run_cli(&app, &args).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -613,17 +713,10 @@ async fn get_csv_headers(file_path: String) -> Result<Vec<String>, String> {
     Ok(headers)
 }
 
-/// Setup SimpleFIN integration via CLI sidecar
+/// Setup SimpleFIN integration via CLI
 #[tauri::command]
 async fn setup_simplefin(app: AppHandle, token: String) -> Result<String, String> {
-    let output = app
-        .shell()
-        .sidecar("tl")
-        .map_err(|e| format!("Failed to get sidecar: {}", e))?
-        .args(["setup", "simplefin", "--token", &token])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run setup: {}", e))?;
+    let output = run_cli(&app, &["setup", "simplefin", "--token", &token]).await?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -768,6 +861,8 @@ pub fn run() {
             run_sync,
             get_demo_mode,
             set_demo_mode,
+            enable_demo,
+            disable_demo,
             import_csv_preview,
             import_csv_execute,
             pick_csv_file,

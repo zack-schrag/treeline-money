@@ -49,6 +49,9 @@ class PluginRegistry {
   // Subscribers for reactivity
   private subscribers: Set<() => void> = new Set();
 
+  // Event subscribers for global events (like data refresh)
+  private eventSubscribers: Map<string, Set<() => void>> = new Map();
+
   // ============================================================================
   // Subscription for reactivity
   // ============================================================================
@@ -239,6 +242,35 @@ class PluginRegistry {
     this.plugins.set(plugin.manifest.id, plugin);
 
     console.log(`Loaded plugin: ${plugin.manifest.name}`);
+  }
+
+  // ============================================================================
+  // Global events (for cross-component communication)
+  // ============================================================================
+
+  /**
+   * Subscribe to a global event
+   * @param event Event name (e.g., "data:refresh")
+   * @param callback Function to call when event is emitted
+   * @returns Unsubscribe function
+   */
+  on(event: string, callback: () => void): () => void {
+    if (!this.eventSubscribers.has(event)) {
+      this.eventSubscribers.set(event, new Set());
+    }
+    this.eventSubscribers.get(event)!.add(callback);
+    return () => this.eventSubscribers.get(event)?.delete(callback);
+  }
+
+  /**
+   * Emit a global event to all subscribers
+   * @param event Event name
+   */
+  emit(event: string): void {
+    const callbacks = this.eventSubscribers.get(event);
+    if (callbacks) {
+      callbacks.forEach((cb) => cb());
+    }
   }
 }
 

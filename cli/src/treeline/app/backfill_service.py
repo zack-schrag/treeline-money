@@ -1,126 +1,19 @@
 """Service for backfilling historical data."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List
 from uuid import UUID, uuid4
 
 from treeline.abstractions import Repository
-from treeline.app.tagger_utils import (
-    apply_taggers_to_transaction,
-    filter_taggers,
-    load_taggers,
-)
 from treeline.domain import BalanceSnapshot, Ok, Fail, Result
 
 
 class BackfillService:
-    """Service for backfilling tags and balance snapshots."""
+    """Service for backfilling balance snapshots."""
 
     def __init__(self, repository: Repository):
         self.repository = repository
-
-    async def backfill_tags(
-        self,
-        tagger_specs: List[str] | None = None,
-        dry_run: bool = False,
-        verbose: bool = False,
-    ) -> Result[Dict[str, Any]]:
-        """Re-apply auto-taggers to existing transactions.
-
-        Args:
-            tagger_specs: List of specifications in format:
-                - "file_name" - all taggers from that file
-                - "file_name.function_name" - specific tagger function
-            dry_run: Preview without saving
-            verbose: Detailed output
-
-        Returns:
-            Result with stats: {
-                "transactions_processed": int,
-                "transactions_updated": int,
-                "tags_added": int,
-                "tagger_stats": Dict[str, int],
-                "verbose_logs": List[str],
-                "dry_run": bool
-            }
-        """
-        try:
-            # Load and filter taggers
-            all_taggers = load_taggers()
-            if not all_taggers:
-                return Fail("No taggers found in ~/.treeline/taggers/")
-
-            taggers = filter_taggers(all_taggers, tagger_specs)
-            if not taggers:
-                if tagger_specs:
-                    return Fail(
-                        f"No taggers matched specifications: {', '.join(tagger_specs)}"
-                    )
-                return Fail("No taggers found")
-
-            # Get all transactions
-            transactions_result = await self.repository.get_transactions_for_tagging(
-                filters={}, limit=999999
-            )
-            if not transactions_result.success:
-                return Fail(f"Failed to get transactions: {transactions_result.error}")
-
-            transactions = transactions_result.data
-
-            # Apply taggers to all transactions
-            transactions_processed = 0
-            transactions_updated = 0
-            total_tags_added = 0
-            aggregated_tagger_stats: Dict[str, int] = {}
-            all_verbose_logs: List[str] = []
-
-            for transaction in transactions:
-                transactions_processed += 1
-                tagged_tx, tagger_stats, verbose_logs = apply_taggers_to_transaction(
-                    transaction, taggers, verbose
-                )
-
-                # Aggregate stats
-                for tagger_name, count in tagger_stats.items():
-                    aggregated_tagger_stats[tagger_name] = (
-                        aggregated_tagger_stats.get(tagger_name, 0) + count
-                    )
-
-                # Collect verbose logs
-                if verbose_logs:
-                    all_verbose_logs.extend(verbose_logs)
-
-                # Check if tags changed
-                if len(tagged_tx.tags) > len(transaction.tags):
-                    transactions_updated += 1
-                    tags_added = len(tagged_tx.tags) - len(transaction.tags)
-                    total_tags_added += tags_added
-
-                    # Update transaction in database (unless dry-run)
-                    if not dry_run:
-                        update_result = await self.repository.update_transaction_tags(
-                            transaction.id, list(tagged_tx.tags)
-                        )
-                        if not update_result.success:
-                            # Log error but continue processing
-                            all_verbose_logs.append(
-                                f"ERROR: Failed to update transaction {transaction.id}: {update_result.error}"
-                            )
-
-            return Ok(
-                {
-                    "transactions_processed": transactions_processed,
-                    "transactions_updated": transactions_updated,
-                    "tags_added": total_tags_added,
-                    "tagger_stats": aggregated_tagger_stats,
-                    "verbose_logs": all_verbose_logs,
-                    "dry_run": dry_run,
-                }
-            )
-
-        except Exception as e:
-            return Fail(f"Backfill tags failed: {str(e)}")
 
     async def backfill_balances(
         self,

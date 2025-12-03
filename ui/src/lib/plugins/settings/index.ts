@@ -1,5 +1,5 @@
 import type { Plugin, PluginContext } from "../../sdk/types";
-import { runSync, toast, getDemoMode, setDemoMode, registry } from "../../sdk";
+import { runSync, toast, getDemoMode, enableDemo, disableDemo, registry } from "../../sdk";
 
 export const plugin: Plugin = {
   manifest: {
@@ -57,12 +57,22 @@ export const plugin: Plugin = {
       execute: async () => {
         const current = await getDemoMode();
         const newMode = !current;
-        await setDemoMode(newMode);
 
-        if (newMode) {
-          toast.info("Demo mode enabled", "Reload the app to use demo data");
-        } else {
-          toast.info("Demo mode disabled", "Reload the app to use real data");
+        try {
+          if (newMode) {
+            toast.info("Enabling demo mode...", "Setting up demo data");
+            await enableDemo();
+            toast.success("Demo mode enabled", "Switched to demo data");
+          } else {
+            toast.info("Disabling demo mode...", "Switching to real data");
+            await disableDemo();
+            toast.success("Demo mode disabled", "Switched to real data");
+          }
+
+          // Emit refresh event so all open views reload their data
+          registry.emit("data:refresh");
+        } catch (e) {
+          toast.error("Demo mode toggle failed", e instanceof Error ? e.message : String(e));
         }
       },
     });
