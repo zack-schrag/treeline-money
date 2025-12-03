@@ -339,96 +339,68 @@
     const day = referenceDay;
     const excludedIds = config.excludedFromNetWorth;
 
-    // Get all snapshots for all accounts
-    const result = await executeQuery(`
-      SELECT
-        bs.account_id,
-        bs.balance,
-        bs.snapshot_time,
-        a.account_type
-      FROM balance_snapshots bs
-      JOIN accounts a ON bs.account_id = a.account_id
-      ORDER BY bs.snapshot_time DESC
-    `);
-
-    if (result.rows.length === 0) {
-      netWorthTrend = [];
-      return;
-    }
-
-    // Group snapshots by account and month
-    // Map: account_id -> month -> snapshots[]
-    const snapshotsByAccountMonth = new Map<string, Map<string, { balance: number; day: number; accountType: string }[]>>();
-
-    for (const row of result.rows) {
-      const accountId = row[0] as string;
-      if (excludedIds.includes(accountId)) continue;
-
-      const balance = row[1] as number;
-      const snapshotTime = new Date(row[2] as string);
-      const accountType = row[3] as string | null;
-      const monthKey = `${snapshotTime.getFullYear()}-${String(snapshotTime.getMonth() + 1).padStart(2, "0")}`;
-      const snapshotDay = snapshotTime.getDate();
-
-      if (!snapshotsByAccountMonth.has(accountId)) {
-        snapshotsByAccountMonth.set(accountId, new Map());
-      }
-      const accountMonths = snapshotsByAccountMonth.get(accountId)!;
-      if (!accountMonths.has(monthKey)) {
-        accountMonths.set(monthKey, []);
-      }
-      accountMonths.get(monthKey)!.push({
-        balance,
-        day: snapshotDay,
-        accountType: accountType || "",
-      });
-    }
-
-    // For each of the last 6 months, calculate net worth
-    const trends: { month: string; netWorth: number }[] = [];
-    const now = new Date();
-
+    // Build the 6 target months (from referenceDate going back)
+    const targetMonths: { monthKey: string; targetDay: number; endOfMonth: Date }[] = [];
     for (let i = 0; i < 6; i++) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const targetDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
       const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
       const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
       const targetDay = Math.min(day, daysInMonth);
+      // End of the target day in that month
+      const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDay, 23, 59, 59);
+      targetMonths.push({ monthKey, targetDay, endOfMonth });
+    }
+
+    // For each target month, get the most recent balance for each account as of that date
+    const trends: { month: string; netWorth: number }[] = [];
+
+    for (const { monthKey, targetDay, endOfMonth } of targetMonths) {
+      const endOfMonthStr = `${endOfMonth.getFullYear()}-${String(endOfMonth.getMonth() + 1).padStart(2, "0")}-${String(endOfMonth.getDate()).padStart(2, "0")} 23:59:59`;
+
+      // Get the most recent snapshot for each account as of the target date
+      const result = await executeQuery(`
+        WITH ranked AS (
+          SELECT
+            bs.account_id,
+            bs.balance,
+            bs.snapshot_time,
+            a.account_type,
+            ROW_NUMBER() OVER (PARTITION BY bs.account_id ORDER BY bs.snapshot_time DESC) as rn
+          FROM balance_snapshots bs
+          JOIN accounts a ON bs.account_id = a.account_id
+          WHERE bs.snapshot_time <= '${endOfMonthStr}'
+        )
+        SELECT account_id, balance, snapshot_time, account_type
+        FROM ranked
+        WHERE rn = 1
+      `);
+
+      if (result.rows.length === 0) {
+        continue;
+      }
 
       let monthNetWorth = 0;
-      let hasData = false;
 
-      for (const [accountId, accountMonths] of snapshotsByAccountMonth) {
-        const monthSnapshots = accountMonths.get(monthKey);
-        if (monthSnapshots && monthSnapshots.length > 0) {
-          hasData = true;
-          // Find snapshot closest to target day
-          let closest = monthSnapshots[0];
-          let closestDiff = Math.abs(closest.day - targetDay);
+      for (const row of result.rows) {
+        const accountId = row[0] as string;
+        if (excludedIds.includes(accountId)) continue;
 
-          for (const snap of monthSnapshots) {
-            const diff = Math.abs(snap.day - targetDay);
-            if (diff < closestDiff) {
-              closest = snap;
-              closestDiff = diff;
-            }
-          }
+        const balance = row[1] as number;
+        const accountType = row[3] as string | null;
 
-          // Check classification (use config override or default)
-          const classification =
-            config.classificationOverrides[accountId] ??
-            getDefaultClassification(closest.accountType);
+        // Check classification (use config override or default)
+        const classification =
+          config.classificationOverrides[accountId] ??
+          getDefaultClassification(accountType);
 
-          if (classification === "liability") {
-            monthNetWorth -= Math.abs(closest.balance);
-          } else {
-            monthNetWorth += closest.balance;
-          }
+        if (classification === "liability") {
+          monthNetWorth -= Math.abs(balance);
+        } else {
+          monthNetWorth += balance;
         }
       }
 
-      if (hasData) {
-        trends.unshift({ month: monthKey, netWorth: monthNetWorth });
-      }
+      trends.unshift({ month: monthKey, netWorth: monthNetWorth });
     }
 
     netWorthTrend = trends;
