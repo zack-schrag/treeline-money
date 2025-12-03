@@ -12,6 +12,7 @@ export interface Transaction {
   amount: number;
   tags: string[];
   account_name?: string;
+  account_nickname?: string | null;
   transaction_date: string;
   parent_transaction_id?: string | null;
 }

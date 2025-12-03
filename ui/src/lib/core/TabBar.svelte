@@ -1,6 +1,23 @@
 <script lang="ts">
   import { registry } from "../sdk";
   import type { Tab } from "../sdk";
+  import { Icon } from "../shared";
+
+  // Icon mapping for tab icons (same as Sidebar)
+  const iconMap: Record<string, string> = {
+    "🏦": "bank",
+    "💰": "wallet",
+    "💳": "credit-card",
+    "🏷": "tag",
+    "⚡": "zap",
+    "⚙": "settings",
+    "📊": "chart",
+    "🔍": "search",
+  };
+
+  function getIconName(emoji: string): string {
+    return iconMap[emoji] || "database";
+  }
 
   let tabs = $state<Tab[]>(registry.tabs);
   let activeTabId = $state<string | null>(registry.activeTabId);
@@ -40,7 +57,7 @@
         onclick={() => handleTabClick(tab.id)}
         onauxclick={(e) => handleMiddleClick(e, tab.id)}
       >
-        <span class="tab-icon">{tab.icon}</span>
+        <span class="tab-icon"><Icon name={getIconName(tab.icon)} size={14} /></span>
         <span class="tab-title">{tab.title}</span>
         <button
           class="tab-close"

@@ -660,8 +660,10 @@
   // Subscribe to global refresh events
   let unsubscribeRefresh: (() => void) | null = null;
 
-  onMount(() => {
-    loadAll();
+  onMount(async () => {
+    await loadAll();
+    // Focus container for keyboard navigation
+    containerEl?.focus();
 
     // Listen for data refresh events (e.g., demo mode toggle)
     unsubscribeRefresh = registry.on("data:refresh", () => {

@@ -238,15 +238,17 @@
   function buildQuery(offset: number = 0): string {
     let query = `
       SELECT
-        transaction_id,
-        account_id,
-        transaction_date,
-        description,
-        amount,
-        tags,
-        account_name,
-        parent_transaction_id
-      FROM transactions
+        t.transaction_id,
+        t.account_id,
+        t.transaction_date,
+        t.description,
+        t.amount,
+        t.tags,
+        t.account_name,
+        t.parent_transaction_id,
+        a.nickname as account_nickname
+      FROM transactions t
+      LEFT JOIN sys_accounts a ON t.account_id = a.account_id
     `;
 
     const conditions: string[] = [];
@@ -256,12 +258,12 @@
       const accountList = Array.from(selectedAccounts)
         .map(a => `'${a.replace(/'/g, "''")}'`)
         .join(", ");
-      conditions.push(`account_name IN (${accountList})`);
+      conditions.push(`t.account_name IN (${accountList})`);
     }
 
     // Untagged filter
     if (filterMode === "untagged" && !searchQuery.trim()) {
-      conditions.push("tags = []");
+      conditions.push("t.tags = []");
     }
 
     // Search filter
@@ -269,10 +271,10 @@
       const escapedSearch = searchQuery.trim().replace(/'/g, "''");
       // Search across description, account_name, amount (as string), and tags
       conditions.push(`(
-        description ILIKE '%${escapedSearch}%'
-        OR account_name ILIKE '%${escapedSearch}%'
-        OR CAST(amount AS VARCHAR) LIKE '%${escapedSearch}%'
-        OR array_to_string(tags, ',') ILIKE '%${escapedSearch}%'
+        t.description ILIKE '%${escapedSearch}%'
+        OR t.account_name ILIKE '%${escapedSearch}%'
+        OR CAST(t.amount AS VARCHAR) LIKE '%${escapedSearch}%'
+        OR array_to_string(t.tags, ',') ILIKE '%${escapedSearch}%'
       )`);
     }
 
@@ -280,7 +282,7 @@
       query += " WHERE " + conditions.join(" AND ");
     }
 
-    query += ` ORDER BY transaction_date DESC LIMIT ${PAGE_SIZE + 1} OFFSET ${offset}`;
+    query += ` ORDER BY t.transaction_date DESC LIMIT ${PAGE_SIZE + 1} OFFSET ${offset}`;
     return query;
   }
 
@@ -294,6 +296,7 @@
       tags: (row[5] as string[]) || [],
       account_name: row[6] as string,
       parent_transaction_id: row[7] as string | null,
+      account_nickname: row[8] as string | null,
     }));
   }
 
@@ -1664,7 +1667,7 @@
             tabindex="-1"
           >
             <div class="row-date">{txn.transaction_date}</div>
-            <div class="row-account">{txn.account_name || ''}</div>
+            <div class="row-account">{txn.account_nickname || txn.account_name || ''}</div>
             <div class="row-desc">
               {#if txn.parent_transaction_id}
                 <span class="split-badge" title="Part of split">⑂</span>
@@ -1706,8 +1709,9 @@
       {/if}
     </div>
 
-    <!-- Sidebar: suggested tags (always visible) -->
+    <!-- Sidebar -->
     <div class="sidebar">
+      <!-- Quick Tags (actionable) -->
       <div class="sidebar-section">
         <div class="sidebar-title">Quick Tags</div>
         {#if currentSuggestions.length === 0}
@@ -1727,17 +1731,44 @@
         {/if}
       </div>
 
-      {#if currentTxn && currentTxn.tags.length > 0}
-        <div class="sidebar-section">
-          <div class="sidebar-title">Current Tags</div>
-          <div class="current-tags">
-            {#each currentTxn.tags as tag}
-              <span class="current-tag">{tag}</span>
-            {/each}
+      <!-- Transaction Info (details + current tags) -->
+      {#if currentTxn}
+        <div class="sidebar-section txn-details">
+          <div class="sidebar-title">Selected Transaction</div>
+          <div class="txn-details-content">
+            <div class="txn-detail-row">
+              <span class="txn-detail-label">Date</span>
+              <span class="txn-detail-value">{currentTxn.transaction_date}</span>
+            </div>
+            <div class="txn-detail-row">
+              <span class="txn-detail-label">Account</span>
+              <span class="txn-detail-value">{currentTxn.account_nickname || currentTxn.account_name || 'Unknown'}</span>
+            </div>
+            <div class="txn-detail-row">
+              <span class="txn-detail-label">Amount</span>
+              <span class="txn-detail-value" class:negative={currentTxn.amount < 0} class:positive={currentTxn.amount >= 0}>
+                {currentTxn.amount < 0 ? '-' : ''}${formatAmount(currentTxn.amount)}
+              </span>
+            </div>
+            <div class="txn-detail-desc">
+              <span class="txn-detail-label">Description</span>
+              <span class="txn-detail-value desc">{currentTxn.description}</span>
+            </div>
+            {#if currentTxn.tags.length > 0}
+              <div class="txn-detail-tags">
+                <span class="txn-detail-label">Tags</span>
+                <div class="current-tags">
+                  {#each currentTxn.tags as tag}
+                    <span class="current-tag">{tag}</span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
 
+      <!-- Split Transaction Info -->
       {#if currentTxn?.parent_transaction_id}
         {@const siblingIndices = splitGroups.get(currentTxn.parent_transaction_id) || []}
         {@const siblings = siblingIndices.map(i => transactions[i]).filter(Boolean)}
@@ -1889,7 +1920,7 @@
 
     <div class="account-info">
       <span class="account-label">Account:</span>
-      <span class="account-value">{editingTransaction?.account_name || 'Unknown'}</span>
+      <span class="account-value">{editingTransaction?.account_nickname || editingTransaction?.account_name || 'Unknown'}</span>
     </div>
   </div>
 
@@ -2391,6 +2422,54 @@
     font-size: 12px;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .txn-details-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .txn-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+
+  .txn-detail-desc,
+  .txn-detail-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    margin-top: var(--spacing-xs);
+  }
+
+  .txn-detail-tags .current-tags {
+    margin-top: 4px;
+  }
+
+  .txn-detail-label {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .txn-detail-value {
+    color: var(--text-primary);
+  }
+
+  .txn-detail-value.desc {
+    word-break: break-word;
+    line-height: 1.4;
+  }
+
+  .txn-detail-value.negative {
+    color: var(--amount-negative, #ef4444);
+  }
+
+  .txn-detail-value.positive {
+    color: var(--amount-positive, #22c55e);
   }
 
   .tag-suggestions {

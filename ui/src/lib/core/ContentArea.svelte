@@ -56,11 +56,11 @@
       <div class="empty-content">
         <div class="empty-logo">◈</div>
         <h2 class="empty-title">treeline</h2>
-        <p class="empty-subtitle">Select a view from the sidebar or press <kbd>⌘K</kbd> to open the command palette</p>
+        <p class="empty-subtitle">Select a view from the sidebar or press <kbd>⌘P</kbd> to open the command palette</p>
 
         <div class="keyboard-hints">
           <div class="hint-group">
-            <kbd>⌘K</kbd>
+            <kbd>⌘P</kbd>
             <span>Command palette</span>
           </div>
           <div class="hint-group">
