@@ -62,7 +62,9 @@
           onclick={handleTryDemo}
           disabled={isLoading}
         >
-          <div class="option-icon">🎭</div>
+          <div class="option-icon">
+            <Icon name="beaker" size={28} />
+          </div>
           <div class="option-content">
             <h3>Try Demo Mode</h3>
             <p>Explore with sample data. Perfect for getting familiar with the app before connecting your accounts.</p>
@@ -81,7 +83,9 @@
           onclick={handleConnectReal}
           disabled={isLoading}
         >
-          <div class="option-icon">🔗</div>
+          <div class="option-icon">
+            <Icon name="link" size={28} />
+          </div>
           <div class="option-content">
             <h3>Connect Real Data</h3>
             <p>Link your bank accounts via SimpleFIN to start tracking your actual finances.</p>
@@ -194,8 +198,15 @@
   }
 
   .option-icon {
-    font-size: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
     flex-shrink: 0;
+    background: var(--bg-tertiary);
+    border-radius: 10px;
+    color: var(--accent-primary);
   }
 
   .option-content {

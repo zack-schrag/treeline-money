@@ -12,7 +12,7 @@
     showToast,
     getDemoMode,
   } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
+  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem, Icon } from "../../shared";
   import type { ImportColumnMapping, ImportPreviewResult, ImportExecuteResult } from "../../sdk";
   import type {
     AccountWithStats,
@@ -28,7 +28,8 @@
   }
   let { action }: Props = $props();
 
-  const PLUGIN_ID = "accounts";
+  // Plugin ID changes based on demo mode to keep configs separate
+  let currentPluginId = $state("accounts");
 
   // State
   let accounts = $state<AccountWithStats[]>([]);
@@ -157,11 +158,11 @@
   };
 
   async function loadConfig(): Promise<AccountsConfig> {
-    return getPluginSettings<AccountsConfig>(PLUGIN_ID, DEFAULT_CONFIG);
+    return getPluginSettings<AccountsConfig>(currentPluginId, DEFAULT_CONFIG);
   }
 
   async function saveConfig(newConfig: AccountsConfig): Promise<void> {
-    await setPluginSettings(PLUGIN_ID, newConfig);
+    await setPluginSettings(currentPluginId, newConfig);
     config = newConfig;
   }
 
@@ -170,6 +171,10 @@
     error = null;
 
     try {
+      // Set plugin ID based on demo mode (separate configs for demo vs real)
+      const isDemo = await getDemoMode();
+      currentPluginId = isDemo ? "accounts_demo" : "accounts";
+
       config = await loadConfig();
 
       // Format reference date for SQL query (end of day)
@@ -1492,7 +1497,7 @@ LIMIT 100`;
     <div class="import-body">
       {#if importDemoModeWarning}
         <div class="import-demo-warning">
-          <span class="warning-icon">🎭</span>
+          <span class="warning-icon"><Icon name="beaker" size={16} /></span>
           <div class="warning-content">
             <strong>Demo Mode Active</strong>
             <p>This data will be imported to the demo database, not your real data.</p>
@@ -2272,8 +2277,10 @@ LIMIT 100`;
   }
 
   .import-demo-warning .warning-icon {
-    font-size: 16px;
+    display: flex;
+    align-items: flex-start;
     flex-shrink: 0;
+    color: #d97706;
   }
 
   .import-demo-warning .warning-content {

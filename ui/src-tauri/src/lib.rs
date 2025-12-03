@@ -435,7 +435,7 @@ fn write_plugin_state(plugin_id: String, content: String) -> Result<(), String> 
         .map_err(|e| format!("Failed to write plugin state: {}", e))
 }
 
-/// Get current demo mode status from config.json
+/// Get current demo mode status from settings.json
 #[tauri::command]
 fn get_demo_mode() -> bool {
     // First check env var (for CI/testing)
@@ -449,20 +449,23 @@ fn get_demo_mode() -> bool {
         }
     }
 
-    // Fall back to config file (same as CLI)
-    let config_path = match get_treeline_dir() {
-        Ok(dir) => dir.join("config.json"),
+    // Fall back to settings file (shared with CLI)
+    let settings_path = match get_treeline_dir() {
+        Ok(dir) => dir.join("settings.json"),
         Err(_) => return false,
     };
 
-    if !config_path.exists() {
+    if !settings_path.exists() {
         return false;
     }
 
-    match fs::read_to_string(&config_path) {
+    match fs::read_to_string(&settings_path) {
         Ok(content) => {
-            if let Ok(config) = serde_json::from_str::<JsonValue>(&content) {
-                config.get("demo_mode").and_then(|v| v.as_bool()).unwrap_or(false)
+            if let Ok(settings) = serde_json::from_str::<JsonValue>(&content) {
+                settings.get("app")
+                    .and_then(|app| app.get("demoMode"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
             } else {
                 false
             }
@@ -471,7 +474,7 @@ fn get_demo_mode() -> bool {
     }
 }
 
-/// Set demo mode in config.json (same file the CLI uses)
+/// Set demo mode in settings.json (shared with CLI)
 #[tauri::command]
 fn set_demo_mode(enabled: bool) -> Result<(), String> {
     let treeline_dir = get_treeline_dir()?;
@@ -482,25 +485,32 @@ fn set_demo_mode(enabled: bool) -> Result<(), String> {
             .map_err(|e| format!("Failed to create treeline directory: {}", e))?;
     }
 
-    let config_path = treeline_dir.join("config.json");
+    let settings_path = treeline_dir.join("settings.json");
 
-    // Read existing config or create new
-    let mut config: serde_json::Map<String, JsonValue> = if config_path.exists() {
-        let content = fs::read_to_string(&config_path)
-            .map_err(|e| format!("Failed to read config: {}", e))?;
+    // Read existing settings or create new with default structure
+    let mut settings: serde_json::Map<String, JsonValue> = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read settings: {}", e))?;
         serde_json::from_str(&content).unwrap_or_default()
     } else {
         serde_json::Map::new()
     };
 
-    // Update demo_mode
-    config.insert("demo_mode".to_string(), JsonValue::Bool(enabled));
+    // Ensure "app" key exists
+    if !settings.contains_key("app") {
+        settings.insert("app".to_string(), JsonValue::Object(serde_json::Map::new()));
+    }
+
+    // Update demoMode in app settings
+    if let Some(JsonValue::Object(app)) = settings.get_mut("app") {
+        app.insert("demoMode".to_string(), JsonValue::Bool(enabled));
+    }
 
     // Write back
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    let content = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    fs::write(&settings_path, content)
+        .map_err(|e| format!("Failed to write settings: {}", e))?;
 
     Ok(())
 }

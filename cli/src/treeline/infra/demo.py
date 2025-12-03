@@ -37,6 +37,7 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
             Account(
                 id=uuid4(),
                 name="Demo Checking Account",
+                account_type="depository",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-checking-001"}),
                 balance=Decimal("3247.85"),
@@ -49,6 +50,7 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
             Account(
                 id=uuid4(),
                 name="Demo Savings Account",
+                account_type="depository",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-savings-001"}),
                 balance=Decimal("15420.50"),
@@ -61,6 +63,7 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
             Account(
                 id=uuid4(),
                 name="Demo Credit Card",
+                account_type="credit",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-credit-001"}),
                 balance=Decimal("-842.32"),
@@ -82,94 +85,137 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
         Returns:
             List of tuples (provider_account_id, transaction)
         """
-        # Generate transactions for the past 90 days if no date range specified
+        # Generate transactions for the past 180 days (6 months) if no date range specified
         if not start_date:
-            start_date = datetime.now(timezone.utc) - timedelta(days=90)
+            start_date = datetime.now(timezone.utc) - timedelta(days=180)
         if not end_date:
             end_date = datetime.now(timezone.utc)
 
-        # Transaction templates for realistic demo data
-        transaction_templates = [
-            # Checking account transactions
+        # Recurring transaction templates (monthly patterns)
+        recurring_templates = [
+            # Income - monthly
+            ("demo-checking-001", "Direct Deposit - Payroll", Decimal("3500.00"), "income", 15),
+            ("demo-checking-001", "Direct Deposit - Payroll", Decimal("3500.00"), "income", 30),
+            # Utilities - monthly
+            ("demo-checking-001", "PG&E Utility Bill", Decimal("-145.23"), "utilities", 5),
+            ("demo-checking-001", "Water & Sewer", Decimal("-65.00"), "utilities", 10),
+            # Subscriptions - monthly
+            ("demo-checking-001", "Netflix", Decimal("-15.99"), "entertainment", 1),
+            ("demo-credit-001", "Spotify Premium", Decimal("-9.99"), "entertainment", 1),
+            ("demo-checking-001", "Gym Membership", Decimal("-49.99"), "health", 1),
+            # Savings - monthly transfer
+            ("demo-savings-001", "Transfer from Checking", Decimal("500.00"), "transfer", 16),
+            ("demo-savings-001", "Interest Payment", Decimal("12.45"), "income", 28),
+            # Credit card payment - monthly
+            ("demo-credit-001", "Payment Thank You", Decimal("800.00"), "payment", 20),
+        ]
+
+        # Variable transaction templates (appear randomly throughout)
+        variable_templates = [
+            # Groceries (weekly-ish)
             ("demo-checking-001", "QFC Grocery Store", Decimal("-87.43"), "groceries"),
-            ("demo-checking-001", "Starbucks", Decimal("-5.75"), "coffee"),
-            (
-                "demo-checking-001",
-                "Shell Gas Station",
-                Decimal("-52.00"),
-                "transportation",
-            ),
-            ("demo-checking-001", "Netflix", Decimal("-15.99"), "entertainment"),
-            (
-                "demo-checking-001",
-                "Direct Deposit - Payroll",
-                Decimal("3500.00"),
-                "income",
-            ),
-            ("demo-checking-001", "Amazon.com", Decimal("-124.87"), "shopping"),
-            ("demo-checking-001", "PG&E Utility Bill", Decimal("-145.23"), "utilities"),
-            ("demo-checking-001", "Target", Decimal("-67.92"), "shopping"),
             ("demo-checking-001", "Whole Foods", Decimal("-112.56"), "groceries"),
+            ("demo-checking-001", "Trader Joe's", Decimal("-68.24"), "groceries"),
+            ("demo-checking-001", "Safeway", Decimal("-54.89"), "groceries"),
+            # Coffee (frequent)
+            ("demo-checking-001", "Starbucks", Decimal("-5.75"), "coffee"),
+            ("demo-checking-001", "Starbucks", Decimal("-6.25"), "coffee"),
+            # Gas (bi-weekly)
+            ("demo-checking-001", "Shell Gas Station", Decimal("-52.00"), "transportation"),
+            ("demo-checking-001", "Chevron", Decimal("-48.50"), "transportation"),
+            # Transportation
             ("demo-checking-001", "Uber", Decimal("-23.40"), "transportation"),
-            # Credit card transactions
+            ("demo-checking-001", "Lyft", Decimal("-18.75"), "transportation"),
+            # Shopping
+            ("demo-checking-001", "Amazon.com", Decimal("-124.87"), "shopping"),
+            ("demo-checking-001", "Target", Decimal("-67.92"), "shopping"),
+            ("demo-credit-001", "Amazon.com", Decimal("-89.99"), "shopping"),
+            # Dining
+            ("demo-credit-001", "Restaurant - Italian", Decimal("-78.50"), "dining"),
+            ("demo-credit-001", "Restaurant - Thai", Decimal("-45.00"), "dining"),
+            ("demo-credit-001", "Restaurant - Fine Dining", Decimal("-125.75"), "dining"),
+            # Travel (occasional)
             ("demo-credit-001", "Delta Airlines", Decimal("-450.00"), "travel"),
             ("demo-credit-001", "Hilton Hotel", Decimal("-285.60"), "travel"),
-            (
-                "demo-credit-001",
-                "Restaurant - Fine Dining",
-                Decimal("-95.75"),
-                "dining",
-            ),
-            ("demo-credit-001", "Apple Store", Decimal("-1299.00"), "electronics"),
-            ("demo-credit-001", "Spotify Premium", Decimal("-9.99"), "entertainment"),
-            ("demo-credit-001", "Payment Thank You", Decimal("500.00"), "payment"),
-            # Savings account transactions (less frequent)
-            (
-                "demo-savings-001",
-                "Transfer from Checking",
-                Decimal("500.00"),
-                "transfer",
-            ),
-            ("demo-savings-001", "Interest Payment", Decimal("12.45"), "income"),
+            # Electronics (rare)
+            ("demo-credit-001", "Apple Store", Decimal("-199.00"), "electronics"),
         ]
 
         transactions = []
         now = datetime.now(timezone.utc)
+        tx_counter = 0
 
-        # Generate transactions spread across the date range
+        # Generate recurring transactions for each month in range
+        current = start_date
+        while current <= end_date:
+            year, month = current.year, current.month
+            days_in_month = (date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)) - date(year, month, 1)
+
+            for account_id, description, amount, category, day_of_month in recurring_templates:
+                if account_ids and account_id not in account_ids:
+                    continue
+
+                # Clamp day to valid range for this month
+                actual_day = min(day_of_month, days_in_month.days)
+                tx_date = date(year, month, actual_day)
+                tx_datetime = datetime.combine(tx_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+
+                if tx_datetime < start_date or tx_datetime > end_date:
+                    continue
+
+                transaction = Transaction(
+                    id=uuid4(),
+                    account_id=UUID(int=0),
+                    external_ids=MappingProxyType({"demo": f"demo-tx-{tx_counter:04d}"}),
+                    amount=amount,
+                    description=description,
+                    transaction_date=tx_date,
+                    posted_date=tx_date,
+                    tags=tuple([category]) if category else tuple(),
+                    created_at=now,
+                    updated_at=now,
+                )
+                transactions.append((account_id, transaction))
+                tx_counter += 1
+
+            # Move to next month
+            if month == 12:
+                current = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            else:
+                current = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+
+        # Generate variable transactions spread throughout
         days_in_range = (end_date - start_date).days
         if days_in_range <= 0:
             days_in_range = 1
 
-        for i, (account_id, description, amount, category) in enumerate(
-            transaction_templates
-        ):
-            # Filter by account IDs if specified
-            if account_ids and account_id not in account_ids:
-                continue
+        # Each template appears multiple times
+        for repeat in range(days_in_range // 7):  # Roughly weekly cycle
+            for i, (account_id, description, amount, category) in enumerate(variable_templates):
+                if account_ids and account_id not in account_ids:
+                    continue
 
-            # Space out transactions across the date range
-            offset_days = (i * days_in_range) // len(transaction_templates)
-            transaction_datetime = start_date + timedelta(days=offset_days)
+                # Space out with some randomness (using counter as pseudo-random)
+                offset_days = ((repeat * len(variable_templates) + i) * 3) % days_in_range
+                tx_date = (start_date + timedelta(days=offset_days)).date()
 
-            # Skip if outside date range
-            if transaction_datetime < start_date or transaction_datetime > end_date:
-                continue
+                if tx_date < start_date.date() or tx_date > end_date.date():
+                    continue
 
-            transaction = Transaction(
-                id=uuid4(),
-                account_id=UUID(int=0),  # Placeholder, will be mapped by service
-                external_ids=MappingProxyType({"demo": f"demo-tx-{i:04d}"}),
-                amount=amount,
-                description=description,
-                transaction_date=transaction_datetime.date(),
-                posted_date=transaction_datetime.date(),
-                tags=tuple([category]) if category else tuple(),
-                created_at=now,
-                updated_at=now,
-            )
-
-            transactions.append((account_id, transaction))
+                transaction = Transaction(
+                    id=uuid4(),
+                    account_id=UUID(int=0),
+                    external_ids=MappingProxyType({"demo": f"demo-tx-{tx_counter:04d}"}),
+                    amount=amount,
+                    description=description,
+                    transaction_date=tx_date,
+                    posted_date=tx_date,
+                    tags=tuple([category]) if category else tuple(),
+                    created_at=now,
+                    updated_at=now,
+                )
+                transactions.append((account_id, transaction))
+                tx_counter += 1
 
         return transactions
 

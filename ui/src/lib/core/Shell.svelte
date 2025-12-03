@@ -7,6 +7,7 @@
   import CommandPalette from "./CommandPalette.svelte";
   import SettingsModal from "./SettingsModal.svelte";
   import ToastContainer from "./ToastContainer.svelte";
+  import { Icon } from "../shared";
   import { registry, getDemoMode, disableDemo, toast } from "../sdk";
 
   let commandPaletteOpen = $state(false);
@@ -107,11 +108,12 @@
     <TabBar />
     {#if isDemoMode}
       <div class="demo-banner">
-        <span class="demo-icon">🎭</span>
+        <span class="demo-icon"><Icon name="beaker" size={16} /></span>
         <span class="demo-text">
           <strong>Demo Mode</strong> — Exploring with sample data
         </span>
         <button class="demo-exit-btn" onclick={handleExitDemo} disabled={isExitingDemo}>
+          <Icon name="log-out" size={12} />
           {isExitingDemo ? "Exiting..." : "Exit Demo Mode"}
         </button>
       </div>
@@ -155,7 +157,8 @@
   }
 
   .demo-icon {
-    font-size: 1rem;
+    display: flex;
+    align-items: center;
   }
 
   .demo-text {
@@ -167,6 +170,9 @@
   }
 
   .demo-exit-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
     padding: 0.375rem 0.75rem;
     background: rgba(255, 255, 255, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.3);

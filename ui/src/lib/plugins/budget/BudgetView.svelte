@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { executeQuery, getPluginSettings, setPluginSettings, registry } from "../../sdk";
+  import { executeQuery, getPluginSettings, setPluginSettings, registry, getDemoMode } from "../../sdk";
   import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
-  const PLUGIN_ID = "budget";
+  // Plugin ID changes based on demo mode to keep configs separate
+  let currentPluginId = $state("budget");
   const MONTHS_DIR = "months"; // monthly overrides (kept as plugin files, not settings)
 
   // State
@@ -18,6 +19,13 @@
   let availableMonths = $state<string[]>([]);
   let selectedMonth = $state<string>("");
   let isCustomMonth = $state(false); // true if this month has its own budget config
+
+  // Current month helper
+  function getCurrentMonth(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  let isCurrentMonth = $derived(selectedMonth === getCurrentMonth());
 
   // Account filtering
   let allAccounts = $state<string[]>([]);
@@ -156,8 +164,25 @@
     template: BudgetConfig;
   }
 
+  // Default template with common categories - users can customize
+  // Tags match demo data so demo mode works out of the box
   const DEFAULT_SETTINGS: BudgetSettings = {
-    template: { income: {}, expenses: {} },
+    template: {
+      income: {
+        "Salary": { expected: 7000, tags: ["income"] },
+      },
+      expenses: {
+        "Groceries": { expected: 600, tags: ["groceries"] },
+        "Dining": { expected: 300, tags: ["dining", "coffee"] },
+        "Transportation": { expected: 400, tags: ["transportation"] },
+        "Shopping": { expected: 400, tags: ["shopping"] },
+        "Entertainment": { expected: 100, tags: ["entertainment"] },
+        "Utilities": { expected: 250, tags: ["utilities"] },
+        "Health": { expected: 100, tags: ["health"] },
+      },
+      incomeOrder: ["Salary"],
+      expensesOrder: ["Groceries", "Dining", "Transportation", "Shopping", "Entertainment", "Utilities", "Health"],
+    },
   };
 
   async function loadConfig(month?: string): Promise<BudgetConfig> {
@@ -167,7 +192,7 @@
     if (targetMonth) {
       try {
         const monthFile = `${MONTHS_DIR}/${targetMonth}.json`;
-        const content = await invoke<string>("read_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile });
+        const content = await invoke<string>("read_plugin_config", { pluginId: currentPluginId, filename: monthFile });
         if (content && content !== "null") {
           isCustomMonth = true;
           return JSON.parse(content);
@@ -180,7 +205,7 @@
     // Fall back to template (from unified settings)
     try {
       isCustomMonth = false;
-      const settings = await getPluginSettings<BudgetSettings>(PLUGIN_ID, DEFAULT_SETTINGS);
+      const settings = await getPluginSettings<BudgetSettings>(currentPluginId, DEFAULT_SETTINGS);
       return settings.template || { income: {}, expenses: {} };
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -192,15 +217,15 @@
     // Always save to month-specific file (as plugin files, not settings)
     if (!selectedMonth) return;
     const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
-    await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile, content: JSON.stringify(config, null, 2) });
+    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
     isCustomMonth = true;
   }
 
   async function saveAsTemplate(config: BudgetConfig): Promise<void> {
     // Save current config as the template for future months (to unified settings)
-    const settings = await getPluginSettings<BudgetSettings>(PLUGIN_ID, DEFAULT_SETTINGS);
+    const settings = await getPluginSettings<BudgetSettings>(currentPluginId, DEFAULT_SETTINGS);
     settings.template = config;
-    await setPluginSettings(PLUGIN_ID, settings);
+    await setPluginSettings(currentPluginId, settings);
   }
 
   async function resetToTemplate(): Promise<void> {
@@ -209,7 +234,7 @@
     try {
       const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
       // Write empty/null to effectively delete (or we could add a delete command)
-      await invoke("write_plugin_config", { pluginId: PLUGIN_ID, filename: monthFile, content: "null" });
+      await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: "null" });
       isCustomMonth = false;
       await loadCategories();
       await calculateActuals();
@@ -335,6 +360,10 @@
     isLoading = true;
     error = null;
     try {
+      // Set plugin ID based on demo mode (separate configs for demo vs real)
+      const isDemo = await getDemoMode();
+      currentPluginId = isDemo ? "budget_demo" : "budget";
+
       // Load months first but don't set selectedMonth yet to avoid triggering effect
       const result = await executeQuery(`SELECT DISTINCT strftime('%Y-%m', transaction_date) as month FROM transactions ORDER BY month DESC`);
       const transactionMonths = result.rows.map(r => r[0] as string);
@@ -344,7 +373,8 @@
       const nextMonthStr = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
       const allMonths = new Set([nextMonthStr, currentMonth, ...transactionMonths]);
       availableMonths = Array.from(allMonths).sort().reverse();
-      const targetMonth = availableMonths[0] || "";
+      // Default to current month, not the next month
+      const targetMonth = currentMonth;
 
       // Load other data in parallel
       await Promise.all([loadAllTags(), loadAllAccounts()]);
@@ -455,6 +485,22 @@
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  // Format "2025-12" as "Dec 2025"
+  function formatMonth(monthStr: string): string {
+    if (!monthStr) return "—";
+    const [year, month] = monthStr.split("-");
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
+
+  // Format "2025-12" as "Dec" (short month only, for trends)
+  function formatMonthShort(monthStr: string): string {
+    if (!monthStr) return "";
+    const [year, month] = monthStr.split("-");
+    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+    return date.toLocaleDateString("en-US", { month: "short" });
+  }
+
   function getStatusColor(actual: BudgetActual): string {
     if (actual.type === "income") return actual.percentUsed >= 100 ? "var(--accent-success, #22c55e)" : "var(--text-muted)";
     if (actual.percentUsed > 100) return "var(--accent-danger, #ef4444)";
@@ -521,6 +567,10 @@
         cursorIndex = allActuals.length - 1;
         scrollToCursor();
         break;
+      case "t":
+        e.preventDefault();
+        goToCurrentMonth();
+        break;
     }
   }
 
@@ -530,6 +580,10 @@
     if (newIdx >= 0 && newIdx < availableMonths.length) {
       selectedMonth = availableMonths[newIdx];
     }
+  }
+
+  function goToCurrentMonth() {
+    selectedMonth = getCurrentMonth();
   }
 
   function scrollToCursor() {
@@ -598,6 +652,7 @@
     { keys: ["a"], label: "add", action: () => startAddCategory("expense") },
     { keys: ["d"], label: "delete", action: () => currentCategory && deleteCategory(currentCategory) },
     { keys: ["h", "l"], label: "month", action: () => {} },
+    { keys: ["t"], label: "this month", action: goToCurrentMonth, disabled: isCurrentMonth },
     { keys: ["g", "G"], label: "first/last", action: () => {} },
     { keys: ["\u2318\u2191", "\u2318\u2193"], label: "reorder", action: () => {} },
   ]);
@@ -627,10 +682,11 @@
       <div class="month-nav">
         <button class="nav-btn" onclick={() => cycleMonth(1)} disabled={availableMonths.indexOf(selectedMonth) === availableMonths.length - 1}>←</button>
         <span class="current-month">
-          {selectedMonth || "—"}
+          {formatMonth(selectedMonth)}
           {#if isCustomMonth}<span class="custom-badge" title="Custom budget for this month">*</span>{/if}
         </span>
         <button class="nav-btn" onclick={() => cycleMonth(-1)} disabled={availableMonths.indexOf(selectedMonth) === 0}>→</button>
+        <button class="this-month-btn" onclick={goToCurrentMonth} title="Jump to current month" disabled={isCurrentMonth}>This Month</button>
       </div>
     </div>
     {#if isCustomMonth}
@@ -810,7 +866,7 @@
             <div class="trend-chart">
               {#each categoryTrend as trend}
                 <div class="trend-row">
-                  <span class="trend-month">{trend.month.slice(5)}</span>
+                  <span class="trend-month">{formatMonthShort(trend.month)}</span>
                   <div class="trend-bar-container">
                     <div class="trend-bar" style="width: {(trend.actual / maxActual) * 100}%"></div>
                   </div>
@@ -829,7 +885,7 @@
 
   <Modal
     open={showTransactions && !!drillDownCategory}
-    title="{drillDownCategory?.category ?? ''} — {selectedMonth}"
+    title="{drillDownCategory?.category ?? ''} — {formatMonth(selectedMonth)}"
     onclose={closeDrillDown}
     width="500px"
   >
@@ -927,6 +983,30 @@
 
   .nav-btn:hover:not(:disabled) { background: var(--bg-primary); }
   .nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+  .this-month-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    margin-left: var(--spacing-sm);
+    transition: all 0.15s ease;
+  }
+
+  .this-month-btn:hover:not(:disabled) {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .this-month-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
 
   .current-month {
     font-family: var(--font-mono);

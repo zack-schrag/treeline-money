@@ -109,6 +109,17 @@ def _enable_demo(get_container: callable, ensure_initialized: callable) -> None:
     else:
         console.print(f"[{theme.warning}]Note: {result.error}[/{theme.warning}]")
 
+    # Backfill balance history (6 months of data)
+    backfill_service = container.backfill_service()
+    with console.status(f"[{theme.status_loading}]Generating balance history..."):
+        backfill_result = asyncio.run(backfill_service.backfill_balances(days=180))
+
+    if backfill_result.success:
+        data = backfill_result.data
+        total = sum(s["created"] for s in data.get("accounts", []))
+        if total > 0:
+            console.print(f"[{theme.success}]Created {total} balance snapshots[/{theme.success}]")
+
     console.print(f"\n[{theme.muted}]Run 'tl status' to see demo data[/{theme.muted}]")
     console.print(f"[{theme.muted}]Run 'tl demo off' to return to real data[/{theme.muted}]\n")
 

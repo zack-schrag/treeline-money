@@ -537,7 +537,7 @@
 
                 {#if isDemoMode}
                   <div class="demo-mode-notice">
-                    <div class="notice-icon">🎭</div>
+                    <div class="notice-icon"><Icon name="beaker" size={24} /></div>
                     <div class="notice-content">
                       <h4>Demo Mode Active</h4>
                       <p>Integration setup is disabled while in demo mode to prevent mixing real data with sample data.</p>
@@ -1314,8 +1314,10 @@
   }
 
   .demo-mode-notice .notice-icon {
-    font-size: 24px;
+    display: flex;
+    align-items: flex-start;
     flex-shrink: 0;
+    color: #d97706;
   }
 
   .demo-mode-notice .notice-content h4 {

@@ -19,6 +19,7 @@ export interface AppSettings {
   lastSyncDate: string | null;
   autoSyncOnStartup: boolean;
   hasCompletedOnboarding?: boolean;
+  sidebarCollapsed?: boolean;
 }
 
 /**
@@ -48,6 +49,14 @@ let settingsCache: Settings | null = null;
 // Subscribers for settings changes
 type SettingsSubscriber = (settings: Settings) => void;
 const subscribers: Set<SettingsSubscriber> = new Set();
+
+/**
+ * Invalidate the settings cache (forces next read from disk)
+ * Call this after external processes modify settings.json
+ */
+export function invalidateSettingsCache(): void {
+  settingsCache = null;
+}
 
 /**
  * Read all settings from disk
@@ -320,6 +329,8 @@ export async function setDemoMode(enabled: boolean): Promise<void> {
  */
 export async function enableDemo(): Promise<void> {
   await invoke("enable_demo");
+  // CLI modifies settings.json directly, so invalidate our cache
+  invalidateSettingsCache();
 }
 
 /**
@@ -327,6 +338,8 @@ export async function enableDemo(): Promise<void> {
  */
 export async function disableDemo(): Promise<void> {
   await invoke("disable_demo");
+  // CLI modifies settings.json directly, so invalidate our cache
+  invalidateSettingsCache();
 }
 
 // ============================================================================
