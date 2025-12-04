@@ -894,8 +894,8 @@ LIMIT 100`;
         <input
           type="date"
           class="date-input"
-          value={referenceDate.toISOString().split("T")[0]}
-          max={new Date().toISOString().split("T")[0]}
+          value={`${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}-${String(referenceDate.getDate()).padStart(2, "0")}`}
+          max={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`}
           onchange={handleDateChange}
         />
         <button
