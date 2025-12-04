@@ -886,15 +886,29 @@
   }
 
   async function persistTagChanges(txns: Transaction[], tagAdded: boolean = true) {
+    if (txns.length === 0) return;
+
     try {
-      for (const txn of txns) {
-        const tagsJson = JSON.stringify(txn.tags);
-        const escapedId = txn.transaction_id.replace(/'/g, "''");
-        await executeQuery(
-          `UPDATE sys_transactions SET tags = '${tagsJson}' WHERE transaction_id = '${escapedId}'`,
-          { readonly: false }
-        );
-      }
+      // Build a single UPDATE query with CASE statement for efficiency
+      // This avoids opening many connections which can cause WAL bloat
+      const cases = txns.map(txn => {
+        const tagsArray = txn.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(', ');
+        const tagsList = txn.tags.length > 0 ? `[${tagsArray}]` : '[]';
+        return `WHEN '${txn.transaction_id.replace(/'/g, "''")}' THEN ${tagsList}`;
+      }).join('\n            ');
+
+      const ids = txns.map(t => `'${t.transaction_id.replace(/'/g, "''")}'`).join(', ');
+
+      await executeQuery(
+        `UPDATE sys_transactions
+         SET tags = CASE transaction_id
+            ${cases}
+         END,
+         updated_at = now()
+         WHERE transaction_id IN (${ids})`,
+        { readonly: false }
+      );
+
       // Refresh global stats after persisting
       await loadGlobalStats();
     } catch (e) {
