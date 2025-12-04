@@ -69,6 +69,15 @@
   let isBulkTagging = $state(false);
   let bulkTagInput = $state("");
 
+  // Undo stack for tag operations
+  interface UndoEntry {
+    transactionId: string;
+    previousTags: string[];
+    newTags: string[];
+  }
+  let undoStack = $state<UndoEntry[][]>([]); // Each entry is an array of changes (for bulk ops)
+  const MAX_UNDO_DEPTH = 20;
+
   // Transaction edit modal
   let isTagModalOpen = $state(false);
   let editingTransaction = $state<Transaction | null>(null);
@@ -231,6 +240,24 @@
     return "";
   });
 
+  // Autocomplete for bulk tag input
+  let bulkTagAutocomplete = $derived.by(() => {
+    if (!bulkTagInput || allTags.length === 0) return "";
+
+    // Get the partial tag being typed (after last comma)
+    const parts = bulkTagInput.split(",");
+    const partial = parts[parts.length - 1].trim().toLowerCase();
+    if (!partial) return "";
+
+    // Find first matching tag from all known tags
+    for (const tag of allTags) {
+      if (tag.toLowerCase().startsWith(partial) && tag.toLowerCase() !== partial) {
+        return tag.slice(partial.length);
+      }
+    }
+    return "";
+  });
+
   function buildQuery(offset: number = 0): string {
     let query = `
       SELECT
@@ -257,8 +284,8 @@
       conditions.push(`t.account_name IN (${accountList})`);
     }
 
-    // Untagged filter
-    if (filterMode === "untagged" && !searchQuery.trim()) {
+    // Untagged filter - works alongside search
+    if (filterMode === "untagged") {
       conditions.push("t.tags = []");
     }
 
@@ -368,6 +395,7 @@
   function handleSearchKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter") {
       e.preventDefault();
+      e.stopPropagation();
       // Immediately execute search and exit search mode
       if (searchDebounceTimer) {
         clearTimeout(searchDebounceTimer);
@@ -376,6 +404,7 @@
       exitSearch();
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       exitSearch();
     }
     // Let all other keys flow through naturally
@@ -402,6 +431,13 @@
     // Account dropdown open - handle navigation
     if (isAccountDropdownOpen) {
       handleAccountFilterKeyDown(e);
+      return;
+    }
+
+    // Ctrl+Z / Cmd+Z to undo
+    if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+      e.preventDefault();
+      performUndo();
       return;
     }
 
@@ -560,13 +596,9 @@
 
     if (e.key === "Tab") {
       e.preventDefault();
-      // Autocomplete from suggestions
-      const input = bulkTagInput.toLowerCase().trim();
-      if (input) {
-        const match = currentSuggestions.find(s => s.tag.toLowerCase().startsWith(input));
-        if (match) {
-          bulkTagInput = match.tag;
-        }
+      // Apply autocomplete suggestion
+      if (bulkTagAutocomplete) {
+        bulkTagInput += bulkTagAutocomplete;
       }
       return;
     }
@@ -665,7 +697,7 @@
 
   function startSearch() {
     isSearching = true;
-    setTimeout(() => searchInputEl?.focus(), 10);
+    searchInputEl?.focus();
   }
 
   function exitSearch() {
@@ -813,6 +845,9 @@
     const indices = getSelectedIndicesArray();
     if (indices.length === 0) return;
 
+    // Record undo entries before making changes
+    const undoEntries: UndoEntry[] = [];
+
     // Optimistic update - update local state immediately
     for (const idx of indices) {
       const txn = transactions[idx];
@@ -820,22 +855,29 @@
       const currentTags = txn.tags || [];
       if (currentTags.includes(tag)) continue;
 
+      // Record for undo
+      const newTags = [...currentTags, tag];
+      undoEntries.push({
+        transactionId: txn.transaction_id,
+        previousTags: [...currentTags],
+        newTags: newTags
+      });
+
       // Update in place
       transactions[idx] = {
         ...txn,
-        tags: [...currentTags, tag]
+        tags: newTags
       };
     }
+
+    // Push to undo stack
+    pushUndo(undoEntries);
 
     // Force reactivity
     transactions = [...transactions];
 
-    // Move cursor to next untagged if in untagged mode, otherwise just next
-    const nextIndex = cursorIndex + 1;
-    if (nextIndex < transactions.length) {
-      cursorIndex = nextIndex;
-      scrollToCursor();
-    }
+    // Don't auto-advance cursor - let users apply multiple tags to the same transaction
+    // They can press j/k to move manually when ready
 
     deselectAll();
 
@@ -860,6 +902,44 @@
       // Could show a toast/notification here
       error = "Failed to save - changes may be lost";
     }
+  }
+
+  // Push a batch of tag changes to the undo stack
+  function pushUndo(entries: UndoEntry[]) {
+    if (entries.length === 0) return;
+    undoStack = [...undoStack.slice(-(MAX_UNDO_DEPTH - 1)), entries];
+  }
+
+  // Undo the last tag operation
+  async function performUndo() {
+    if (undoStack.length === 0) {
+      showToast("Nothing to undo", "info");
+      return;
+    }
+
+    const entries = undoStack[undoStack.length - 1];
+    undoStack = undoStack.slice(0, -1);
+
+    // Apply reverts locally
+    for (const entry of entries) {
+      const idx = transactions.findIndex(t => t.transaction_id === entry.transactionId);
+      if (idx >= 0) {
+        transactions[idx] = {
+          ...transactions[idx],
+          tags: [...entry.previousTags]
+        };
+      }
+    }
+
+    transactions = [...transactions];
+
+    // Persist the reverted tags
+    const txnsToUpdate = entries
+      .map(e => transactions.find(t => t.transaction_id === e.transactionId))
+      .filter((t): t is Transaction => t !== undefined);
+
+    await persistTagChanges(txnsToUpdate);
+    showToast(`Undid ${entries.length} tag change${entries.length > 1 ? 's' : ''}`, "success");
   }
 
   function startCustomTagging() {
@@ -890,6 +970,9 @@
 
     const indices = getSelectedIndicesArray();
 
+    // Record undo entries before making changes
+    const undoEntries: UndoEntry[] = [];
+
     // Optimistic update
     for (const idx of indices) {
       const txn = transactions[idx];
@@ -899,21 +982,25 @@
       const currentTags = txn.tags || [];
       const mergedTags = [...new Set([...currentTags, ...tags])];
 
+      // Record for undo
+      undoEntries.push({
+        transactionId: txn.transaction_id,
+        previousTags: [...currentTags],
+        newTags: mergedTags
+      });
+
       transactions[idx] = {
         ...txn,
         tags: mergedTags
       };
     }
 
+    // Push to undo stack
+    pushUndo(undoEntries);
+
     transactions = [...transactions];
 
-    // Move to next
-    const nextIndex = cursorIndex + 1;
-    if (nextIndex < transactions.length) {
-      cursorIndex = nextIndex;
-      scrollToCursor();
-    }
-
+    // Don't auto-advance - consistent with quick tag behavior
     deselectAll();
     cancelCustomTagging();
 
@@ -941,17 +1028,30 @@
       return;
     }
 
+    // Record undo entries before making changes
+    const undoEntries: UndoEntry[] = [];
+
     // Apply to ALL visible transactions
     for (let i = 0; i < transactions.length; i++) {
       const txn = transactions[i];
       const currentTags = txn.tags || [];
       const mergedTags = [...new Set([...currentTags, ...tags])];
 
+      // Record for undo
+      undoEntries.push({
+        transactionId: txn.transaction_id,
+        previousTags: [...currentTags],
+        newTags: mergedTags
+      });
+
       transactions[i] = {
         ...txn,
         tags: mergedTags
       };
     }
+
+    // Push to undo stack
+    pushUndo(undoEntries);
 
     transactions = [...transactions];
     cancelBulkTagging();
@@ -965,10 +1065,20 @@
     const indices = getSelectedIndicesArray();
     if (indices.length === 0) return;
 
+    // Record undo entries before making changes
+    const undoEntries: UndoEntry[] = [];
+
     // Optimistic update
     for (const idx of indices) {
       const txn = transactions[idx];
       if (!txn || txn.tags.length === 0) continue;
+
+      // Record for undo
+      undoEntries.push({
+        transactionId: txn.transaction_id,
+        previousTags: [...txn.tags],
+        newTags: []
+      });
 
       transactions[idx] = {
         ...txn,
@@ -976,15 +1086,12 @@
       };
     }
 
+    // Push to undo stack
+    pushUndo(undoEntries);
+
     transactions = [...transactions];
 
-    // Move to next
-    const nextIndex = cursorIndex + 1;
-    if (nextIndex < transactions.length) {
-      cursorIndex = nextIndex;
-      scrollToCursor();
-    }
-
+    // Don't auto-advance - consistent with quick tag behavior
     deselectAll();
 
     // Persist in background
@@ -1358,6 +1465,7 @@
     { keys: ["/"], label: "search", action: startSearch },
     { keys: ["u"], label: "untagged", action: toggleFilterMode },
     { keys: ["n"], label: "next untagged", action: skipToNextUntagged },
+    { keys: ["⌘Z"], label: "undo", action: performUndo },
   ]);
 
   // Subscribe to global refresh events
@@ -1457,17 +1565,35 @@
         </div>
       {/if}
 
-      <div class="mode-indicator">
+      <!-- Search box - always visible -->
+      <div class="header-search">
+        <span class="search-icon">⌕</span>
+        <input
+          bind:this={searchInputEl}
+          type="text"
+          class="header-search-input"
+          bind:value={searchQuery}
+          oninput={handleSearchInput}
+          onkeydown={handleSearchKeyDown}
+          onfocus={() => isSearching = true}
+          onblur={() => isSearching = false}
+          placeholder="Search... (/)"
+        />
         {#if searchQuery}
-          <span class="mode search-mode">Search</span>
-          <span class="search-term">"{searchQuery}"</span>
-          <button class="clear-search" onclick={clearSearch}>x</button>
-        {:else if filterMode === "untagged"}
-          <span class="mode untagged-mode">Untagged</span>
-        {:else}
-          <span class="mode">All</span>
+          <button class="clear-search" onclick={clearSearch}>×</button>
         {/if}
       </div>
+
+      <!-- Filter mode indicator -->
+      {#if filterMode === "untagged"}
+        <button class="mode-btn untagged-mode" onclick={toggleFilterMode} title="Press 'u' to toggle">
+          Untagged Only
+        </button>
+      {:else}
+        <button class="mode-btn" onclick={toggleFilterMode} title="Press 'u' to show only untagged">
+          All
+        </button>
+      {/if}
 
       <!-- Account filter dropdown -->
       <div class="account-filter-container">
@@ -1699,22 +1825,8 @@
   </div>
 
   <!-- Command bar (bottom) -->
-  <div class="command-bar" class:active={isSearching || isCustomTagging || isBulkTagging}>
-    {#if isSearching}
-      <div class="command-input-row">
-        <span class="command-prefix">/</span>
-        <input
-          bind:this={searchInputEl}
-          type="text"
-          class="command-input"
-          bind:value={searchQuery}
-          oninput={handleSearchInput}
-          onkeydown={handleSearchKeyDown}
-          placeholder="type to search (Enter for instant)"
-        />
-        <span class="command-hint">Enter to search, Esc to exit</span>
-      </div>
-    {:else if isCustomTagging}
+  <div class="command-bar" class:active={isCustomTagging || isBulkTagging}>
+    {#if isCustomTagging}
       <div class="command-input-row">
         <span class="command-prefix">tags ({getTargetCount()}):</span>
         <span class="input-wrapper">
@@ -1731,18 +1843,16 @@
     {:else if isBulkTagging}
       <div class="command-input-row">
         <span class="command-prefix">bulk tag ({transactions.length}):</span>
-        <input
-          bind:this={bulkTagInputEl}
-          type="text"
-          class="command-input"
-          bind:value={bulkTagInput}
-          placeholder="apply to ALL visible transactions"
-        />
-        <span class="command-hint">Enter to apply, Esc to cancel</span>
-      </div>
-    {:else}
-      <div class="command-hint-row">
-        <kbd>1-9</kbd> quick tag | <kbd>Enter</kbd> edit | <kbd>c</kbd> clear | <kbd>a</kbd> bulk | <kbd>/</kbd> search | <kbd>u</kbd> filter
+        <span class="input-wrapper">
+          <input
+            bind:this={bulkTagInputEl}
+            type="text"
+            class="command-input"
+            bind:value={bulkTagInput}
+            placeholder="apply to ALL visible transactions"
+          />{#if bulkTagAutocomplete}<span class="autocomplete-hint" style="left: {bulkTagInput.length}ch">{bulkTagAutocomplete}</span>{/if}
+        </span>
+        <span class="command-hint">Tab complete | Enter apply | Esc cancel</span>
       </div>
     {/if}
   </div>
@@ -1827,33 +1937,41 @@
     opacity: 0.9;
   }
 
-  .mode-indicator {
+  /* Header search box */
+  .header-search {
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    min-width: 180px;
   }
 
-  .mode {
-    font-size: 11px;
-    padding: 2px 8px;
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-radius: 3px;
-    font-weight: 600;
+  .header-search:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
   }
 
-  .mode.search-mode {
-    background: var(--accent-warning, #f59e0b);
-  }
-
-  .mode.untagged-mode {
-    background: var(--accent-danger, #ef4444);
-  }
-
-  .search-term {
-    font-size: 11px;
+  .search-icon {
     color: var(--text-muted);
-    font-family: var(--font-mono);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .header-search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+    min-width: 0;
+  }
+
+  .header-search-input::placeholder {
+    color: var(--text-muted);
   }
 
   .clear-search {
@@ -1861,18 +1979,45 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 12px;
-    padding: 2px 6px;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
   }
 
   .clear-search:hover {
     color: var(--text-primary);
   }
 
+  /* Filter mode button */
+  .mode-btn {
+    padding: 4px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .mode-btn:hover {
+    border-color: var(--accent-primary);
+  }
+
+  .mode-btn.untagged-mode {
+    background: var(--accent-danger, #ef4444);
+    color: white;
+    border-color: var(--accent-danger, #ef4444);
+  }
+
+  .mode-btn.untagged-mode:hover {
+    opacity: 0.9;
+  }
+
   /* Account filter dropdown */
   .account-filter-container {
     position: relative;
-    margin-left: auto;
+    margin-left: auto; /* Push to right side of header */
   }
 
   .account-filter-btn {
@@ -2492,22 +2637,6 @@
   .command-hint {
     font-size: 11px;
     color: var(--text-muted);
-  }
-
-  .command-hint-row {
-    padding: 8px var(--spacing-lg);
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  .command-hint-row kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
   }
 
   .loading-spinner {

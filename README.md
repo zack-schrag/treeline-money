@@ -5,7 +5,7 @@
 Your financial data never leaves your machine. No cloud accounts, no subscriptions, no data harvesting. Just a local database you fully control.
 
 <!-- TODO: hero-screenshot.png - Desktop app showing the Accounts view with sidebar visible, a few accounts listed, and total net worth. Should look polished and give a sense of the full UI. -->
-![Treeline](./demo.gif)
+![Treeline](./hero-screenshot.png)
 
 > **⚠️ Early Stage Software**: Treeline is in active development. Back up your data and expect breaking changes.
 
