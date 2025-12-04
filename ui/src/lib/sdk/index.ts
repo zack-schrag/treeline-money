@@ -78,3 +78,7 @@ export type {
 // Toast notifications
 export { toast, showToast, dismissToast, dismissAllToasts } from "./toast.svelte";
 export type { Toast, ToastOptions, ToastType } from "./toast.svelte";
+
+// Activity tracking (for status bar)
+export { activityStore, withActivity } from "./activity.svelte";
+export type { Activity } from "./activity.svelte";

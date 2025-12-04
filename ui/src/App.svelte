@@ -3,7 +3,7 @@
   import Shell from "./lib/core/Shell.svelte";
   import WelcomeModal from "./lib/core/WelcomeModal.svelte";
   import { initializePlugins } from "./lib/plugins";
-  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry } from "./lib/sdk";
+  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry, activityStore } from "./lib/sdk";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
@@ -60,7 +60,7 @@
     try {
       const needsSync = await isSyncNeeded();
       if (needsSync) {
-        toast.info("Syncing...", "Fetching latest data from integrations");
+        const stopActivity = activityStore.start("Syncing accounts...");
 
         try {
           const result = await runSync();
@@ -90,6 +90,8 @@
         } catch (e) {
           // Don't show error toast on startup for missing integrations
           console.log("Startup sync skipped:", e);
+        } finally {
+          stopActivity();
         }
       }
     } catch (e) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { registry, themeManager, themes } from "../sdk";
   import type { StatusBarItem } from "../sdk";
+  import StatusBarActivity from "./StatusBarActivity.svelte";
 
   let statusBarItems = $state<StatusBarItem[]>(registry.statusBarItems);
   let currentTheme = $state(themeManager.current);
@@ -31,6 +32,7 @@
 
 <footer class="statusbar">
   <div class="statusbar-left">
+    <StatusBarActivity />
     {#each leftItems as item (item.id)}
       <item.component />
     {/each}

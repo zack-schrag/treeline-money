@@ -18,6 +18,7 @@
     registry,
     toast,
     themeManager,
+    activityStore,
     type Settings,
     type AppSettings,
   } from "../sdk";
@@ -352,6 +353,7 @@
 
   async function handleSync() {
     isSyncing = true;
+    const stopActivity = activityStore.start("Syncing accounts...");
     try {
       const result = await runSync();
       const totalAccounts = result.results.reduce(
@@ -380,6 +382,7 @@
     } catch (e) {
       toast.error("Sync failed", e instanceof Error ? e.message : String(e));
     } finally {
+      stopActivity();
       isSyncing = false;
     }
   }

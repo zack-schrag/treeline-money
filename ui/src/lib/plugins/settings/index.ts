@@ -1,5 +1,5 @@
 import type { Plugin, PluginContext } from "../../sdk/types";
-import { runSync, toast, getDemoMode, enableDemo, disableDemo, registry } from "../../sdk";
+import { runSync, toast, getDemoMode, enableDemo, disableDemo, registry, activityStore } from "../../sdk";
 
 export const plugin: Plugin = {
   manifest: {
@@ -19,7 +19,7 @@ export const plugin: Plugin = {
       name: "Sync All Integrations",
       category: "Data",
       execute: async () => {
-        toast.info("Syncing...", "Fetching data from integrations");
+        const stopActivity = activityStore.start("Syncing accounts...");
         try {
           const result = await runSync();
           const totalAccounts = result.results.reduce(
@@ -46,6 +46,8 @@ export const plugin: Plugin = {
           }
         } catch (e) {
           toast.error("Sync failed", e instanceof Error ? e.message : String(e));
+        } finally {
+          stopActivity();
         }
       },
     });
