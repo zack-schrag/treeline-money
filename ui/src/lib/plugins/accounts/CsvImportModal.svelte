@@ -281,36 +281,54 @@
             </select>
           </div>
 
-          <div class="mapping-row">
-            <label>Amount Column</label>
-            <select bind:value={columnMapping.amountColumn}>
-              <option value="">-- Select (or use Debit/Credit) --</option>
-              {#each headers as header}
-                <option value={header}>{header}</option>
-              {/each}
-            </select>
-          </div>
+          <!-- Amount options: Single column OR Debit/Credit -->
+          <div class="amount-options">
+            <div class="amount-option" class:active={!!columnMapping.amountColumn}>
+              <div class="option-header">
+                <span class="option-label">Option 1</span>
+                <span class="option-desc">Single amount column</span>
+              </div>
+              <select
+                bind:value={columnMapping.amountColumn}
+                onchange={() => { if (columnMapping.amountColumn) { columnMapping.debitColumn = ''; columnMapping.creditColumn = ''; }}}
+              >
+                <option value="">-- Select --</option>
+                {#each headers as header}
+                  <option value={header}>{header}</option>
+                {/each}
+              </select>
+            </div>
 
-          <div class="mapping-divider">— OR use separate debit/credit columns —</div>
+            <div class="option-divider">
+              <span class="divider-text">OR</span>
+            </div>
 
-          <div class="mapping-row">
-            <label>Debit Column</label>
-            <select bind:value={columnMapping.debitColumn}>
-              <option value="">-- Select --</option>
-              {#each headers as header}
-                <option value={header}>{header}</option>
-              {/each}
-            </select>
-          </div>
-
-          <div class="mapping-row">
-            <label>Credit Column</label>
-            <select bind:value={columnMapping.creditColumn}>
-              <option value="">-- Select --</option>
-              {#each headers as header}
-                <option value={header}>{header}</option>
-              {/each}
-            </select>
+            <div class="amount-option" class:active={!!columnMapping.debitColumn || !!columnMapping.creditColumn}>
+              <div class="option-header">
+                <span class="option-label">Option 2</span>
+                <span class="option-desc">Separate debit/credit columns</span>
+              </div>
+              <div class="dual-select">
+                <select
+                  bind:value={columnMapping.debitColumn}
+                  onchange={() => { if (columnMapping.debitColumn) columnMapping.amountColumn = ''; }}
+                >
+                  <option value="">Debit...</option>
+                  {#each headers as header}
+                    <option value={header}>{header}</option>
+                  {/each}
+                </select>
+                <select
+                  bind:value={columnMapping.creditColumn}
+                  onchange={() => { if (columnMapping.creditColumn) columnMapping.amountColumn = ''; }}
+                >
+                  <option value="">Credit...</option>
+                  {#each headers as header}
+                    <option value={header}>{header}</option>
+                  {/each}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -599,11 +617,87 @@
     padding: 8px;
   }
 
-  .mapping-divider {
-    text-align: center;
-    font-size: 11px;
+  /* Amount options - two mutually exclusive choices */
+  .amount-options {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: stretch;
+    margin-top: var(--spacing-sm);
+  }
+
+  .amount-option {
+    flex: 1;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .amount-option.active {
+    border-color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.05);
+  }
+
+  .option-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .option-label {
+    font-size: 10px;
+    font-weight: 600;
     color: var(--text-muted);
-    padding: var(--spacing-sm) 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .option-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  .amount-option select {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+
+  .dual-select {
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+
+  .dual-select select {
+    flex: 1;
+  }
+
+  .option-divider {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--spacing-xs);
+  }
+
+  .divider-text {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 4px 8px;
+    border-radius: 4px;
   }
 
   .import-options {

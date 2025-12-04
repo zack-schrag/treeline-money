@@ -78,10 +78,12 @@
   let isEditing = $state(false);
   let editingAccount = $state<AccountWithStats | null>(null);
   let editForm = $state({
+    name: "",
     nickname: "",
     account_type: "",
     classification: "asset" as BalanceClassification,
     excluded_from_net_worth: false,
+    institution_name: "",
   });
 
   // Add account modal
@@ -196,7 +198,8 @@
           COALESCE(s.transaction_count, 0) as transaction_count,
           s.first_transaction,
           s.last_transaction,
-          s_ao.snapshot_time as balance_as_of
+          s_ao.snapshot_time as balance_as_of,
+          a.external_ids
         FROM accounts a
         LEFT JOIN snapshots_as_of s_ao ON a.account_id = s_ao.account_id AND s_ao.rn = 1
         LEFT JOIN account_stats s ON a.account_id = s.account_id
@@ -209,6 +212,20 @@
         const classification =
           config.classificationOverrides[accountId] ??
           getDefaultClassification(accountType);
+
+        // Parse external_ids - empty object means manual account
+        const externalIdsRaw = row[13];
+        let externalIds: Record<string, string> = {};
+        if (externalIdsRaw && typeof externalIdsRaw === 'string') {
+          try {
+            externalIds = JSON.parse(externalIdsRaw);
+          } catch {
+            externalIds = {};
+          }
+        } else if (externalIdsRaw && typeof externalIdsRaw === 'object') {
+          externalIds = externalIdsRaw as Record<string, string>;
+        }
+        const isManual = Object.keys(externalIds).length === 0;
 
         return {
           account_id: accountId,
@@ -226,6 +243,8 @@
           computed_balance: 0, // Not used anymore, using snapshot balance
           balance_as_of: row[12] as string | null,
           classification,
+          external_ids: externalIds,
+          isManual,
         };
       });
 
@@ -580,10 +599,12 @@ LIMIT 100`;
   function startEdit(account: AccountWithStats) {
     editingAccount = account;
     editForm = {
+      name: account.name,
       nickname: account.nickname || "",
       account_type: account.account_type || "",
       classification: account.classification,
       excluded_from_net_worth: config.excludedFromNetWorth.includes(account.account_id),
+      institution_name: account.institution_name || "",
     };
     isEditing = true;
   }
@@ -598,15 +619,33 @@ LIMIT 100`;
     if (!editingAccount) return;
 
     try {
-      // Update nickname and account_type in database
+      // Update account fields in database
       const nicknameValue = editForm.nickname.trim() || null;
       const typeValue = editForm.account_type.trim() || null;
 
+      // Build SET clause - name and institution_name are only editable for manual accounts
+      let setClause = `
+        nickname = ${nicknameValue ? `'${nicknameValue.replace(/'/g, "''")}'` : "NULL"},
+        account_type = ${typeValue ? `'${typeValue.replace(/'/g, "''")}'` : "NULL"},
+        updated_at = CURRENT_TIMESTAMP`;
+
+      // For manual accounts, also allow editing name and institution
+      if (editingAccount.isManual) {
+        const nameValue = editForm.name.trim();
+        const institutionValue = editForm.institution_name.trim() || null;
+
+        if (!nameValue) {
+          error = "Account name is required";
+          return;
+        }
+
+        setClause = `
+          name = '${nameValue.replace(/'/g, "''")}',
+          institution_name = ${institutionValue ? `'${institutionValue.replace(/'/g, "''")}'` : "NULL"},` + setClause;
+      }
+
       await executeQuery(
-        `UPDATE sys_accounts SET
-          nickname = ${nicknameValue ? `'${nicknameValue.replace(/'/g, "''")}'` : "NULL"},
-          account_type = ${typeValue ? `'${typeValue.replace(/'/g, "''")}'` : "NULL"},
-          updated_at = CURRENT_TIMESTAMP
+        `UPDATE sys_accounts SET ${setClause}
         WHERE account_id = '${editingAccount.account_id}'`,
         { readonly: false }
       );
@@ -1186,10 +1225,30 @@ LIMIT 100`;
     onclose={cancelEdit}
   >
     <div class="form">
-      <label>
-        Account Name (from source)
-        <input type="text" value={editingAccount?.name ?? ""} disabled />
-      </label>
+      {#if editingAccount?.isManual}
+        <label>
+          Account Name *
+          <input
+            type="text"
+            bind:value={editForm.name}
+            placeholder="e.g., Emergency Fund"
+          />
+        </label>
+        <label>
+          Institution (optional)
+          <input
+            type="text"
+            bind:value={editForm.institution_name}
+            placeholder="e.g., Vanguard, Manual"
+          />
+        </label>
+      {:else}
+        <label>
+          Account Name (from source)
+          <input type="text" value={editingAccount?.name ?? ""} disabled />
+          <span class="form-hint">Synced from connected account - cannot be edited</span>
+        </label>
+      {/if}
       <label>
         Nickname (displayed instead of account name)
         <input

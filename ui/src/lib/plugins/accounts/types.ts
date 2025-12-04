@@ -23,6 +23,8 @@ export interface AccountWithStats extends Account {
   computed_balance: number;
   balance_as_of: string | null;
   classification: BalanceClassification;
+  external_ids: Record<string, string>;
+  isManual: boolean;
 }
 
 export interface BalanceSnapshot {
