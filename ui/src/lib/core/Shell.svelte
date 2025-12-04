@@ -8,11 +8,12 @@
   import SettingsModal from "./SettingsModal.svelte";
   import ToastContainer from "./ToastContainer.svelte";
   import { Icon } from "../shared";
-  import { registry, getDemoMode, disableDemo, toast } from "../sdk";
+  import { registry, getDemoMode, disableDemo, toast, getAppSetting } from "../sdk";
 
   let commandPaletteOpen = $state(false);
   let settingsModalOpen = $state(false);
   let isDemoMode = $state(false);
+  let hideDemoBanner = $state(false);
   let isExitingDemo = $state(false);
 
   // Check demo mode on mount and subscribe to refresh events
@@ -24,6 +25,7 @@
 
   async function checkDemoMode() {
     isDemoMode = await getDemoMode();
+    hideDemoBanner = (await getAppSetting("hideDemoBanner")) ?? false;
   }
 
   async function handleExitDemo() {
@@ -106,7 +108,7 @@
 
   <div class="main-area">
     <TabBar />
-    {#if isDemoMode}
+    {#if isDemoMode && !hideDemoBanner}
       <div class="demo-banner">
         <span class="demo-icon"><Icon name="beaker" size={16} /></span>
         <span class="demo-text">

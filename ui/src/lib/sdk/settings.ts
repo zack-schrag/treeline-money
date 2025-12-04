@@ -20,6 +20,7 @@ export interface AppSettings {
   autoSyncOnStartup: boolean;
   hasCompletedOnboarding?: boolean;
   sidebarCollapsed?: boolean;
+  hideDemoBanner?: boolean;
 }
 
 /**

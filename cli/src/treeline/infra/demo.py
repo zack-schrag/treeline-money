@@ -5,6 +5,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Any, Dict, List
 from uuid import UUID, uuid4
+import hashlib
 
 from treeline.abstractions import DataAggregationProvider, IntegrationProvider
 from treeline.domain import Account, BalanceSnapshot, Fail, Ok, Result, Transaction
@@ -34,42 +35,93 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
         now = datetime.now(timezone.utc)
 
         accounts = [
+            # Primary Checking - main spending account
             Account(
                 id=uuid4(),
-                name="Demo Checking Account",
-                account_type="depository",
+                name="Primary Checking",
+                nickname="Everyday Spending",
+                account_type="checking",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-checking-001"}),
-                balance=Decimal("3247.85"),
-                institution_name="Demo Bank",
-                institution_url="https://demo-bank.example.com",
-                institution_domain="demo-bank.example.com",
+                balance=Decimal("4823.47"),
+                institution_name="Chase",
+                institution_url="https://chase.com",
+                institution_domain="chase.com",
                 created_at=now,
                 updated_at=now,
             ),
+            # High-Yield Savings
             Account(
                 id=uuid4(),
-                name="Demo Savings Account",
-                account_type="depository",
+                name="High-Yield Savings",
+                nickname="Emergency Fund",
+                account_type="savings",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-savings-001"}),
-                balance=Decimal("15420.50"),
-                institution_name="Demo Bank",
-                institution_url="https://demo-bank.example.com",
-                institution_domain="demo-bank.example.com",
+                balance=Decimal("18750.00"),
+                institution_name="Marcus by Goldman Sachs",
+                institution_url="https://marcus.com",
+                institution_domain="marcus.com",
                 created_at=now,
                 updated_at=now,
             ),
+            # Primary Credit Card
             Account(
                 id=uuid4(),
-                name="Demo Credit Card",
+                name="Sapphire Reserve",
+                nickname="Travel Card",
                 account_type="credit",
                 currency="USD",
                 external_ids=MappingProxyType({"demo": "demo-credit-001"}),
-                balance=Decimal("-842.32"),
-                institution_name="Demo Credit Union",
-                institution_url="https://demo-credit.example.com",
-                institution_domain="demo-credit.example.com",
+                balance=Decimal("-2847.63"),
+                institution_name="Chase",
+                institution_url="https://chase.com",
+                institution_domain="chase.com",
+                created_at=now,
+                updated_at=now,
+            ),
+            # Cashback Credit Card
+            Account(
+                id=uuid4(),
+                name="Citi Double Cash",
+                nickname="Cashback Card",
+                account_type="credit",
+                currency="USD",
+                external_ids=MappingProxyType({"demo": "demo-credit-002"}),
+                balance=Decimal("-1245.89"),
+                institution_name="Citi",
+                institution_url="https://citi.com",
+                institution_domain="citi.com",
+                created_at=now,
+                updated_at=now,
+            ),
+            # Investment Account
+            Account(
+                id=uuid4(),
+                name="Individual Brokerage",
+                nickname="Investments",
+                account_type="investment",
+                currency="USD",
+                external_ids=MappingProxyType({"demo": "demo-investment-001"}),
+                balance=Decimal("47823.15"),
+                institution_name="Fidelity",
+                institution_url="https://fidelity.com",
+                institution_domain="fidelity.com",
+                created_at=now,
+                updated_at=now,
+            ),
+            # 401k
+            Account(
+                id=uuid4(),
+                name="401(k)",
+                nickname="Retirement",
+                account_type="investment",
+                currency="USD",
+                external_ids=MappingProxyType({"demo": "demo-401k-001"}),
+                balance=Decimal("89432.67"),
+                institution_name="Fidelity",
+                institution_url="https://fidelity.com",
+                institution_domain="fidelity.com",
                 created_at=now,
                 updated_at=now,
             ),
@@ -77,85 +129,169 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
 
         return accounts
 
+    def _deterministic_day(self, seed: str, max_day: int) -> int:
+        """Generate a deterministic day based on seed."""
+        h = int(hashlib.md5(seed.encode()).hexdigest()[:8], 16)
+        return (h % max_day) + 1
+
     def _generate_demo_transactions(
         self, start_date: datetime, end_date: datetime, account_ids: List[str]
     ) -> List[tuple[str, Transaction]]:
-        """Generate realistic demo transactions within date range.
-
-        Returns:
-            List of tuples (provider_account_id, transaction)
-        """
-        # Generate transactions for the past 180 days (6 months) if no date range specified
+        """Generate realistic demo transactions within date range."""
         if not start_date:
             start_date = datetime.now(timezone.utc) - timedelta(days=180)
         if not end_date:
             end_date = datetime.now(timezone.utc)
 
-        # Recurring transaction templates (monthly patterns)
-        recurring_templates = [
-            # Income - monthly
-            ("demo-checking-001", "Direct Deposit - Payroll", Decimal("3500.00"), "income", 15),
-            ("demo-checking-001", "Direct Deposit - Payroll", Decimal("3500.00"), "income", 30),
-            # Utilities - monthly
-            ("demo-checking-001", "PG&E Utility Bill", Decimal("-145.23"), "utilities", 5),
-            ("demo-checking-001", "Water & Sewer", Decimal("-65.00"), "utilities", 10),
-            # Subscriptions - monthly
-            ("demo-checking-001", "Netflix", Decimal("-15.99"), "entertainment", 1),
-            ("demo-credit-001", "Spotify Premium", Decimal("-9.99"), "entertainment", 1),
-            ("demo-checking-001", "Gym Membership", Decimal("-49.99"), "health", 1),
-            # Savings - monthly transfer
-            ("demo-savings-001", "Transfer from Checking", Decimal("500.00"), "transfer", 16),
-            ("demo-savings-001", "Interest Payment", Decimal("12.45"), "income", 28),
-            # Credit card payment - monthly
-            ("demo-credit-001", "Payment Thank You", Decimal("800.00"), "payment", 20),
-        ]
-
-        # Variable transaction templates (appear randomly throughout)
-        variable_templates = [
-            # Groceries (weekly-ish)
-            ("demo-checking-001", "QFC Grocery Store", Decimal("-87.43"), "groceries"),
-            ("demo-checking-001", "Whole Foods", Decimal("-112.56"), "groceries"),
-            ("demo-checking-001", "Trader Joe's", Decimal("-68.24"), "groceries"),
-            ("demo-checking-001", "Safeway", Decimal("-54.89"), "groceries"),
-            # Coffee (frequent)
-            ("demo-checking-001", "Starbucks", Decimal("-5.75"), "coffee"),
-            ("demo-checking-001", "Starbucks", Decimal("-6.25"), "coffee"),
-            # Gas (bi-weekly)
-            ("demo-checking-001", "Shell Gas Station", Decimal("-52.00"), "transportation"),
-            ("demo-checking-001", "Chevron", Decimal("-48.50"), "transportation"),
-            # Transportation
-            ("demo-checking-001", "Uber", Decimal("-23.40"), "transportation"),
-            ("demo-checking-001", "Lyft", Decimal("-18.75"), "transportation"),
-            # Shopping
-            ("demo-checking-001", "Amazon.com", Decimal("-124.87"), "shopping"),
-            ("demo-checking-001", "Target", Decimal("-67.92"), "shopping"),
-            ("demo-credit-001", "Amazon.com", Decimal("-89.99"), "shopping"),
-            # Dining
-            ("demo-credit-001", "Restaurant - Italian", Decimal("-78.50"), "dining"),
-            ("demo-credit-001", "Restaurant - Thai", Decimal("-45.00"), "dining"),
-            ("demo-credit-001", "Restaurant - Fine Dining", Decimal("-125.75"), "dining"),
-            # Travel (occasional)
-            ("demo-credit-001", "Delta Airlines", Decimal("-450.00"), "travel"),
-            ("demo-credit-001", "Hilton Hotel", Decimal("-285.60"), "travel"),
-            # Electronics (rare)
-            ("demo-credit-001", "Apple Store", Decimal("-199.00"), "electronics"),
-        ]
-
         transactions = []
         now = datetime.now(timezone.utc)
         tx_counter = 0
 
-        # Generate recurring transactions for each month in range
+        # =========================================
+        # RECURRING MONTHLY TRANSACTIONS
+        # =========================================
+        monthly_recurring = [
+            # Income
+            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), [], 1),
+            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), [], 15),
+
+            # Rent/Mortgage
+            ("demo-checking-001", "Online Payment - Rent", Decimal("-2100.00"), ["housing", "rent"], 1),
+
+            # Utilities
+            ("demo-checking-001", "PG&E - Electricity", Decimal("-142.87"), ["utilities"], 8),
+            ("demo-checking-001", "Comcast Internet", Decimal("-79.99"), ["utilities", "internet"], 12),
+            ("demo-checking-001", "T-Mobile", Decimal("-85.00"), ["utilities", "phone"], 18),
+
+            # Insurance
+            ("demo-checking-001", "State Farm Auto Insurance", Decimal("-156.00"), ["insurance", "auto"], 5),
+            ("demo-checking-001", "Kaiser Health Insurance", Decimal("-320.00"), ["insurance", "health"], 1),
+
+            # Subscriptions
+            ("demo-credit-001", "Netflix", Decimal("-15.99"), ["subscriptions", "entertainment"], 7),
+            ("demo-credit-001", "Spotify Premium", Decimal("-10.99"), ["subscriptions", "entertainment"], 7),
+            ("demo-credit-001", "NYTimes Digital", Decimal("-17.00"), ["subscriptions"], 14),
+            ("demo-credit-001", "iCloud Storage", Decimal("-2.99"), ["subscriptions"], 21),
+            ("demo-credit-002", "Amazon Prime", Decimal("-14.99"), ["subscriptions"], 3),
+            ("demo-credit-002", "YouTube Premium", Decimal("-13.99"), ["subscriptions", "entertainment"], 11),
+            ("demo-checking-001", "Planet Fitness", Decimal("-24.99"), ["subscriptions", "fitness"], 17),
+
+            # Savings & Investments
+            ("demo-savings-001", "Transfer from Checking", Decimal("750.00"), ["transfer"], 16),
+            ("demo-savings-001", "Interest Payment", Decimal("78.23"), [], 28),
+            ("demo-investment-001", "Transfer from Checking", Decimal("500.00"), ["transfer", "investing"], 16),
+            ("demo-401k-001", "Employer 401k Contribution", Decimal("850.00"), ["investing"], 1),
+            ("demo-401k-001", "Employer 401k Contribution", Decimal("850.00"), ["investing"], 15),
+            ("demo-401k-001", "Employer Match", Decimal("425.00"), ["investing"], 1),
+            ("demo-401k-001", "Employer Match", Decimal("425.00"), ["investing"], 15),
+
+            # Credit Card Payments
+            ("demo-credit-001", "Payment Thank You - Web", Decimal("2500.00"), ["payment"], 25),
+            ("demo-credit-002", "Online Payment - Thank You", Decimal("1200.00"), ["payment"], 20),
+        ]
+
+        # =========================================
+        # VARIABLE SPENDING PATTERNS
+        # =========================================
+
+        # Groceries - weekly pattern
+        grocery_stores = [
+            ("demo-credit-002", "Whole Foods Market", Decimal("-127.43"), ["groceries", "food"]),
+            ("demo-credit-002", "Trader Joe's", Decimal("-68.92"), ["groceries", "food"]),
+            ("demo-credit-002", "Safeway", Decimal("-94.56"), ["groceries", "food"]),
+            ("demo-credit-002", "Costco", Decimal("-215.87"), ["groceries", "food"]),
+            ("demo-credit-002", "Target", Decimal("-78.34"), ["groceries", "shopping"]),
+        ]
+
+        # Coffee - frequent
+        coffee_shops = [
+            ("demo-credit-001", "Starbucks", Decimal("-6.45"), ["coffee", "food"]),
+            ("demo-credit-001", "Starbucks", Decimal("-5.75"), ["coffee", "food"]),
+            ("demo-credit-002", "Blue Bottle Coffee", Decimal("-7.50"), ["coffee", "food"]),
+            ("demo-credit-001", "Philz Coffee", Decimal("-6.25"), ["coffee", "food"]),
+        ]
+
+        # Dining out - 2-3x per week
+        restaurants = [
+            ("demo-credit-001", "Sweetgreen", Decimal("-16.87"), ["dining", "food", "lunch"]),
+            ("demo-credit-001", "Chipotle", Decimal("-14.25"), ["dining", "food", "lunch"]),
+            ("demo-credit-001", "Panera Bread", Decimal("-12.48"), ["dining", "food", "lunch"]),
+            ("demo-credit-001", "The Cheesecake Factory", Decimal("-78.45"), ["dining", "food"]),
+            ("demo-credit-001", "Olive Garden", Decimal("-62.30"), ["dining", "food"]),
+            ("demo-credit-001", "Local Thai Kitchen", Decimal("-45.00"), ["dining", "food"]),
+            ("demo-credit-001", "Sushi Masa", Decimal("-89.50"), ["dining", "food"]),
+            ("demo-credit-002", "McDonald's", Decimal("-12.43"), ["dining", "food", "fast-food"]),
+            ("demo-credit-002", "Chick-fil-A", Decimal("-14.87"), ["dining", "food", "fast-food"]),
+            ("demo-credit-001", "DoorDash", Decimal("-34.56"), ["dining", "food", "delivery"]),
+            ("demo-credit-001", "Uber Eats", Decimal("-28.90"), ["dining", "food", "delivery"]),
+        ]
+
+        # Transportation
+        transportation = [
+            ("demo-credit-002", "Shell", Decimal("-58.43"), ["transportation", "gas"]),
+            ("demo-credit-002", "Chevron", Decimal("-52.17"), ["transportation", "gas"]),
+            ("demo-credit-001", "Uber", Decimal("-24.50"), ["transportation", "rideshare"]),
+            ("demo-credit-001", "Lyft", Decimal("-18.75"), ["transportation", "rideshare"]),
+            ("demo-checking-001", "BART", Decimal("-6.20"), ["transportation", "transit"]),
+        ]
+
+        # Shopping
+        shopping = [
+            ("demo-credit-001", "Amazon.com", Decimal("-47.89"), ["shopping"]),
+            ("demo-credit-001", "Amazon.com", Decimal("-124.99"), ["shopping"]),
+            ("demo-credit-001", "Amazon.com", Decimal("-23.45"), ["shopping"]),
+            ("demo-credit-002", "Target", Decimal("-67.82"), ["shopping"]),
+            ("demo-credit-002", "Walmart", Decimal("-45.23"), ["shopping"]),
+            ("demo-credit-001", "Best Buy", Decimal("-199.99"), ["shopping", "electronics"]),
+            ("demo-credit-001", "Apple Store", Decimal("-49.00"), ["shopping", "electronics"]),
+            ("demo-credit-002", "Home Depot", Decimal("-87.43"), ["shopping", "home"]),
+            ("demo-credit-002", "IKEA", Decimal("-234.56"), ["shopping", "home"]),
+            ("demo-credit-001", "Nordstrom", Decimal("-156.78"), ["shopping", "clothing"]),
+            ("demo-credit-001", "Uniqlo", Decimal("-89.97"), ["shopping", "clothing"]),
+        ]
+
+        # Health & Wellness
+        health = [
+            ("demo-credit-002", "CVS Pharmacy", Decimal("-34.56"), ["health", "pharmacy"]),
+            ("demo-credit-002", "Walgreens", Decimal("-28.90"), ["health", "pharmacy"]),
+            ("demo-checking-001", "Kaiser Pharmacy", Decimal("-15.00"), ["health", "pharmacy"]),
+            ("demo-credit-001", "ClassPass", Decimal("-49.00"), ["fitness"]),
+        ]
+
+        # Entertainment
+        entertainment = [
+            ("demo-credit-001", "AMC Theatres", Decimal("-32.50"), ["entertainment"]),
+            ("demo-credit-001", "Eventbrite", Decimal("-75.00"), ["entertainment", "events"]),
+            ("demo-credit-001", "Steam", Decimal("-29.99"), ["entertainment", "gaming"]),
+        ]
+
+        # Travel (occasional)
+        travel = [
+            ("demo-credit-001", "United Airlines", Decimal("-387.00"), ["travel", "flights"]),
+            ("demo-credit-001", "Delta Airlines", Decimal("-452.00"), ["travel", "flights"]),
+            ("demo-credit-001", "Marriott Hotels", Decimal("-245.87"), ["travel", "hotels"]),
+            ("demo-credit-001", "Airbnb", Decimal("-312.45"), ["travel", "lodging"]),
+            ("demo-credit-001", "Enterprise Rent-A-Car", Decimal("-156.78"), ["travel", "car-rental"]),
+        ]
+
+        # Personal Care
+        personal = [
+            ("demo-credit-002", "Supercuts", Decimal("-28.00"), ["personal"]),
+            ("demo-credit-001", "Sephora", Decimal("-67.45"), ["personal", "shopping"]),
+        ]
+
+        # =========================================
+        # GENERATE RECURRING TRANSACTIONS
+        # =========================================
         current = start_date
         while current <= end_date:
             year, month = current.year, current.month
             days_in_month = (date(year, month + 1, 1) if month < 12 else date(year + 1, 1, 1)) - date(year, month, 1)
 
-            for account_id, description, amount, category, day_of_month in recurring_templates:
+            for account_id, description, amount, tags, day_of_month in monthly_recurring:
                 if account_ids and account_id not in account_ids:
                     continue
 
-                # Clamp day to valid range for this month
                 actual_day = min(day_of_month, days_in_month.days)
                 tx_date = date(year, month, actual_day)
                 tx_datetime = datetime.combine(tx_date, datetime.min.time()).replace(tzinfo=timezone.utc)
@@ -171,46 +307,93 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
                     description=description,
                     transaction_date=tx_date,
                     posted_date=tx_date,
-                    tags=tuple([category]) if category else tuple(),
+                    tags=tuple(tags),
                     created_at=now,
                     updated_at=now,
                 )
                 transactions.append((account_id, transaction))
                 tx_counter += 1
 
-            # Move to next month
             if month == 12:
                 current = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
             else:
                 current = datetime(year, month + 1, 1, tzinfo=timezone.utc)
 
-        # Generate variable transactions spread throughout
-        days_in_range = (end_date - start_date).days
-        if days_in_range <= 0:
-            days_in_range = 1
+        # =========================================
+        # GENERATE VARIABLE TRANSACTIONS
+        # =========================================
+        days_in_range = max((end_date - start_date).days, 1)
 
-        # Each template appears multiple times
-        for repeat in range(days_in_range // 7):  # Roughly weekly cycle
-            for i, (account_id, description, amount, category) in enumerate(variable_templates):
+        # Helper to add transactions with frequency
+        def add_variable_txns(templates: list, frequency_days: int, variance: int = 2):
+            nonlocal tx_counter
+            for week_num in range(days_in_range // frequency_days + 1):
+                for i, (account_id, desc, amount, tags) in enumerate(templates):
+                    if account_ids and account_id not in account_ids:
+                        continue
+
+                    # Deterministic but varied spacing
+                    seed = f"{desc}-{week_num}-{i}"
+                    offset = self._deterministic_day(seed, frequency_days)
+                    base_day = week_num * frequency_days + offset
+
+                    if base_day >= days_in_range:
+                        continue
+
+                    tx_date = (start_date + timedelta(days=base_day)).date()
+                    if tx_date > end_date.date():
+                        continue
+
+                    # Slight amount variance
+                    amount_variance = Decimal(str(self._deterministic_day(seed + "amt", 20) - 10)) / Decimal("100")
+                    final_amount = amount * (Decimal("1") + amount_variance / Decimal("10"))
+                    final_amount = final_amount.quantize(Decimal("0.01"))
+
+                    transaction = Transaction(
+                        id=uuid4(),
+                        account_id=UUID(int=0),
+                        external_ids=MappingProxyType({"demo": f"demo-tx-{tx_counter:04d}"}),
+                        amount=final_amount,
+                        description=desc,
+                        transaction_date=tx_date,
+                        posted_date=tx_date,
+                        tags=tuple(tags),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    transactions.append((account_id, transaction))
+                    tx_counter += 1
+
+        # Apply frequencies
+        add_variable_txns(grocery_stores, 7)      # Weekly groceries
+        add_variable_txns(coffee_shops, 3)         # Coffee every ~3 days
+        add_variable_txns(restaurants[:6], 5)      # Dining out frequently
+        add_variable_txns(restaurants[6:], 10)     # Less frequent dining
+        add_variable_txns(transportation[:2], 14)  # Gas bi-weekly
+        add_variable_txns(transportation[2:], 10)  # Rideshare/transit
+        add_variable_txns(shopping[:5], 14)        # Regular shopping
+        add_variable_txns(shopping[5:], 30)        # Occasional shopping
+        add_variable_txns(health, 21)              # Health monthly-ish
+        add_variable_txns(entertainment, 21)       # Entertainment
+        add_variable_txns(personal, 28)            # Personal care monthly
+
+        # Travel is rare - only add a couple trips
+        if days_in_range > 60:
+            for i, (account_id, desc, amount, tags) in enumerate(travel[:3]):
                 if account_ids and account_id not in account_ids:
                     continue
-
-                # Space out with some randomness (using counter as pseudo-random)
-                offset_days = ((repeat * len(variable_templates) + i) * 3) % days_in_range
-                tx_date = (start_date + timedelta(days=offset_days)).date()
-
-                if tx_date < start_date.date() or tx_date > end_date.date():
-                    continue
+                offset = self._deterministic_day(f"travel-{i}", days_in_range - 30) + 15
+                tx_date = (start_date + timedelta(days=offset)).date()
 
                 transaction = Transaction(
                     id=uuid4(),
                     account_id=UUID(int=0),
                     external_ids=MappingProxyType({"demo": f"demo-tx-{tx_counter:04d}"}),
                     amount=amount,
-                    description=description,
+                    description=desc,
                     transaction_date=tx_date,
                     posted_date=tx_date,
-                    tags=tuple([category]) if category else tuple(),
+                    tags=tuple(tags),
                     created_at=now,
                     updated_at=now,
                 )
@@ -227,7 +410,6 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
         """Get demo accounts."""
         accounts = self._generate_demo_accounts()
 
-        # Filter by account IDs if specified
         if provider_account_ids:
             accounts = [
                 acc
@@ -268,7 +450,6 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
         self, integration_name: str, integration_options: Dict[str, Any]
     ) -> Result[Dict[str, str]]:
         """Create demo integration (no real credentials needed)."""
-        # Return fake credentials for any integration
         return Ok(
             {
                 "accessUrl": "https://demo-provider.example.com/access/demo-user",
