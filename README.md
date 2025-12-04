@@ -1,165 +1,101 @@
 # Treeline
 
-**Personal finance analysis — your way**
+**Personal finance that stays on your computer**
 
-Treeline gives you complete control over your financial data. Built for power users and tinkerers who want direct access to their data.
+Your financial data never leaves your machine. No cloud accounts, no subscriptions, no data harvesting. Just a local database you fully control.
 
-<!-- TODO: Add screenshot of desktop app dashboard -->
-![Treeline Screenshot](./demo.gif)
+<!-- TODO: hero-screenshot.png - Desktop app showing the Accounts view with sidebar visible, a few accounts listed, and total net worth. Should look polished and give a sense of the full UI. -->
+![Treeline](./demo.gif)
 
-> **⚠️ Early Stage Software**: Treeline is in active development. Expect potential breaking changes in future releases. Always back up your data.
-
-> **⚠️ Limited Testing**: Treeline has been tested primarily on macOS with USD currency and a small number of US banks (for CSV imports). If you encounter issues, please [file an issue](https://github.com/zack-schrag/treeline-money/issues) or submit a PR!
+> **⚠️ Early Stage Software**: Treeline is in active development. Back up your data and expect breaking changes.
 
 ## Why Treeline?
 
-If you've ever:
-- Spent hours building a custom spreadsheet that could rival Mint
-- Been frustrated with the lack of customization from existing finance tools
-- Wished you could build your own automations tailored to *your* financial life
-- Wanted full control over your data
+Most finance apps want your data on their servers. Treeline keeps everything local in a DuckDB database that you can query, export, and back up however you want.
 
-You're in the right place 😃
+- **Your data, your rules** — Everything stored locally. No account required.
+- **SQL access** — Query your finances like a database, because it is one.
+- **Hackable** — Export anything, script anything, build your own plugins.
+
+## Quick Look
+
+<!-- TODO: quick-look.gif - 15-20 second recording showing: open app → click through Accounts/Tagging/Budget tabs → maybe tag one transaction. Keep it snappy, just enough to show the UI exists and looks good. -->
+![Quick demo](./demo.gif)
 
 ## Features
 
-Treeline includes a **desktop app** and a **CLI** that work together. Use the app for everyday tasks and the CLI for automation and scripting.
-
-### Desktop App
 - **Account Dashboard** — View all accounts, balances, and recent transactions
-- **Transaction Tagging** — Categorize transactions with keyboard shortcuts and bulk selection
-- **Budget Tracking** — Set monthly budgets by category and track spending
-- **CSV Import** — Import bank exports with column auto-detection and live preview
-- **SimpleFIN Sync** — Connect bank accounts and sync with one click
-- **Plugin System** — Extensible architecture for building custom plugins
+- **Transaction Tagging** — Categorize spending with keyboard shortcuts
+- **Budget Tracking** — Set monthly targets by category and track progress
+- **CSV Import** — Import bank exports with auto-detection and live preview
+- **SimpleFIN Sync** — Connect banks for automatic transaction sync
+- **CLI** — Optional command-line interface for scripting and automation
 
-### CLI
-- **SQL Queries** — Direct DuckDB access to your financial data
-- **Scriptable** — JSON output, CSV export, and piping support
-- **Full Access** — Everything in the app can also be done via CLI
-
-## Quick Start
-
-### Try Demo Mode
-
-The fastest way to explore Treeline — no bank connection required:
-
-```bash
-pip install treeline-money
-
-# Enable demo mode (loads sample data)
-tl demo on
-
-# Explore
-tl status
-tl query "SELECT * FROM transactions LIMIT 10"
-
-# Disable when done
-tl demo off
-```
-
-> **💡 Tip**: `tl` is an alias for `treeline`
+## Get Started
 
 ### Install
 
 Download from [GitHub Releases](https://github.com/zack-schrag/treeline-money/releases):
-- **Desktop App** — Includes both UI and CLI
-- **CLI only** — Standalone binary, no dependencies
+- **Desktop App** — Full UI (recommended)
+- **CLI only** — Standalone binary for scripting
 
-Or install via pip: `pip install treeline-money`
+### Try Demo Mode
 
-### Connect Your Data
+Launch the app and enable Demo Mode from Settings to explore with sample data — no bank connection needed.
 
-#### Option 1: SimpleFIN (Recommended)
+<!-- TODO: demo-mode.png - Screenshot of Settings with Demo Mode toggle visible, or the demo mode welcome screen -->
+![Demo Mode](./demo.gif)
 
-[SimpleFIN](https://beta-bridge.simplefin.org/simplefin) is a bank aggregation service ($1.50/month) that connects to your bank accounts. Once set up, sync all your transactions with one command.
+### Connect Your Accounts
 
-```bash
-tl setup simplefin   # Paste your setup token
-tl sync              # Fetch transactions from all accounts
-```
+**CSV Import** — Export transactions from your bank's website, then use the Import button in the Accounts view. The importer auto-detects columns and shows a live preview.
 
-#### Option 2: CSV Import
+<!-- TODO: csv-import.png - Screenshot of the CSV import modal after a file is selected, showing the column mapping dropdowns and live preview with a few transactions. -->
+![CSV Import](./demo.gif)
 
-Import transactions from your bank's CSV exports — completely free.
-
-```bash
-tl import            # Interactive mode with auto-detection
-tl import bank.csv   # Or specify a file directly
-```
-
-<!-- TODO: Add screenshot of CSV import modal -->
+**SimpleFIN** — For automatic syncing, connect via Settings → Integrations. [SimpleFIN](https://beta-bridge.simplefin.org/simplefin) is a bank aggregation service ($1.50/month) that pulls transactions from your accounts automatically.
 
 ## Using Treeline
 
-### Desktop App
+### Tagging Transactions
 
-<!-- TODO: Add screenshots for each section -->
+<!-- TODO: tagging.gif - 10 second recording of tagging workflow: select a transaction, press a number key to apply a quick tag, maybe press 'e' to edit, show the tag appearing. Demonstrates the keyboard-driven UX. -->
+![Tagging](./demo.gif)
 
-**Accounts** — View all your accounts and balances. Click an account to see recent transactions.
+Categorize spending with tags like `groceries`, `dining`, `subscriptions`. Use keyboard shortcuts for speed: number keys apply quick tags, `e` to edit, `/` to search.
 
-**Tagging** — Categorize transactions. Use keyboard shortcuts for speed: number keys for quick tags, `e` to edit, `/` to search.
+### Budget Tracking
 
-**Budget** — Set monthly spending targets by category. Categories are defined by tags.
+<!-- TODO: budget.png - Screenshot of Budget view showing a few categories with progress bars, some under budget (green) and maybe one over (red). -->
+![Budget](./demo.gif)
 
-### CLI
+Set monthly targets by category. Categories are defined by tags — tag transactions as `groceries` to budget for groceries.
 
-Run SQL queries directly against your data:
+## CLI (Optional)
+
+The app includes a CLI for scripting and automation. Run SQL queries, export data, or build custom workflows.
 
 ```bash
-# Monthly spending
-tl query "SELECT strftime('%Y-%m', transaction_date) as month, SUM(amount) as total
-          FROM transactions WHERE amount < 0 GROUP BY month ORDER BY month DESC"
-
-# Transactions by tag
-tl query "SELECT tags, SUM(amount) as total FROM transactions
-          WHERE amount < 0 GROUP BY tags ORDER BY total"
+# Query your data
+tl query "SELECT * FROM transactions WHERE amount < -100"
 
 # Export to CSV
 tl query "SELECT * FROM transactions" --format csv > export.csv
-```
 
-Apply tags via CLI for scripting:
-
-```bash
-# Tag specific transactions
+# Bulk tag transactions
 tl tag groceries --ids abc123,def456
-
-# Pipe from a query
-tl query "SELECT transaction_id FROM transactions WHERE description ILIKE '%COSTCO%'" --json \
-  | jq -r '.rows[][] | @text' | tl tag groceries
 ```
 
-## Database Schema
-
-All data is stored locally in DuckDB. Query these tables:
-
-| Table | Description |
-|-------|-------------|
-| `transactions` | All transactions with account info joined |
-| `accounts` | Account details (name, type, balance, institution) |
-| `balance_snapshots` | Historical balance records |
-
-Key fields in `transactions`:
-- `transaction_id`, `account_id` — UUIDs
-- `amount` — Negative = spending, positive = income
-- `description`, `transaction_date`, `posted_date`
-- `tags` — Array of tags, e.g. `['groceries', 'food']`
-- `account_name`, `institution_name` — Joined from accounts
+Key tables: `transactions`, `accounts`, `balance_snapshots`
 
 ## Examples
 
-See [examples/](./examples/) for starter projects:
-- **marimo_dashboard** — Interactive data exploration
+See [examples/](./examples/) for projects you can build:
+- **marimo_dashboard** — Interactive data exploration notebook
 - **markdown_report** — Generate spending reports
 - **subscription_finder** — Find recurring charges
 
-Ideas for automation:
-- Let Claude Code analyze your finances using CLI commands
-- Set up a cron job to run `tl sync` daily
-- Build custom reports with the SQL interface
+## Help
 
-## Getting Help
-
-- **Bug reports & feature requests**: [GitHub Issues](https://github.com/zack-schrag/treeline-money/issues)
-- **Questions & discussions**: [GitHub Discussions](https://github.com/zack-schrag/treeline-money/discussions)
+- [GitHub Issues](https://github.com/zack-schrag/treeline-money/issues) — Bugs and feature requests
+- [GitHub Discussions](https://github.com/zack-schrag/treeline-money/discussions) — Questions and ideas
