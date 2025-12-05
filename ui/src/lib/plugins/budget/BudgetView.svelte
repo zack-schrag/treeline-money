@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings, registry, getDemoMode } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem } from "../../shared";
+  import { Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
 
   // Plugin ID changes based on demo mode to keep configs separate
@@ -644,18 +644,6 @@
     }
   });
 
-  // Action bar items
-  let actionBarItems = $derived<ActionItem[]>([
-    { keys: ["j", "k"], label: "nav", action: () => {} },
-    { keys: ["Enter"], label: "view", action: () => currentActual && loadTransactionsForCategory(currentActual) },
-    { keys: ["e"], label: "edit", action: () => currentCategory && startEditCategory(currentCategory) },
-    { keys: ["a"], label: "add", action: () => startAddCategory("expense") },
-    { keys: ["d"], label: "delete", action: () => currentCategory && deleteCategory(currentCategory) },
-    { keys: ["h", "l"], label: "month", action: () => {} },
-    { keys: ["t"], label: "this month", action: goToCurrentMonth, disabled: isCurrentMonth },
-    { keys: ["g", "G"], label: "first/last", action: () => {} },
-    { keys: ["\u2318\u2191", "\u2318\u2193"], label: "reorder", action: () => {} },
-  ]);
 
   // Subscribe to global refresh events
   let unsubscribeRefresh: (() => void) | null = null;
@@ -703,8 +691,6 @@
       </div>
     {/if}
   </div>
-
-  <ActionBar actions={actionBarItems} />
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -883,6 +869,18 @@
         <div class="sidebar-empty">Select a category</div>
       {/if}
     </div>
+  </div>
+
+  <!-- Keyboard shortcuts footer -->
+  <div class="shortcuts-footer">
+    <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
+    <span class="shortcut"><kbd>Enter</kbd> view</span>
+    <span class="shortcut"><kbd>e</kbd> edit</span>
+    <span class="shortcut"><kbd>a</kbd> add</span>
+    <span class="shortcut"><kbd>d</kbd> delete</span>
+    <span class="shortcut"><kbd>h</kbd><kbd>l</kbd> month</span>
+    <span class="shortcut"><kbd>t</kbd> this month</span>
+    <span class="shortcut"><kbd>⌘↑</kbd><kbd>⌘↓</kbd> reorder</span>
   </div>
 
   <Modal
@@ -1463,5 +1461,37 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     padding: 8px;
+  }
+
+  /* Shortcuts footer */
+  .shortcuts-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px var(--spacing-lg);
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+  }
+
+  .shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .shortcut kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-right: 2px;
   }
 </style>

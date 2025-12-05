@@ -8,7 +8,7 @@
     showToast,
     getDemoMode,
   } from "../../sdk";
-  import { ActionBar, type ActionItem, Modal, RowMenu, type RowMenuItem, Icon } from "../../shared";
+  import { Modal, RowMenu, type RowMenuItem, Icon } from "../../shared";
   import type {
     AccountWithStats,
     BalanceClassification,
@@ -886,17 +886,6 @@ LIMIT 100`;
     return account.balance ?? account.computed_balance;
   }
 
-  // Action bar items
-  let actionBarItems = $derived<ActionItem[]>([
-    { keys: ["j", "k"], label: "nav", action: () => {} },
-    { keys: ["Enter"], label: "view", action: () => currentAccount && showPreview(currentAccount) },
-    { keys: ["e"], label: "edit", action: () => currentAccount && startEdit(currentAccount) },
-    { keys: ["a"], label: "add", action: startAddAccount },
-    { keys: ["d"], label: "delete", action: () => currentAccount && deleteAccount(currentAccount) },
-    { keys: ["h", "l"], label: "date", action: () => {} },
-    { keys: ["t"], label: "today", action: goToToday, disabled: isToday },
-    { keys: ["r"], label: "refresh", action: loadAccounts },
-  ]);
 
   // Subscribe to global refresh events
   let unsubscribeRefresh: (() => void) | null = null;
@@ -947,8 +936,6 @@ LIMIT 100`;
       </div>
     </div>
   </div>
-
-  <ActionBar actions={actionBarItems} />
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -1184,6 +1171,18 @@ LIMIT 100`;
         <div class="sidebar-empty">Select an account</div>
       {/if}
     </div>
+  </div>
+
+  <!-- Keyboard shortcuts footer -->
+  <div class="shortcuts-footer">
+    <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
+    <span class="shortcut"><kbd>Enter</kbd> view</span>
+    <span class="shortcut"><kbd>e</kbd> edit</span>
+    <span class="shortcut"><kbd>a</kbd> add</span>
+    <span class="shortcut"><kbd>d</kbd> delete</span>
+    <span class="shortcut"><kbd>h</kbd><kbd>l</kbd> date</span>
+    <span class="shortcut"><kbd>t</kbd> today</span>
+    <span class="shortcut"><kbd>r</kbd> refresh</span>
   </div>
 
   <Modal
@@ -1975,5 +1974,37 @@ LIMIT 100`;
     font-size: 11px;
     color: var(--text-muted);
     background: var(--bg-tertiary);
+  }
+
+  /* Shortcuts footer */
+  .shortcuts-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px var(--spacing-lg);
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+  }
+
+  .shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .shortcut kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-right: 2px;
   }
 </style>
