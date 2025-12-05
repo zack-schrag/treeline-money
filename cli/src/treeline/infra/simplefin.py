@@ -153,13 +153,15 @@ class SimpleFINProvider(DataAggregationProvider, IntegrationProvider):
 
         try:
             # Build query parameters
-            params = {}
+            # Note: SimpleFIN uses 'account' (singular) specified multiple times, not comma-separated
+            params: list[tuple[str, str]] = []
             if start_date:
-                params["start-date"] = str(int(start_date.timestamp()))
+                params.append(("start-date", str(int(start_date.timestamp()))))
             if end_date:
-                params["end-date"] = str(int(end_date.timestamp()))
+                params.append(("end-date", str(int(end_date.timestamp()))))
             if provider_account_ids:
-                params["accounts"] = ",".join(provider_account_ids)
+                for acc_id in provider_account_ids:
+                    params.append(("account", acc_id))
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(
