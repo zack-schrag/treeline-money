@@ -20,7 +20,7 @@ Most finance apps want your data on their servers. Treeline keeps everything loc
 ## Quick Look
 
 <!-- TODO: quick-look.gif - 15-20 second recording showing: open app → click through Accounts/Tagging/Budget tabs → maybe tag one transaction. Keep it snappy, just enough to show the UI exists and looks good. -->
-![Quick demo](./demo.gif)
+<!-- ![Quick demo](./demo.gif) -->
 
 ## Features
 
@@ -41,10 +41,10 @@ Download from [GitHub Releases](https://github.com/zack-schrag/treeline-money/re
 
 ### Try Demo Mode
 
-Launch the app and enable Demo Mode from Settings to explore with sample data — no bank connection needed.
+Launch the app and you'll be prompted to try in Demo Mode to explore with sample data — no bank connection needed.
 
 <!-- TODO: demo-mode.png - Screenshot of Settings with Demo Mode toggle visible, or the demo mode welcome screen -->
-![Demo Mode](./demo.gif)
+<!-- ![Demo Mode](./demo.gif) -->
 
 ### Connect Your Accounts
 
