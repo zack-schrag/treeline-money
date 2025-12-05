@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { executeQuery, showToast, registry } from "../../sdk";
-  import { ActionBar, type ActionItem, RowMenu, type RowMenuItem } from "../../shared";
+  import { RowMenu, type RowMenuItem } from "../../shared";
   import { FrequencyBasedSuggester } from "./suggestions";
   import type { Transaction, TagSuggestion, SplitAmount, AccountInfo } from "./types";
   import DeleteConfirmModal from "./DeleteConfirmModal.svelte";
@@ -441,6 +441,13 @@
       return;
     }
 
+    // Cmd+F / Ctrl+F to focus search
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      e.preventDefault();
+      startSearch();
+      return;
+    }
+
     // Number keys 1-9 to apply suggested tags
     if (e.key >= "1" && e.key <= "9") {
       const tagIndex = parseInt(e.key) - 1;
@@ -813,6 +820,15 @@
       selectedIndices.delete(cursorIndex);
     } else {
       selectedIndices.add(cursorIndex);
+    }
+    selectedIndices = new Set(selectedIndices);
+  }
+
+  function toggleSelectionAt(index: number) {
+    if (selectedIndices.has(index)) {
+      selectedIndices.delete(index);
+    } else {
+      selectedIndices.add(index);
     }
     selectedIndices = new Set(selectedIndices);
   }
@@ -1469,19 +1485,6 @@
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  // Action bar items
-  let actionBarItems = $derived<ActionItem[]>([
-    { keys: ["j", "k"], label: "nav", action: () => {} },
-    { keys: ["e"], label: "edit", action: () => transactions[cursorIndex] && openTagModal(transactions[cursorIndex]) },
-    { keys: ["d"], label: "delete", action: deleteCurrentTransaction },
-    { keys: ["a"], label: "bulk tag", action: startBulkTagging },
-    { keys: ["t"], label: "tag", action: startCustomTagging },
-    { keys: ["/"], label: "search", action: startSearch },
-    { keys: ["u"], label: "untagged", action: toggleFilterMode },
-    { keys: ["n"], label: "next untagged", action: skipToNextUntagged },
-    { keys: ["⌘Z"], label: "undo", action: performUndo },
-  ]);
-
   // Subscribe to global refresh events
   let unsubscribeRefresh: (() => void) | null = null;
 
@@ -1557,11 +1560,7 @@
     <div class="title-row">
       <h1 class="title">Transactions</h1>
 
-      <button class="add-btn" onclick={openAddModal} title="Add transaction (+)">
-        + Add
-      </button>
-
-      <!-- Progress Ring -->
+      <!-- Progress Ring with untagged count -->
       {#if globalStats.total > 0}
         <div class="progress-ring-container" class:complete={isAllTagged}>
           <svg class="progress-ring" viewBox="0 0 36 36">
@@ -1577,37 +1576,14 @@
           </svg>
           <span class="progress-text">{progressPercent}%</span>
         </div>
-      {/if}
-
-      <!-- Search box - always visible -->
-      <div class="header-search">
-        <span class="search-icon">⌕</span>
-        <input
-          bind:this={searchInputEl}
-          type="text"
-          class="header-search-input"
-          bind:value={searchQuery}
-          oninput={handleSearchInput}
-          onkeydown={handleSearchKeyDown}
-          onfocus={() => isSearching = true}
-          onblur={() => isSearching = false}
-          placeholder="Search... (/)"
-        />
-        {#if searchQuery}
-          <button class="clear-search" onclick={clearSearch}>×</button>
+        {#if globalUntaggedCount > 0}
+          <span class="untagged-badge">{globalUntaggedCount} left</span>
+        {:else}
+          <span class="complete-badge">All tagged!</span>
         {/if}
-      </div>
-
-      <!-- Filter mode indicator -->
-      {#if filterMode === "untagged"}
-        <button class="mode-btn untagged-mode" onclick={toggleFilterMode} title="Press 'u' to toggle">
-          Untagged Only
-        </button>
-      {:else}
-        <button class="mode-btn" onclick={toggleFilterMode} title="Press 'u' to show only untagged">
-          All
-        </button>
       {/if}
+
+      <div class="header-spacer"></div>
 
       <!-- Account filter dropdown -->
       <div class="account-filter-container">
@@ -1659,23 +1635,62 @@
           </div>
         {/if}
       </div>
-    </div>
-    <div class="stats">
-      <span>Viewing {transactions.length}{hasMore ? '+' : ''}</span>
-      <span class="tagged-count">| {globalStats.tagged}/{globalStats.total} tagged</span>
-      {#if globalUntaggedCount > 0}
-        <span class="untagged-count">| {globalUntaggedCount} left</span>
-      {/if}
-      {#if selectedIndices.size > 0}
-        <span class="selected-count">| {selectedIndices.size} selected</span>
-      {/if}
-      {#if isLoadingMore}
-        <span class="loading-more">| loading...</span>
-      {/if}
+
+      <!-- Add button -->
+      <button class="add-btn" onclick={openAddModal} title="Add transaction">+</button>
     </div>
   </div>
 
-  <ActionBar actions={actionBarItems} />
+  <!-- Search/Filter Bar -->
+  <div class="filter-bar">
+    <div class="search-container">
+      <span class="search-icon">⌕</span>
+      <input
+        bind:this={searchInputEl}
+        type="text"
+        class="search-input"
+        bind:value={searchQuery}
+        oninput={handleSearchInput}
+        onkeydown={handleSearchKeyDown}
+        onfocus={() => isSearching = true}
+        onblur={() => isSearching = false}
+        placeholder="Search transactions... (/ or ⌘F)"
+      />
+      {#if searchQuery}
+        <button class="clear-search" onclick={clearSearch}>×</button>
+      {/if}
+    </div>
+
+    <!-- Untagged toggle -->
+    <button
+      class="filter-toggle"
+      class:active={filterMode === "untagged"}
+      onclick={toggleFilterMode}
+      title="Press 'u' to toggle"
+    >
+      <span class="toggle-track">
+        <span class="toggle-thumb"></span>
+      </span>
+      <span class="toggle-label">Untagged only</span>
+    </button>
+
+    <!-- Bulk tag button -->
+    <button
+      class="bulk-tag-btn"
+      onclick={startBulkTagging}
+      title="Tag all visible transactions (a)"
+    >
+      Bulk Tag
+    </button>
+
+    <!-- Selection indicator -->
+    {#if selectedIndices.size > 0}
+      <div class="selection-badge">
+        <span class="selection-count">{selectedIndices.size}</span> selected
+        <button class="clear-selection-btn" onclick={deselectAll}>×</button>
+      </div>
+    {/if}
+  </div>
 
   {#if error}
     <div class="error-bar">{error}</div>
@@ -1711,6 +1726,14 @@
             role="button"
             tabindex="-1"
           >
+            <button
+              class="row-checkbox"
+              class:checked={selectedIndices.has(index)}
+              onclick={(e) => { e.stopPropagation(); toggleSelectionAt(index); }}
+              title="Toggle selection (space)"
+            >
+              {selectedIndices.has(index) ? '☑' : '☐'}
+            </button>
             <div class="row-date">{txn.transaction_date}</div>
             <div class="row-account">{txn.account_nickname || txn.account_name || ''}</div>
             <div class="row-desc">
@@ -1785,7 +1808,7 @@
               <span class="txn-detail-label">Date</span>
               <span class="txn-detail-value">{currentTxn.transaction_date}</span>
             </div>
-            <div class="txn-detail-row">
+            <div class="txn-detail-stacked">
               <span class="txn-detail-label">Account</span>
               <span class="txn-detail-value">{currentTxn.account_nickname || currentTxn.account_name || 'Unknown'}</span>
             </div>
@@ -1838,35 +1861,47 @@
     </div>
   </div>
 
-  <!-- Command bar (bottom) -->
+  <!-- Command bar / Footer -->
   <div class="command-bar" class:active={isCustomTagging || isBulkTagging}>
     {#if isCustomTagging}
       <div class="command-input-row">
-        <span class="command-prefix">tags ({getTargetCount()}):</span>
+        <span class="command-prefix">tag ({getTargetCount()}):</span>
         <span class="input-wrapper">
           <input
             bind:this={customTagInputEl}
             type="text"
             class="command-input"
             bind:value={customTagInput}
-            placeholder="enter tags (comma-separated)"
+            placeholder="enter tags, comma-separated"
           />{#if tagAutocomplete}<span class="autocomplete-hint" style="left: {customTagInput.length}ch">{tagAutocomplete}</span>{/if}
         </span>
-        <span class="command-hint">Tab to complete</span>
+        <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
       </div>
     {:else if isBulkTagging}
       <div class="command-input-row">
-        <span class="command-prefix">bulk tag ({transactions.length}):</span>
+        <span class="command-prefix">bulk tag ({transactions.length} visible):</span>
         <span class="input-wrapper">
           <input
             bind:this={bulkTagInputEl}
             type="text"
             class="command-input"
             bind:value={bulkTagInput}
-            placeholder="apply to ALL visible transactions"
+            placeholder="tag all visible transactions"
           />{#if bulkTagAutocomplete}<span class="autocomplete-hint" style="left: {bulkTagInput.length}ch">{bulkTagAutocomplete}</span>{/if}
         </span>
-        <span class="command-hint">Tab complete | Enter apply | Esc cancel</span>
+        <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
+      </div>
+    {:else}
+      <!-- Keyboard shortcuts footer -->
+      <div class="shortcuts-row">
+        <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
+        <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
+        <span class="shortcut"><kbd>t</kbd> custom tag</span>
+        <span class="shortcut"><kbd>a</kbd> bulk tag</span>
+        <span class="shortcut"><kbd>space</kbd> select</span>
+        <span class="shortcut"><kbd>n</kbd> next untagged</span>
+        <span class="shortcut"><kbd>⌘F</kbd> search</span>
+        <span class="shortcut"><kbd>⌘Z</kbd> undo</span>
       </div>
     {/if}
   </div>
@@ -1937,54 +1972,95 @@
   }
 
   .add-btn {
-    padding: 4px 12px;
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border: none;
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
     border-radius: 4px;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 500;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .add-btn:hover {
-    opacity: 0.9;
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    border-color: var(--accent-primary);
   }
 
-  /* Header search box */
-  .header-search {
+  .header-spacer {
+    flex: 1;
+  }
+
+  /* Untagged badge in header */
+  .untagged-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent-warning, #f59e0b);
+    padding: 2px 8px;
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 10px;
+  }
+
+  .complete-badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent-success, #22c55e);
+    padding: 2px 8px;
+    background: rgba(34, 197, 94, 0.1);
+    border-radius: 10px;
+  }
+
+  /* Search/Filter Bar */
+  .filter-bar {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-sm);
     background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    min-width: 180px;
+    border-bottom: 1px solid var(--border-primary);
   }
 
-  .header-search:focus-within {
+  .search-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    height: 36px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+  }
+
+  .search-container:focus-within {
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
   }
 
   .search-icon {
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 16px;
     flex-shrink: 0;
   }
 
-  .header-search-input {
+  .search-input {
     flex: 1;
     background: transparent;
     border: none;
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: 14px;
     outline: none;
     min-width: 0;
   }
 
-  .header-search-input::placeholder {
+  .search-input::placeholder {
     color: var(--text-muted);
   }
 
@@ -1993,8 +2069,8 @@
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 14px;
-    padding: 0 2px;
+    font-size: 16px;
+    padding: 0 4px;
     line-height: 1;
   }
 
@@ -2002,30 +2078,119 @@
     color: var(--text-primary);
   }
 
-  /* Filter mode button */
-  .mode-btn {
-    padding: 4px 10px;
-    background: var(--bg-primary);
+  /* Toggle button */
+  .filter-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    height: 36px;
+    background: var(--bg-secondary);
     border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    color: var(--text-primary);
-    font-size: 11px;
-    font-weight: 500;
+    border-radius: 6px;
     cursor: pointer;
+    flex-shrink: 0;
   }
 
-  .mode-btn:hover {
+  .filter-toggle:hover {
+    border-color: var(--text-muted);
+  }
+
+  .filter-toggle.active {
+    background: var(--accent-primary);
     border-color: var(--accent-primary);
   }
 
-  .mode-btn.untagged-mode {
-    background: var(--accent-danger, #ef4444);
-    color: white;
-    border-color: var(--accent-danger, #ef4444);
+  .toggle-track {
+    width: 28px;
+    height: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    position: relative;
+    transition: background 0.2s;
   }
 
-  .mode-btn.untagged-mode:hover {
-    opacity: 0.9;
+  .filter-toggle.active .toggle-track {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: left 0.2s, background 0.2s;
+  }
+
+  .filter-toggle.active .toggle-thumb {
+    left: 14px;
+    background: white;
+  }
+
+  .toggle-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  .filter-toggle.active .toggle-label {
+    color: white;
+  }
+
+  /* Bulk tag button */
+  .bulk-tag-btn {
+    padding: 0 12px;
+    height: 36px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .bulk-tag-btn:hover {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+  }
+
+  /* Selection badge */
+  .selection-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--accent-primary);
+    color: white;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .selection-count {
+    font-weight: 700;
+  }
+
+  .clear-selection-btn {
+    background: none;
+    border: none;
+    color: white;
+    opacity: 0.7;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    line-height: 1;
+  }
+
+  .clear-selection-btn:hover {
+    opacity: 1;
   }
 
   /* Account filter dropdown */
@@ -2202,20 +2367,6 @@
     margin-top: 4px;
   }
 
-  .loading-more {
-    color: var(--accent-primary);
-    font-style: italic;
-  }
-
-  .tagged-count {
-    color: var(--text-muted);
-  }
-
-  .selected-count {
-    color: var(--accent-primary);
-    font-weight: 600;
-  }
-
   .error-bar {
     padding: var(--spacing-sm) var(--spacing-lg);
     background: var(--accent-danger);
@@ -2274,6 +2425,13 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    font-size: 12px;
+  }
+
+  .txn-detail-stacked {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     font-size: 12px;
   }
 
@@ -2449,6 +2607,34 @@
     color: var(--text-muted);
   }
 
+  /* Row checkbox */
+  .row-checkbox {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+
+  .row:hover .row-checkbox,
+  .row-checkbox:hover {
+    opacity: 1;
+  }
+
+  .row-checkbox.checked {
+    color: var(--accent-primary);
+    opacity: 1;
+  }
+
   .row {
     display: flex;
     align-items: center;
@@ -2484,7 +2670,7 @@
   }
 
   .row-account {
-    width: 100px;
+    width: 140px;
     flex-shrink: 0;
     color: var(--text-muted);
     font-size: 11px;
@@ -2651,6 +2837,49 @@
   .command-hint {
     font-size: 11px;
     color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .command-hint kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+  }
+
+  /* Shortcuts footer */
+  .shortcuts-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px var(--spacing-lg);
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+  }
+
+  .shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .shortcut kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-right: 2px;
   }
 
   .loading-spinner {
@@ -2735,10 +2964,6 @@
     font-weight: 600;
     color: var(--text-primary);
     font-family: var(--font-mono);
-  }
-
-  .untagged-count {
-    color: var(--accent-warning, #f59e0b);
   }
 
   /* Confetti */
