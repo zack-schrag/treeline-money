@@ -65,10 +65,6 @@
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
 
-  // Bulk tag mode
-  let isBulkTagging = $state(false);
-  let bulkTagInput = $state("");
-
   // Undo stack for tag operations
   interface UndoEntry {
     transactionId: string;
@@ -108,7 +104,6 @@
 
   // Element refs
   let customTagInputEl: HTMLInputElement | null = null;
-  let bulkTagInputEl: HTMLInputElement | null = null;
   let searchInputEl: HTMLInputElement | null = null;
   let containerEl: HTMLDivElement | null = null;
 
@@ -147,6 +142,18 @@
 
   // Stats for visible transactions
   let visibleTaggedCount = $derived(transactions.filter(t => t.tags.length > 0).length);
+
+  // Selection state helpers
+  let isAllSelected = $derived(transactions.length > 0 && selectedIndices.size === transactions.length);
+  let isSomeSelected = $derived(selectedIndices.size > 0 && selectedIndices.size < transactions.length);
+
+  function toggleSelectAll() {
+    if (isAllSelected) {
+      deselectAll();
+    } else {
+      selectAll();
+    }
+  }
 
   // Global stats (all transactions in database)
   let globalStats = $state({ total: 0, tagged: 0 });
@@ -228,24 +235,6 @@
 
     // Get the partial tag being typed (after last comma)
     const parts = customTagInput.split(",");
-    const partial = parts[parts.length - 1].trim().toLowerCase();
-    if (!partial) return "";
-
-    // Find first matching tag from all known tags
-    for (const tag of allTags) {
-      if (tag.toLowerCase().startsWith(partial) && tag.toLowerCase() !== partial) {
-        return tag.slice(partial.length);
-      }
-    }
-    return "";
-  });
-
-  // Autocomplete for bulk tag input
-  let bulkTagAutocomplete = $derived.by(() => {
-    if (!bulkTagInput || allTags.length === 0) return "";
-
-    // Get the partial tag being typed (after last comma)
-    const parts = bulkTagInput.split(",");
     const partial = parts[parts.length - 1].trim().toLowerCase();
     if (!partial) return "";
 
@@ -422,12 +411,6 @@
       return;
     }
 
-    // Bulk tag input mode
-    if (isBulkTagging) {
-      handleBulkTagKeyDown(e);
-      return;
-    }
-
     // Account dropdown open - handle navigation
     if (isAccountDropdownOpen) {
       handleAccountFilterKeyDown(e);
@@ -479,18 +462,9 @@
         toggleSelectionNoMove();
         break;
       case "a":
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          selectAll();
-        } else {
-          // Bulk tag mode
-          e.preventDefault();
-          startBulkTagging();
-        }
-        break;
       case "A":
         e.preventDefault();
-        selectAll();
+        toggleSelectAll();
         break;
       case "Escape":
         e.preventDefault();
@@ -582,30 +556,6 @@
       // Apply autocomplete suggestion
       if (tagAutocomplete) {
         customTagInput += tagAutocomplete;
-      }
-      return;
-    }
-  }
-
-  function handleBulkTagKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      cancelBulkTagging();
-      return;
-    }
-
-    if (e.key === "Enter") {
-      e.preventDefault();
-      e.stopPropagation();
-      applyBulkTag();
-      return;
-    }
-
-    if (e.key === "Tab") {
-      e.preventDefault();
-      // Apply autocomplete suggestion
-      if (bulkTagAutocomplete) {
-        bulkTagInput += bulkTagAutocomplete;
       }
       return;
     }
@@ -1036,58 +986,6 @@
 
     // Persist in background
     persistTagChanges(indices.map(i => transactions[i]));
-  }
-
-  function startBulkTagging() {
-    if (transactions.length === 0) return;
-    isBulkTagging = true;
-    bulkTagInput = "";
-    setTimeout(() => bulkTagInputEl?.focus(), 10);
-  }
-
-  function cancelBulkTagging() {
-    isBulkTagging = false;
-    bulkTagInput = "";
-    containerEl?.focus();
-  }
-
-  async function applyBulkTag() {
-    const tags = bulkTagInput.split(",").map(t => t.trim()).filter(t => t);
-    if (tags.length === 0) {
-      cancelBulkTagging();
-      return;
-    }
-
-    // Record undo entries before making changes
-    const undoEntries: UndoEntry[] = [];
-
-    // Apply to ALL visible transactions
-    for (let i = 0; i < transactions.length; i++) {
-      const txn = transactions[i];
-      const currentTags = txn.tags || [];
-      const mergedTags = [...new Set([...currentTags, ...tags])];
-
-      // Record for undo
-      undoEntries.push({
-        transactionId: txn.transaction_id,
-        previousTags: [...currentTags],
-        newTags: mergedTags
-      });
-
-      transactions[i] = {
-        ...txn,
-        tags: mergedTags
-      };
-    }
-
-    // Push to undo stack
-    pushUndo(undoEntries);
-
-    transactions = [...transactions];
-    cancelBulkTagging();
-
-    // Persist all in background
-    persistTagChanges(transactions);
   }
 
   // Clear all tags (set to empty)
@@ -1674,15 +1572,6 @@
       <span class="toggle-label">Untagged only</span>
     </button>
 
-    <!-- Bulk tag button -->
-    <button
-      class="bulk-tag-btn"
-      onclick={startBulkTagging}
-      title="Tag all visible transactions (a)"
-    >
-      Bulk Tag
-    </button>
-
     <!-- Selection indicator -->
     {#if selectedIndices.size > 0}
       <div class="selection-badge">
@@ -1711,6 +1600,24 @@
           {/if}
         </div>
       {:else}
+        <!-- Header row -->
+        <div class="row header-row">
+          <button
+            class="row-checkbox header-checkbox"
+            class:checked={isAllSelected}
+            class:indeterminate={isSomeSelected}
+            onclick={toggleSelectAll}
+            title="Select all (a)"
+          >
+            {#if isAllSelected}☑{:else if isSomeSelected}▣{:else}☐{/if}
+          </button>
+          <div class="row-date header-label">Date</div>
+          <div class="row-account header-label">Account</div>
+          <div class="row-desc header-label">Description</div>
+          <div class="row-amount header-label">Amount</div>
+          <div class="row-tags header-label">Tags</div>
+          <div class="row-menu-placeholder"></div>
+        </div>
         {#each transactions as txn, index}
           {@const splitInfo = getSplitGroupInfo(txn, index)}
           <div
@@ -1862,7 +1769,7 @@
   </div>
 
   <!-- Command bar / Footer -->
-  <div class="command-bar" class:active={isCustomTagging || isBulkTagging}>
+  <div class="command-bar" class:active={isCustomTagging}>
     {#if isCustomTagging}
       <div class="command-input-row">
         <span class="command-prefix">tag ({getTargetCount()}):</span>
@@ -1877,27 +1784,13 @@
         </span>
         <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
       </div>
-    {:else if isBulkTagging}
-      <div class="command-input-row">
-        <span class="command-prefix">bulk tag ({transactions.length} visible):</span>
-        <span class="input-wrapper">
-          <input
-            bind:this={bulkTagInputEl}
-            type="text"
-            class="command-input"
-            bind:value={bulkTagInput}
-            placeholder="tag all visible transactions"
-          />{#if bulkTagAutocomplete}<span class="autocomplete-hint" style="left: {bulkTagInput.length}ch">{bulkTagAutocomplete}</span>{/if}
-        </span>
-        <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
-      </div>
     {:else}
       <!-- Keyboard shortcuts footer -->
       <div class="shortcuts-row">
         <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
         <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
         <span class="shortcut"><kbd>t</kbd> custom tag</span>
-        <span class="shortcut"><kbd>a</kbd> bulk tag</span>
+        <span class="shortcut"><kbd>a</kbd> toggle all</span>
         <span class="shortcut"><kbd>space</kbd> select</span>
         <span class="shortcut"><kbd>n</kbd> next untagged</span>
         <span class="shortcut"><kbd>⌘F</kbd> search</span>
@@ -2138,26 +2031,6 @@
 
   .filter-toggle.active .toggle-label {
     color: white;
-  }
-
-  /* Bulk tag button */
-  .bulk-tag-btn {
-    padding: 0 12px;
-    height: 36px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .bulk-tag-btn:hover {
-    background: var(--accent-primary);
-    color: white;
-    border-color: var(--accent-primary);
   }
 
   /* Selection badge */
@@ -2765,6 +2638,41 @@
     font-size: 10px;
     color: var(--text-muted);
     margin-right: 4px;
+  }
+
+  /* Header row */
+  .row.header-row {
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-primary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    cursor: default;
+  }
+
+  .row.header-row:hover {
+    background: var(--bg-secondary);
+  }
+
+  .header-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .header-checkbox {
+    opacity: 1 !important;
+  }
+
+  .header-checkbox.indeterminate {
+    color: var(--accent-primary);
+  }
+
+  .row-menu-placeholder {
+    width: 24px;
+    flex-shrink: 0;
   }
 
   .command-bar {
