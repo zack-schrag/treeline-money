@@ -50,8 +50,7 @@ Launch the app and you'll be prompted to try in Demo Mode to explore with sample
 
 **CSV Import** — Export transactions from your bank's website, then use the Import button in the Accounts view. The importer auto-detects columns and shows a live preview.
 
-<!-- TODO: csv-import.png - Screenshot of the CSV import modal after a file is selected, showing the column mapping dropdowns and live preview with a few transactions. -->
-![CSV Import](./demo.gif)
+![CSV Import](./import_csv.png)
 
 **SimpleFIN** — For automatic syncing, connect via Settings → Integrations. [SimpleFIN](https://beta-bridge.simplefin.org/simplefin) is a bank aggregation service ($1.50/month) that pulls transactions from your accounts automatically.
 
@@ -59,21 +58,26 @@ Launch the app and you'll be prompted to try in Demo Mode to explore with sample
 
 ### Tagging Transactions
 
-<!-- TODO: tagging.gif - 10 second recording of tagging workflow: select a transaction, press a number key to apply a quick tag, maybe press 'e' to edit, show the tag appearing. Demonstrates the keyboard-driven UX. -->
-![Tagging](./demo.gif)
+![Tagging](./transactions.png)
 
-Categorize spending with tags like `groceries`, `dining`, `subscriptions`. Use keyboard shortcuts for speed: number keys apply quick tags, `e` to edit, `/` to search.
+Categorize spending with tags like `groceries`, `dining`, `subscriptions`. Use keyboard shortcuts for speed: number keys apply quick tags, `t` to manual tag, `/` to search.
 
 ### Budget Tracking
 
-<!-- TODO: budget.png - Screenshot of Budget view showing a few categories with progress bars, some under budget (green) and maybe one over (red). -->
-![Budget](./demo.gif)
+![Budget](./budget.png)
 
 Set monthly targets by category. Categories are defined by tags — tag transactions as `groceries` to budget for groceries.
+
+### Querying
+![Query](./query.png)
+
+Query your data using SQL directly.
 
 ## CLI (Optional)
 
 The app includes a CLI for scripting and automation. Run SQL queries, export data, or build custom workflows.
+
+![Demo query](./demo.gif)
 
 ```bash
 # Query your data
@@ -87,13 +91,6 @@ tl tag groceries --ids abc123,def456
 ```
 
 Key tables: `transactions`, `accounts`, `balance_snapshots`
-
-## Examples
-
-See [examples/](./examples/) for projects you can build:
-- **marimo_dashboard** — Interactive data exploration notebook
-- **markdown_report** — Generate spending reports
-- **subscription_finder** — Find recurring charges
 
 ## Help
 
