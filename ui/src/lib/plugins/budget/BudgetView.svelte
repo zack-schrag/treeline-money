@@ -75,6 +75,9 @@
   let showTransferModal = $state(false);
   let transferSourceCategory = $state<string>(""); // The category we're transferring FROM
   let transferSourceVariance = $state<number>(0);  // The variance of the source category (for display)
+  let transferStorageMonth = $state<string>("");   // The month where transfers are stored (source month)
+  let transferTargetCategory = $state<string>(""); // For incoming: the category we're transferring TO (used for remove all)
+  let isEditingIncoming = $state(false);           // true if editing incoming transfers (vs outgoing)
   // Modal can have multiple transfer rows
   interface TransferRow {
     id: string;
@@ -668,11 +671,14 @@
     return `transfer-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  // Open modal to create new transfers from a category
+  // Open modal to create/edit outgoing transfers from a category (current month → next month)
   function openTransferModal(actual: BudgetActual, e: MouseEvent) {
     e.stopPropagation();
     transferSourceCategory = actual.category;
     transferSourceVariance = roundToCents(actual.variance);
+    transferStorageMonth = selectedMonth; // Outgoing transfers are stored in current month
+    transferTargetCategory = ""; // Not used for outgoing
+    isEditingIncoming = false;
     isEditingTransfers = false;
 
     // Check if there are existing outgoing transfers from this category
@@ -683,38 +689,40 @@
       transferRows = existingTransfers.map(t => ({
         id: t.id,
         toCategory: t.toCategory,
-        amount: t.amount,
+        amount: roundToCents(t.amount),
       }));
     } else {
       // New transfer - default to same category (simple rollover)
       transferRows = [{
         id: generateTransferId(),
         toCategory: actual.category,
-        amount: actual.variance,
+        amount: roundToCents(actual.variance),
       }];
     }
 
     showTransferModal = true;
   }
 
-  // Open modal to edit incoming transfers (transfers TO current month)
+  // Open modal to edit incoming transfers (transfers TO current month, stored in previous month)
   function openEditIncomingTransfers(categoryName: string, e: MouseEvent) {
     e.stopPropagation();
     // Incoming transfers are stored in the previous month's config
-    // For editing, we need to load from there
     const transfers = incomingTransfers.filter(t => t.toCategory === categoryName);
     if (transfers.length === 0) return;
 
     // Get the source category (might be different categories)
     const sourceCategories = [...new Set(transfers.map(t => t.fromCategory))];
-    transferSourceCategory = sourceCategories[0]; // Primary source
+    transferSourceCategory = sourceCategories[0]; // Primary source (for display)
     transferSourceVariance = 0; // Not relevant for editing incoming
+    transferStorageMonth = getPrevMonth(selectedMonth); // Incoming transfers are stored in previous month
+    transferTargetCategory = categoryName; // The category receiving transfers (for remove all)
+    isEditingIncoming = true;
     isEditingTransfers = true;
 
     transferRows = transfers.map(t => ({
       id: t.id,
       toCategory: t.toCategory,
-      amount: t.amount,
+      amount: roundToCents(t.amount),
     }));
 
     showTransferModal = true;
@@ -724,6 +732,9 @@
     showTransferModal = false;
     transferSourceCategory = "";
     transferSourceVariance = 0;
+    transferStorageMonth = "";
+    transferTargetCategory = "";
+    isEditingIncoming = false;
     transferRows = [];
     isEditingTransfers = false;
     containerEl?.focus();
@@ -751,10 +762,10 @@
   let remainingToAllocate = $derived(transferSourceVariance - totalAllocated);
 
   async function saveTransfers() {
-    if (!transferSourceCategory) return;
+    if (!transferSourceCategory || !transferStorageMonth) return;
 
-    // Load current month's config (where outgoing transfers are stored)
-    const config = await loadConfig(selectedMonth);
+    // Load the config for the month where transfers are stored
+    const config = await loadConfig(transferStorageMonth);
 
     // Remove any existing transfers from this source category
     const otherTransfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
@@ -771,7 +782,7 @@
 
     config.transfers = [...otherTransfers, ...newTransfers];
 
-    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
+    const monthFile = `${MONTHS_DIR}/${transferStorageMonth}.json`;
     await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
 
     await loadCategories();
@@ -779,15 +790,22 @@
   }
 
   async function removeAllTransfers() {
-    if (!transferSourceCategory) return;
+    if (!transferStorageMonth) return;
 
-    // Load current month's config
-    const config = await loadConfig(selectedMonth);
+    // Load the config for the month where transfers are stored
+    const config = await loadConfig(transferStorageMonth);
 
-    // Remove all transfers from this source category
-    config.transfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+    if (isEditingIncoming) {
+      // Remove all transfers TO the target category
+      if (!transferTargetCategory) return;
+      config.transfers = (config.transfers || []).filter(t => t.toCategory !== transferTargetCategory);
+    } else {
+      // Remove all transfers FROM the source category
+      if (!transferSourceCategory) return;
+      config.transfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+    }
 
-    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
+    const monthFile = `${MONTHS_DIR}/${transferStorageMonth}.json`;
     await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
 
     await loadCategories();
@@ -1234,13 +1252,13 @@
   <!-- Transfer Modal (supports multiple transfers from one source) -->
   <Modal
     open={showTransferModal}
-    title="Transfer to {formatMonth(getNextMonth(selectedMonth))}"
+    title="Transfer: {formatMonth(transferStorageMonth)} → {formatMonth(getNextMonth(transferStorageMonth))}"
     onclose={closeTransferModal}
     width="450px"
   >
     <div class="transfer-modal-content">
       <div class="transfer-header">
-        <span class="transfer-source">{transferSourceCategory}</span>
+        <span class="transfer-source">From: {transferSourceCategory}</span>
         {#if transferSourceVariance !== 0}
           <span class="transfer-variance" class:positive={transferSourceVariance >= 0} class:negative={transferSourceVariance < 0}>
             {transferSourceVariance >= 0 ? 'Surplus' : 'Deficit'}: {formatCurrency(Math.abs(transferSourceVariance))}
