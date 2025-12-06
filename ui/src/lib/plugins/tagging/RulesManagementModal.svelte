@@ -598,47 +598,62 @@
           </div>
         </div>
       {:else}
-        <!-- Rules List - Clean table-like design -->
+        <!-- Rules List -->
+        <div class="rules-header">
+          <p class="rules-description">
+            Rules automatically tag matching transactions during sync.
+          </p>
+        </div>
+
         {#if isLoading}
           <div class="loading">Loading...</div>
         {:else if rules.length === 0}
           <div class="empty-state">
-            <div class="empty-icon">📋</div>
             <p>No rules yet</p>
-            <p class="empty-hint">Rules auto-tag matching transactions during sync</p>
+            <p class="empty-hint">Create a rule to automatically tag matching transactions.</p>
             <button class="btn primary" onclick={startCreate}>Create Rule</button>
           </div>
         {:else}
           <div class="rules-list">
             {#each rules as rule}
-              <div class="rule-row" class:disabled={!rule.enabled}>
-                <div class="rule-main" onclick={() => startEdit(rule)}>
-                  <div class="rule-info">
-                    <span class="rule-name">{rule.name}</span>
-                    <span class="rule-tags-inline">
-                      {#each rule.tags as tag}
-                        <span class="mini-tag">{tag}</span>
-                      {/each}
-                    </span>
-                  </div>
-                  {#if !rule.enabled}
-                    <span class="status-badge">off</span>
-                  {/if}
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div
+                class="rule-card"
+                class:disabled={!rule.enabled}
+                onclick={() => startEdit(rule)}
+              >
+                <div class="rule-card-header">
+                  <span class="rule-name">{rule.name}</span>
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <label
+                    class="toggle-switch"
+                    onclick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onchange={() => handleToggleEnabled(rule)}
+                    />
+                    <span class="toggle-track"></span>
+                  </label>
                 </div>
-                <div class="rule-actions">
+                <div class="rule-condition">
+                  <code>{getRuleWhereClause(rule) || "No condition"}</code>
+                </div>
+                <div class="rule-card-footer">
+                  <div class="rule-tags-list">
+                    {#each rule.tags as tag}
+                      <span class="rule-tag">{tag}</span>
+                    {/each}
+                  </div>
                   <button
-                    class="icon-btn"
-                    onclick={(e) => { e.stopPropagation(); handleToggleEnabled(rule); }}
-                    title={rule.enabled ? "Disable" : "Enable"}
-                  >
-                    {rule.enabled ? "○" : "●"}
-                  </button>
-                  <button
-                    class="icon-btn danger"
+                    class="delete-btn"
                     onclick={(e) => { e.stopPropagation(); handleDelete(rule); }}
-                    title="Delete"
+                    title="Delete rule"
                   >
-                    ×
+                    Delete
                   </button>
                 </div>
               </div>
@@ -647,10 +662,8 @@
         {/if}
 
         {#snippet actions()}
-          <button class="btn text" onclick={onclose}>Close</button>
-          {#if rules.length > 0}
-            <button class="btn primary" onclick={startCreate}>+ New Rule</button>
-          {/if}
+          <button class="btn secondary" onclick={onclose}>Close</button>
+          <button class="btn primary" onclick={startCreate}>+ New Rule</button>
         {/snippet}
       {/if}
     </div>
@@ -709,110 +722,165 @@
     margin-top: var(--spacing-md);
   }
 
-  /* Rules List - Clean table-like design */
+  /* Rules Header */
+  .rules-header {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .rules-description {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Rules List */
   .rules-list {
     display: flex;
     flex-direction: column;
-  }
-
-  .rule-row {
-    display: flex;
-    align-items: center;
     gap: var(--spacing-sm);
-    padding: var(--spacing-sm) 0;
-    border-bottom: 1px solid var(--border-primary);
   }
 
-  .rule-row:last-child {
-    border-bottom: none;
-  }
-
-  .rule-row.disabled {
-    opacity: 0.5;
-  }
-
-  .rule-main {
-    flex: 1;
+  .rule-card {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
     cursor: pointer;
-    padding: var(--spacing-xs) 0;
+    text-align: left;
+    width: 100%;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
   }
 
-  .rule-main:hover .rule-name {
-    color: var(--accent-primary);
+  .rule-card:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-tertiary);
   }
 
-  .rule-info {
-    flex: 1;
+  .rule-card.disabled {
+    opacity: 0.6;
+  }
+
+  .rule-card-header {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: var(--spacing-sm);
-    min-width: 0;
+    gap: var(--spacing-md);
   }
 
   .rule-name {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .rule-tags-inline {
+  .rule-condition {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .rule-condition code {
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+
+  .rule-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .rule-tags-list {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    flex: 1;
+    min-width: 0;
   }
 
-  .mini-tag {
-    padding: 1px 6px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border-radius: 3px;
-    font-size: 10px;
+  .rule-tag {
+    padding: 2px 8px;
+    background: var(--accent-primary);
+    color: white;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
   }
 
-  .status-badge {
-    font-size: 9px;
-    padding: 2px 5px;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .rule-actions {
-    display: flex;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .icon-btn {
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .delete-btn {
+    padding: 4px 8px;
     background: transparent;
     border: none;
     border-radius: 4px;
+    font-size: 11px;
     color: var(--text-muted);
-    font-size: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .delete-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--accent-danger, #ef4444);
+  }
+
+  /* Toggle Switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
     cursor: pointer;
   }
 
-  .icon-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
   }
 
-  .icon-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--accent-danger, #ef4444);
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+
+  .toggle-track::before {
+    content: "";
+    position: absolute;
+    height: 14px;
+    width: 14px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform 0.2s, background-color 0.2s;
+  }
+
+  .toggle-switch input:checked + .toggle-track {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+  }
+
+  .toggle-switch input:checked + .toggle-track::before {
+    transform: translateX(16px);
+    background: white;
   }
 
   /* Edit Form */
