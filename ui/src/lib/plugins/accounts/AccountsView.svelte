@@ -3,10 +3,7 @@
   import {
     executeQuery,
     registry,
-    getPluginSettings,
-    setPluginSettings,
     showToast,
-    getDemoMode,
   } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem, Icon } from "../../shared";
   import type {
@@ -24,8 +21,6 @@
   }
   let { action }: Props = $props();
 
-  // Plugin ID changes based on demo mode to keep configs separate
-  let currentPluginId = $state("accounts");
 
   // State
   let accounts = $state<AccountWithStats[]>([]);
@@ -137,18 +132,73 @@
     return { change, percent };
   });
 
-  const DEFAULT_CONFIG: AccountsConfig = {
-    classificationOverrides: {},
-    excludedFromNetWorth: [],
-  };
-
+  /**
+   * Load account overrides from DuckDB
+   */
   async function loadConfig(): Promise<AccountsConfig> {
-    return getPluginSettings<AccountsConfig>(currentPluginId, DEFAULT_CONFIG);
+    try {
+      const result = await executeQuery(`
+        SELECT account_id, classification_override, exclude_from_net_worth
+        FROM sys_plugin_accounts_overrides
+      `);
+
+      const classificationOverrides: Record<string, BalanceClassification> = {};
+      const excludedFromNetWorth: string[] = [];
+
+      for (const row of result.rows) {
+        const accountId = row[0] as string;
+        const classificationOverride = row[1] as BalanceClassification | null;
+        const excludeFromNetWorth = row[2] as boolean;
+
+        if (classificationOverride) {
+          classificationOverrides[accountId] = classificationOverride;
+        }
+        if (excludeFromNetWorth) {
+          excludedFromNetWorth.push(accountId);
+        }
+      }
+
+      return { classificationOverrides, excludedFromNetWorth };
+    } catch (e) {
+      // Table might not exist yet - return defaults
+      console.warn("Failed to load account overrides:", e);
+      return { classificationOverrides: {}, excludedFromNetWorth: [] };
+    }
   }
 
-  async function saveConfig(newConfig: AccountsConfig): Promise<void> {
-    await setPluginSettings(currentPluginId, newConfig);
-    config = newConfig;
+  /**
+   * Save an account override to DuckDB
+   */
+  async function saveAccountOverride(
+    accountId: string,
+    classificationOverride: BalanceClassification | null,
+    excludeFromNetWorth: boolean
+  ): Promise<void> {
+    const classValue = classificationOverride ? `'${classificationOverride}'` : "NULL";
+
+    await executeQuery(
+      `
+      INSERT INTO sys_plugin_accounts_overrides
+        (account_id, classification_override, exclude_from_net_worth, updated_at)
+      VALUES
+        ('${accountId}', ${classValue}, ${excludeFromNetWorth}, now())
+      ON CONFLICT (account_id) DO UPDATE SET
+        classification_override = EXCLUDED.classification_override,
+        exclude_from_net_worth = EXCLUDED.exclude_from_net_worth,
+        updated_at = now()
+      `,
+      { readonly: false }
+    );
+  }
+
+  /**
+   * Delete an account override from DuckDB
+   */
+  async function deleteAccountOverride(accountId: string): Promise<void> {
+    await executeQuery(
+      `DELETE FROM sys_plugin_accounts_overrides WHERE account_id = '${accountId}'`,
+      { readonly: false }
+    );
   }
 
   async function loadAccounts() {
@@ -156,10 +206,6 @@
     error = null;
 
     try {
-      // Set plugin ID based on demo mode (separate configs for demo vs real)
-      const isDemo = await getDemoMode();
-      currentPluginId = isDemo ? "accounts_demo" : "accounts";
-
       config = await loadConfig();
 
       // Format reference date for SQL query (end of day)
@@ -650,29 +696,21 @@ LIMIT 100`;
         { readonly: false }
       );
 
-      // Update config for classification override and exclusion
-      const newConfig = { ...config };
-
-      // Handle classification override
+      // Save classification override and exclusion to DuckDB
       const defaultClass = getDefaultClassification(typeValue);
-      if (editForm.classification !== defaultClass) {
-        newConfig.classificationOverrides[editingAccount.account_id] = editForm.classification;
-      } else {
-        delete newConfig.classificationOverrides[editingAccount.account_id];
-      }
+      const classificationOverride = editForm.classification !== defaultClass ? editForm.classification : null;
+      const hasOverride = classificationOverride !== null || editForm.excluded_from_net_worth;
 
-      // Handle net worth exclusion
-      if (editForm.excluded_from_net_worth) {
-        if (!newConfig.excludedFromNetWorth.includes(editingAccount.account_id)) {
-          newConfig.excludedFromNetWorth.push(editingAccount.account_id);
-        }
-      } else {
-        newConfig.excludedFromNetWorth = newConfig.excludedFromNetWorth.filter(
-          (id) => id !== editingAccount.account_id
+      if (hasOverride) {
+        await saveAccountOverride(
+          editingAccount.account_id,
+          classificationOverride,
+          editForm.excluded_from_net_worth
         );
+      } else {
+        // No override needed - remove any existing row
+        await deleteAccountOverride(editingAccount.account_id);
       }
-
-      await saveConfig(newConfig);
 
       cancelEdit();
       await loadAccounts();
@@ -759,12 +797,10 @@ LIMIT 100`;
         );
       }
 
-      // Update config for classification if not default
+      // Save classification override if not default
       const defaultClass = getDefaultClassification(typeValue);
       if (addAccountForm.classification !== defaultClass) {
-        const newConfig = { ...config };
-        newConfig.classificationOverrides[accountId] = addAccountForm.classification;
-        await saveConfig(newConfig);
+        await saveAccountOverride(accountId, addAccountForm.classification, false);
       }
 
       cancelAddAccount();
@@ -798,13 +834,8 @@ LIMIT 100`;
         { readonly: false }
       );
 
-      // Remove from config if present
-      const newConfig = { ...config };
-      delete newConfig.classificationOverrides[account.account_id];
-      newConfig.excludedFromNetWorth = newConfig.excludedFromNetWorth.filter(
-        (id) => id !== account.account_id
-      );
-      await saveConfig(newConfig);
+      // Remove account override if present
+      await deleteAccountOverride(account.account_id);
 
       showToast({
         type: "success",

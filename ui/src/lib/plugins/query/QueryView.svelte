@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { executeQuery, readPluginState, writePluginState, type QueryResult } from "../../sdk";
+  import { executeQuery, type QueryResult } from "../../sdk";
   import { onMount } from "svelte";
   import { EditorView, keymap, placeholder } from "@codemirror/view";
   import { EditorState } from "@codemirror/state";
@@ -14,10 +14,10 @@
   }
   let { initialQuery = undefined }: Props = $props();
 
-  const PLUGIN_ID = "query";
   const MAX_HISTORY = 50;
 
   interface HistoryEntry {
+    id?: number;
     query: string;
     timestamp: number;
     success: boolean;
@@ -148,12 +148,7 @@
     }
   }
 
-  // Plugin state structure for query history
-  interface QueryState {
-    history: HistoryEntry[];
-  }
-
-  // Load history from plugin state (async, but we initialize synchronously with empty array)
+  // Load history from DuckDB (async, but we initialize synchronously with empty array)
   function loadHistory(): HistoryEntry[] {
     // Return empty initially, will be loaded async in onMount
     return [];
@@ -161,35 +156,53 @@
 
   async function loadHistoryAsync(): Promise<HistoryEntry[]> {
     try {
-      const state = await readPluginState<QueryState>(PLUGIN_ID);
-      return state?.history || [];
-    } catch {
+      const result = await executeQuery(`
+        SELECT history_id, query, success, executed_at
+        FROM sys_plugin_query_history
+        ORDER BY executed_at DESC
+        LIMIT ${MAX_HISTORY}
+      `);
+
+      return result.rows.map((row) => ({
+        id: row[0] as number,
+        query: row[1] as string,
+        success: row[2] as boolean,
+        timestamp: new Date(row[3] as string).getTime(),
+      }));
+    } catch (e) {
+      // Table might not exist yet
+      console.warn("Failed to load query history:", e);
       return [];
     }
   }
 
-  async function saveHistory(entries: HistoryEntry[]) {
-    try {
-      await writePluginState<QueryState>(PLUGIN_ID, { history: entries });
-    } catch {
-      // Ignore storage errors
-    }
-  }
-
-  function addToHistory(queryText: string, success: boolean) {
+  async function addToHistory(queryText: string, success: boolean) {
     // Don't add duplicates of the most recent query
     if (history.length > 0 && history[0].query === queryText) {
       return;
     }
 
-    const entry: HistoryEntry = {
-      query: queryText,
-      timestamp: Date.now(),
-      success,
-    };
+    try {
+      // Insert into DuckDB
+      const escapedQuery = queryText.replace(/'/g, "''");
+      await executeQuery(
+        `INSERT INTO sys_plugin_query_history (query, success, executed_at)
+         VALUES ('${escapedQuery}', ${success}, now())`,
+        { readonly: false }
+      );
 
-    history = [entry, ...history.slice(0, MAX_HISTORY - 1)];
-    saveHistory(history);
+      // Reload history from DB to get the new entry with ID
+      history = await loadHistoryAsync();
+    } catch (e) {
+      // Fallback to in-memory only if DB fails
+      console.warn("Failed to save query history:", e);
+      const entry: HistoryEntry = {
+        query: queryText,
+        timestamp: Date.now(),
+        success,
+      };
+      history = [entry, ...history.slice(0, MAX_HISTORY - 1)];
+    }
   }
 
   function loadFromHistory(entry: HistoryEntry) {
@@ -217,9 +230,14 @@
     }
   });
 
-  function clearHistory() {
-    history = [];
-    saveHistory([]);
+  async function clearHistory() {
+    try {
+      await executeQuery("DELETE FROM sys_plugin_query_history", { readonly: false });
+      history = [];
+    } catch (e) {
+      console.warn("Failed to clear query history:", e);
+      history = [];
+    }
   }
 
   function formatTimestamp(ts: number): string {
@@ -253,11 +271,11 @@
     try {
       result = await executeQuery(query);
       executionTime = performance.now() - startTime;
-      addToHistory(query, true);
+      await addToHistory(query, true);
     } catch (e) {
       executionTime = performance.now() - startTime;
       error = e instanceof Error ? e.message : "Failed to execute query";
-      addToHistory(query, false);
+      await addToHistory(query, false);
       console.error("Query error:", e);
     } finally {
       isLoading = false;

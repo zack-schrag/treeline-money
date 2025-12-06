@@ -2,18 +2,15 @@
  * Auto-Tag Rules Service
  *
  * Handles CRUD operations for tag rules and rule matching logic.
+ * Rules are stored in DuckDB (sys_plugin_transactions_rules table).
  */
 
-import { getPluginSettings, updatePluginSettings, executeQuery } from "../../../sdk";
+import { executeQuery } from "../../../sdk";
 import type {
   TagRule,
   RuleCondition,
-  TransactionsPluginSettings,
   RuleTestResult,
 } from "./types";
-import { DEFAULT_TRANSACTIONS_SETTINGS } from "./types";
-
-const PLUGIN_ID = "transactions";
 
 /**
  * Generate a unique ID for a rule
@@ -23,69 +20,109 @@ export function generateRuleId(): string {
 }
 
 /**
- * Load all rules from settings
+ * Load all rules from database
  */
 export async function loadRules(): Promise<TagRule[]> {
-  const settings = await getPluginSettings<TransactionsPluginSettings>(
-    PLUGIN_ID,
-    DEFAULT_TRANSACTIONS_SETTINGS
-  );
-  return settings.rules || [];
+  const result = await executeQuery(`
+    SELECT
+      rule_id,
+      name,
+      sql_condition,
+      conditions,
+      condition_logic,
+      tags,
+      enabled,
+      sort_order,
+      created_at,
+      updated_at
+    FROM sys_plugin_transactions_rules
+    ORDER BY sort_order ASC, created_at ASC
+  `);
+
+  return result.rows.map((row) => ({
+    id: row[0] as string,
+    name: row[1] as string,
+    sqlCondition: row[2] as string | undefined,
+    conditions: row[3] ? JSON.parse(row[3] as string) : [],
+    conditionLogic: (row[4] as "all" | "any") || "all",
+    tags: (row[5] as string[]) || [],
+    enabled: row[6] as boolean,
+    createdAt: row[8] ? new Date(row[8] as string).toISOString() : new Date().toISOString(),
+    updatedAt: row[9] ? new Date(row[9] as string).toISOString() : new Date().toISOString(),
+  }));
 }
 
 /**
  * Save a new rule
  */
 export async function saveRule(rule: TagRule): Promise<void> {
-  const settings = await getPluginSettings<TransactionsPluginSettings>(
-    PLUGIN_ID,
-    DEFAULT_TRANSACTIONS_SETTINGS
+  const tagsArray = rule.tags.map((t) => `'${t.replace(/'/g, "''")}'`).join(", ");
+  const conditionsJson = JSON.stringify(rule.conditions).replace(/'/g, "''");
+  const sqlCondition = rule.sqlCondition ? `'${rule.sqlCondition.replace(/'/g, "''")}'` : "NULL";
+
+  // Get max sort_order
+  const maxResult = await executeQuery(`SELECT COALESCE(MAX(sort_order), -1) FROM sys_plugin_transactions_rules`);
+  const sortOrder = ((maxResult.rows[0]?.[0] as number) || 0) + 1;
+
+  await executeQuery(
+    `
+    INSERT INTO sys_plugin_transactions_rules
+      (rule_id, name, sql_condition, conditions, condition_logic, tags, enabled, sort_order, created_at, updated_at)
+    VALUES
+      ('${rule.id}', '${rule.name.replace(/'/g, "''")}', ${sqlCondition}, '${conditionsJson}',
+       '${rule.conditionLogic}', [${tagsArray}], ${rule.enabled}, ${sortOrder}, now(), now())
+    `,
+    { readonly: false }
   );
-  settings.rules = [...(settings.rules || []), rule];
-  await updatePluginSettings(PLUGIN_ID, settings);
 }
 
 /**
  * Update an existing rule
  */
 export async function updateRule(rule: TagRule): Promise<void> {
-  const settings = await getPluginSettings<TransactionsPluginSettings>(
-    PLUGIN_ID,
-    DEFAULT_TRANSACTIONS_SETTINGS
+  const tagsArray = rule.tags.map((t) => `'${t.replace(/'/g, "''")}'`).join(", ");
+  const conditionsJson = JSON.stringify(rule.conditions).replace(/'/g, "''");
+  const sqlCondition = rule.sqlCondition ? `'${rule.sqlCondition.replace(/'/g, "''")}'` : "NULL";
+
+  await executeQuery(
+    `
+    UPDATE sys_plugin_transactions_rules SET
+      name = '${rule.name.replace(/'/g, "''")}',
+      sql_condition = ${sqlCondition},
+      conditions = '${conditionsJson}',
+      condition_logic = '${rule.conditionLogic}',
+      tags = [${tagsArray}],
+      enabled = ${rule.enabled},
+      updated_at = now()
+    WHERE rule_id = '${rule.id}'
+    `,
+    { readonly: false }
   );
-  const index = settings.rules.findIndex((r) => r.id === rule.id);
-  if (index >= 0) {
-    settings.rules[index] = { ...rule, updatedAt: new Date().toISOString() };
-    await updatePluginSettings(PLUGIN_ID, settings);
-  }
 }
 
 /**
  * Delete a rule by ID
  */
 export async function deleteRule(ruleId: string): Promise<void> {
-  const settings = await getPluginSettings<TransactionsPluginSettings>(
-    PLUGIN_ID,
-    DEFAULT_TRANSACTIONS_SETTINGS
+  await executeQuery(
+    `DELETE FROM sys_plugin_transactions_rules WHERE rule_id = '${ruleId}'`,
+    { readonly: false }
   );
-  settings.rules = settings.rules.filter((r) => r.id !== ruleId);
-  await updatePluginSettings(PLUGIN_ID, settings);
 }
 
 /**
  * Toggle rule enabled state
  */
 export async function toggleRuleEnabled(ruleId: string): Promise<void> {
-  const settings = await getPluginSettings<TransactionsPluginSettings>(
-    PLUGIN_ID,
-    DEFAULT_TRANSACTIONS_SETTINGS
+  await executeQuery(
+    `
+    UPDATE sys_plugin_transactions_rules SET
+      enabled = NOT enabled,
+      updated_at = now()
+    WHERE rule_id = '${ruleId}'
+    `,
+    { readonly: false }
   );
-  const rule = settings.rules.find((r) => r.id === ruleId);
-  if (rule) {
-    rule.enabled = !rule.enabled;
-    rule.updatedAt = new Date().toISOString();
-    await updatePluginSettings(PLUGIN_ID, settings);
-  }
 }
 
 /**
