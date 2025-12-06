@@ -3,7 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings, registry, getDemoMode } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem } from "../../shared";
-  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction } from "./types";
+  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction, RolloverEntry } from "./types";
 
   // Plugin ID changes based on demo mode to keep configs separate
   let currentPluginId = $state("budget");
@@ -65,6 +65,17 @@
     amount_sign: null as AmountSign | null,
   });
 
+  // Rollover state
+  // "rollovers" = incoming rollovers TO this month (from previous months)
+  // "outgoingRollovers" = rollovers FROM this month to the next month
+  let rollovers = $state<Record<string, RolloverEntry>>({});
+  let outgoingRollovers = $state<Record<string, RolloverEntry>>({});
+
+  // Rollover modal state (used for both create and edit)
+  let showRolloverModal = $state(false);
+  let rolloverCategoryName = $state<string>("");
+  let rolloverAmount = $state<number>(0);
+  let rolloverTargetMonth = $state<string>(""); // The month where the rollover is stored
 
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
@@ -86,6 +97,10 @@
 
   let currentActual = $derived(allActuals[cursorIndex]);
   let currentCategory = $derived(categories.find(c => c.id === currentActual?.id));
+
+  // Current category's rollover info for sidebar
+  let currentRollover = $derived(currentActual ? rollovers[currentActual.category] : null);
+  let currentOutgoing = $derived(currentActual ? outgoingRollovers[currentActual.category] : null);
 
   // Computed summaries
   let incomeSummary = $derived.by(() => {
@@ -257,6 +272,24 @@
     const config = await loadConfig();
     categories = configToCategories(config);
     if (config.selectedAccounts && config.selectedAccounts.length > 0) selectedAccounts = config.selectedAccounts;
+    // Load incoming rollovers for this month
+    rollovers = config.rollovers || {};
+
+    // Load outgoing rollovers (from next month's config, where from === selectedMonth)
+    if (selectedMonth) {
+      const nextMonth = getNextMonth(selectedMonth);
+      const nextConfig = await loadConfig(nextMonth);
+      // Filter to only rollovers that came from this month
+      const outgoing: Record<string, RolloverEntry> = {};
+      for (const [cat, entry] of Object.entries(nextConfig.rollovers || {})) {
+        if (entry.from === selectedMonth) {
+          outgoing[cat] = entry;
+        }
+      }
+      outgoingRollovers = outgoing;
+    } else {
+      outgoingRollovers = {};
+    }
   }
 
   function buildAccountFilter(): string {
@@ -481,6 +514,11 @@
     return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
 
+  // Helper to round to cents (2 decimal places) - fixes floating point errors
+  function roundToCents(amount: number): number {
+    return Math.round(amount * 100) / 100;
+  }
+
   function formatAmount(amount: number): string {
     return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -584,6 +622,82 @@
 
   function goToCurrentMonth() {
     selectedMonth = getCurrentMonth();
+  }
+
+  // Get next month string
+  function getNextMonth(month: string): string {
+    const [year, m] = month.split("-").map(Number);
+    const nextDate = new Date(year, m, 1); // m is already 1-indexed, so this gives next month
+    return `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // Rollover functions
+  // Open modal to create a new rollover (pre-filled with variance)
+  function openRolloverModal(actual: BudgetActual, e: MouseEvent) {
+    e.stopPropagation();
+    rolloverCategoryName = actual.category;
+    rolloverAmount = roundToCents(actual.variance);
+    rolloverTargetMonth = getNextMonth(selectedMonth);
+    showRolloverModal = true;
+  }
+
+  // Open modal to edit an existing rollover (incoming to current month)
+  function openEditRolloverModal(categoryName: string, rollover: RolloverEntry, e: MouseEvent) {
+    e.stopPropagation();
+    rolloverCategoryName = categoryName;
+    rolloverAmount = rollover.amount;
+    rolloverTargetMonth = selectedMonth;
+    showRolloverModal = true;
+  }
+
+  // Open modal to edit an outgoing rollover (stored in next month)
+  function openEditOutgoingRollover(categoryName: string, rollover: RolloverEntry, e: MouseEvent) {
+    e.stopPropagation();
+    rolloverCategoryName = categoryName;
+    rolloverAmount = rollover.amount;
+    rolloverTargetMonth = getNextMonth(selectedMonth);
+    showRolloverModal = true;
+  }
+
+  function closeRolloverModal() {
+    showRolloverModal = false;
+    rolloverCategoryName = "";
+    rolloverAmount = 0;
+    rolloverTargetMonth = "";
+    containerEl?.focus();
+  }
+
+  async function saveRollover() {
+    if (!rolloverCategoryName || !rolloverTargetMonth) return;
+
+    const config = await loadConfig(rolloverTargetMonth);
+    if (!config.rollovers) config.rollovers = {};
+
+    config.rollovers[rolloverCategoryName] = {
+      amount: roundToCents(rolloverAmount),
+      from: selectedMonth,
+    };
+
+    const monthFile = `${MONTHS_DIR}/${rolloverTargetMonth}.json`;
+    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
+
+    await loadCategories();
+    closeRolloverModal();
+  }
+
+  async function removeRollover() {
+    if (!rolloverCategoryName || !rolloverTargetMonth) return;
+
+    const config = await loadConfig(rolloverTargetMonth);
+    if (config.rollovers && config.rollovers[rolloverCategoryName]) {
+      delete config.rollovers[rolloverCategoryName];
+    }
+
+    const monthFile = `${MONTHS_DIR}/${rolloverTargetMonth}.json`;
+    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
+
+    await loadCategories();
+    closeRolloverModal();
   }
 
   function scrollToCursor() {
@@ -762,6 +876,8 @@
           </div>
           {#each budgetActuals as actual, i}
             {@const globalIndex = incomeActuals.length + i}
+            {@const rollover = rollovers[actual.category]}
+            {@const outgoing = outgoingRollovers[actual.category]}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="row"
@@ -771,13 +887,49 @@
               ondblclick={() => handleRowDoubleClick(globalIndex)}
               role="listitem"
             >
-              <div class="row-name">{actual.category}</div>
+              <div class="row-name">
+                {#if rollover}
+                  <button
+                    class="rollover-badge"
+                    class:positive={rollover.amount >= 0}
+                    class:negative={rollover.amount < 0}
+                    title="Click to edit rollover from {rollover.from}"
+                    onclick={(e) => openEditRolloverModal(actual.category, rollover, e)}
+                  >
+                    {rollover.amount >= 0 ? '+' : ''}{formatCurrency(rollover.amount)}
+                  </button>
+                {/if}
+                {actual.category}
+                {#if outgoing}
+                  <span
+                    class="outgoing-badge"
+                    class:positive={outgoing.amount >= 0}
+                    class:negative={outgoing.amount < 0}
+                    title="Rolled to {formatMonth(getNextMonth(selectedMonth))}"
+                  >
+                    → {outgoing.amount >= 0 ? '+' : ''}{formatCurrency(outgoing.amount)}
+                  </span>
+                {/if}
+              </div>
               <div class="row-bar">
                 <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {getStatusColor(actual)}"></div></div>
               </div>
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
-              <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
+              <div class="row-expected">/ {formatCurrency(actual.expected + (rollover?.amount || 0))}</div>
               <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
+              {#if outgoing}
+                <button
+                  class="rollover-btn has-outgoing"
+                  onclick={(e) => openEditOutgoingRollover(actual.category, outgoing, e)}
+                  title="Edit rollover to {formatMonth(getNextMonth(selectedMonth))}"
+                >→</button>
+              {:else if actual.variance !== 0}
+                <button
+                  class="rollover-btn"
+                  onclick={(e) => openRolloverModal(actual, e)}
+                  title="Carry forward"
+                >→</button>
+              {/if}
               <RowMenu
                 items={[
                   { label: "View", action: () => { loadTransactionsForCategory(actual); closeMenu(); } },
@@ -843,6 +995,28 @@
             <span class="mono" class:positive={currentActual.variance >= 0} class:negative={currentActual.variance < 0}>{formatCurrency(currentActual.variance)}</span>
           </div>
         </div>
+
+        {#if currentRollover || currentOutgoing}
+          <div class="sidebar-section">
+            <div class="sidebar-title">Rollovers</div>
+            {#if currentRollover}
+              <div class="rollover-detail incoming">
+                <span class="rollover-label">From {formatMonth(currentRollover.from)}</span>
+                <span class="rollover-value" class:positive={currentRollover.amount >= 0} class:negative={currentRollover.amount < 0}>
+                  {currentRollover.amount >= 0 ? '+' : ''}{formatCurrency(currentRollover.amount)}
+                </span>
+              </div>
+            {/if}
+            {#if currentOutgoing}
+              <div class="rollover-detail outgoing">
+                <span class="rollover-label">To {formatMonth(getNextMonth(selectedMonth))}</span>
+                <span class="rollover-value" class:positive={currentOutgoing.amount >= 0} class:negative={currentOutgoing.amount < 0}>
+                  {currentOutgoing.amount >= 0 ? '+' : ''}{formatCurrency(currentOutgoing.amount)}
+                </span>
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <div class="sidebar-section">
           <div class="sidebar-title">6-Month Trend</div>
@@ -932,6 +1106,42 @@
     {#snippet actions()}
       <button class="btn secondary" onclick={cancelEdit}>Cancel</button>
       <button class="btn primary" onclick={saveCategory}>Save</button>
+    {/snippet}
+  </Modal>
+
+  <!-- Rollover Modal (used for both create and edit) -->
+  <Modal
+    open={showRolloverModal}
+    title="Rollover"
+    onclose={closeRolloverModal}
+    width="400px"
+  >
+    <div class="rollover-modal-content">
+      <div class="rollover-header">
+        <span class="rollover-category">{rolloverCategoryName}</span>
+        <span class="rollover-direction">→ {formatMonth(rolloverTargetMonth)}</span>
+      </div>
+
+      <div class="rollover-form">
+        <label>
+          Amount
+          <input
+            type="number"
+            bind:value={rolloverAmount}
+            step="1"
+          />
+        </label>
+        <p class="rollover-hint">
+          Positive = surplus (adds to budget), Negative = deficit (reduces budget)
+        </p>
+      </div>
+    </div>
+
+    {#snippet actions()}
+      <button class="btn danger" onclick={removeRollover}>Remove</button>
+      <div style="flex: 1;"></div>
+      <button class="btn secondary" onclick={closeRolloverModal}>Cancel</button>
+      <button class="btn primary" onclick={saveRollover}>Save</button>
     {/snippet}
   </Modal>
 </div>
@@ -1183,7 +1393,7 @@
 
 
   .row-name {
-    width: 140px;
+    width: 220px;
     flex-shrink: 0;
     color: var(--text-primary);
     white-space: nowrap;
@@ -1493,5 +1703,191 @@
     font-size: 10px;
     color: var(--text-secondary);
     margin-right: 2px;
+  }
+
+  /* Rollover badge */
+  .rollover-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+
+  .rollover-badge.positive {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--accent-success, #22c55e);
+  }
+
+  .rollover-badge.negative {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--accent-danger, #ef4444);
+  }
+
+  /* Rollover arrow button */
+  .rollover-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-right: 4px;
+  }
+
+  .rollover-btn:hover {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+  }
+
+  /* Rollover modal */
+  .rollover-modal-content {
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+
+  .rollover-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .rollover-category {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .rollover-direction {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .rollover-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .rollover-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .rollover-form input {
+    padding: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+  }
+
+  .rollover-form input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .rollover-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  /* Make rollover badge look like a button */
+  button.rollover-badge {
+    cursor: pointer;
+    border: none;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  button.rollover-badge:hover {
+    transform: scale(1.05);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Outgoing rollover badge (shown on source month) */
+  .outgoing-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-left: 6px;
+    opacity: 0.7;
+  }
+
+  .outgoing-badge.positive {
+    background: rgba(34, 197, 94, 0.1);
+    color: var(--accent-success, #22c55e);
+  }
+
+  .outgoing-badge.negative {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--accent-danger, #ef4444);
+  }
+
+  /* Arrow button when there's an outgoing rollover */
+  .rollover-btn.has-outgoing {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+  }
+
+  .rollover-btn.has-outgoing:hover {
+    background: var(--accent-primary);
+    filter: brightness(1.1);
+  }
+
+  /* Sidebar rollover details */
+  .rollover-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+
+  .rollover-detail.incoming {
+    background: rgba(59, 130, 246, 0.1);
+    border-left: 2px solid var(--accent-primary);
+  }
+
+  .rollover-detail.outgoing {
+    background: rgba(107, 114, 128, 0.1);
+    border-left: 2px solid var(--text-muted);
+  }
+
+  .rollover-label {
+    color: var(--text-secondary);
+  }
+
+  .rollover-value {
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+
+  .rollover-value.positive {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .rollover-value.negative {
+    color: var(--accent-danger, #ef4444);
   }
 </style>

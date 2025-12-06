@@ -39,6 +39,12 @@ export interface BudgetConfigCategory {
   amount_sign?: AmountSign;
 }
 
+/** Rollover entry: amount carried from a previous month */
+export interface RolloverEntry {
+  amount: number;  // positive = surplus, negative = deficit
+  from: string;    // source month (YYYY-MM)
+}
+
 export interface BudgetConfig {
   income: Record<string, BudgetConfigCategory>;
   expenses: Record<string, BudgetConfigCategory>;
@@ -47,6 +53,8 @@ export interface BudgetConfig {
   expensesOrder?: string[];
   // Optional: filter to only include certain accounts
   selectedAccounts?: string[];
+  // Optional: rollovers from previous months (keyed by category name)
+  rollovers?: Record<string, RolloverEntry>;
 }
 
 export interface Transaction {
