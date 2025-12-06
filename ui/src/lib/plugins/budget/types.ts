@@ -39,10 +39,15 @@ export interface BudgetConfigCategory {
   amount_sign?: AmountSign;
 }
 
-/** Rollover entry: amount carried from a previous month */
-export interface RolloverEntry {
-  amount: number;  // positive = surplus, negative = deficit
-  from: string;    // source month (YYYY-MM)
+/**
+ * Transfer: move funds from one category to another (same or different) for next month
+ * Stored in the source month's config
+ */
+export interface Transfer {
+  id: string;           // unique id for editing/deleting
+  fromCategory: string; // source category
+  toCategory: string;   // destination category (can be same as source for simple rollover)
+  amount: number;       // amount being transferred
 }
 
 export interface BudgetConfig {
@@ -53,8 +58,8 @@ export interface BudgetConfig {
   expensesOrder?: string[];
   // Optional: filter to only include certain accounts
   selectedAccounts?: string[];
-  // Optional: rollovers from previous months (keyed by category name)
-  rollovers?: Record<string, RolloverEntry>;
+  // Transfers to next month (flat list)
+  transfers?: Transfer[];
 }
 
 export interface Transaction {

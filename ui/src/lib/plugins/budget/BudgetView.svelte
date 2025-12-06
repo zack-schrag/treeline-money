@@ -3,7 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { executeQuery, getPluginSettings, setPluginSettings, registry, getDemoMode } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem } from "../../shared";
-  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction, RolloverEntry } from "./types";
+  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction, Transfer } from "./types";
 
   // Plugin ID changes based on demo mode to keep configs separate
   let currentPluginId = $state("budget");
@@ -65,17 +65,24 @@
     amount_sign: null as AmountSign | null,
   });
 
-  // Rollover state
-  // "rollovers" = incoming rollovers TO this month (from previous months)
-  // "outgoingRollovers" = rollovers FROM this month to the next month
-  let rollovers = $state<Record<string, RolloverEntry>>({});
-  let outgoingRollovers = $state<Record<string, RolloverEntry>>({});
+  // Transfer state
+  // "incomingTransfers" = transfers TO this month (from previous month's config)
+  // "outgoingTransfers" = transfers FROM this month to next month (stored in this month's config)
+  let incomingTransfers = $state<Transfer[]>([]);
+  let outgoingTransfers = $state<Transfer[]>([]);
 
-  // Rollover modal state (used for both create and edit)
-  let showRolloverModal = $state(false);
-  let rolloverCategoryName = $state<string>("");
-  let rolloverAmount = $state<number>(0);
-  let rolloverTargetMonth = $state<string>(""); // The month where the rollover is stored
+  // Transfer modal state
+  let showTransferModal = $state(false);
+  let transferSourceCategory = $state<string>(""); // The category we're transferring FROM
+  let transferSourceVariance = $state<number>(0);  // The variance of the source category (for display)
+  // Modal can have multiple transfer rows
+  interface TransferRow {
+    id: string;
+    toCategory: string;
+    amount: number;
+  }
+  let transferRows = $state<TransferRow[]>([]);
+  let isEditingTransfers = $state(false); // true if editing existing transfers, false if creating new
 
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
@@ -98,9 +105,17 @@
   let currentActual = $derived(allActuals[cursorIndex]);
   let currentCategory = $derived(categories.find(c => c.id === currentActual?.id));
 
-  // Current category's rollover info for sidebar
-  let currentRollover = $derived(currentActual ? rollovers[currentActual.category] : null);
-  let currentOutgoing = $derived(currentActual ? outgoingRollovers[currentActual.category] : null);
+  // Current category's transfer info for sidebar (aggregated)
+  let currentIncomingTransfers = $derived(
+    currentActual ? incomingTransfers.filter(t => t.toCategory === currentActual.category) : []
+  );
+  let currentOutgoingTransfers = $derived(
+    currentActual ? outgoingTransfers.filter(t => t.fromCategory === currentActual.category) : []
+  );
+  // Net incoming amount for the current category (sum of all incoming)
+  let currentIncomingNet = $derived(roundToCents(currentIncomingTransfers.reduce((sum, t) => sum + t.amount, 0)));
+  // Net outgoing amount (sum of all outgoing from this category)
+  let currentOutgoingNet = $derived(roundToCents(currentOutgoingTransfers.reduce((sum, t) => sum + t.amount, 0)));
 
   // Computed summaries
   let incomeSummary = $derived.by(() => {
@@ -268,27 +283,36 @@
     allTags = result.rows.map(r => r[0] as string);
   }
 
+  // Helper to validate transfer objects (filter out old rollover format)
+  function isValidTransfer(t: unknown): t is Transfer {
+    return (
+      t !== null &&
+      typeof t === 'object' &&
+      'id' in t &&
+      'fromCategory' in t &&
+      'toCategory' in t &&
+      'amount' in t &&
+      typeof (t as Transfer).amount === 'number'
+    );
+  }
+
   async function loadCategories() {
     const config = await loadConfig();
     categories = configToCategories(config);
     if (config.selectedAccounts && config.selectedAccounts.length > 0) selectedAccounts = config.selectedAccounts;
-    // Load incoming rollovers for this month
-    rollovers = config.rollovers || {};
 
-    // Load outgoing rollovers (from next month's config, where from === selectedMonth)
+    // Outgoing transfers are stored in THIS month's config
+    // Filter to ensure valid transfer objects (not old rollover format)
+    outgoingTransfers = (config.transfers || []).filter(isValidTransfer);
+
+    // Incoming transfers are from the PREVIOUS month's config
     if (selectedMonth) {
-      const nextMonth = getNextMonth(selectedMonth);
-      const nextConfig = await loadConfig(nextMonth);
-      // Filter to only rollovers that came from this month
-      const outgoing: Record<string, RolloverEntry> = {};
-      for (const [cat, entry] of Object.entries(nextConfig.rollovers || {})) {
-        if (entry.from === selectedMonth) {
-          outgoing[cat] = entry;
-        }
-      }
-      outgoingRollovers = outgoing;
+      const prevMonth = getPrevMonth(selectedMonth);
+      const prevConfig = await loadConfig(prevMonth);
+      // Get transfers from previous month - filter for valid format
+      incomingTransfers = (prevConfig.transfers || []).filter(isValidTransfer);
     } else {
-      outgoingRollovers = {};
+      incomingTransfers = [];
     }
   }
 
@@ -547,7 +571,7 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (isEditing || showTransactions) return;
+    if (isEditing || showTransactions || showTransferModal) return;
 
     // Cmd/Ctrl + Arrow for reordering
     if ((e.metaKey || e.ctrlKey) && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -631,73 +655,143 @@
     return `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  // Rollover functions
-  // Open modal to create a new rollover (pre-filled with variance)
-  function openRolloverModal(actual: BudgetActual, e: MouseEvent) {
-    e.stopPropagation();
-    rolloverCategoryName = actual.category;
-    rolloverAmount = roundToCents(actual.variance);
-    rolloverTargetMonth = getNextMonth(selectedMonth);
-    showRolloverModal = true;
+  // Get previous month string
+  function getPrevMonth(month: string): string {
+    const [year, m] = month.split("-").map(Number);
+    const prevDate = new Date(year, m - 2, 1); // m is 1-indexed, so m-2 gives previous month
+    return `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  // Open modal to edit an existing rollover (incoming to current month)
-  function openEditRolloverModal(categoryName: string, rollover: RolloverEntry, e: MouseEvent) {
-    e.stopPropagation();
-    rolloverCategoryName = categoryName;
-    rolloverAmount = rollover.amount;
-    rolloverTargetMonth = selectedMonth;
-    showRolloverModal = true;
+  // Transfer functions
+  // Generate a unique ID for a new transfer
+  function generateTransferId(): string {
+    return `transfer-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  // Open modal to edit an outgoing rollover (stored in next month)
-  function openEditOutgoingRollover(categoryName: string, rollover: RolloverEntry, e: MouseEvent) {
+  // Open modal to create new transfers from a category
+  function openTransferModal(actual: BudgetActual, e: MouseEvent) {
     e.stopPropagation();
-    rolloverCategoryName = categoryName;
-    rolloverAmount = rollover.amount;
-    rolloverTargetMonth = getNextMonth(selectedMonth);
-    showRolloverModal = true;
+    transferSourceCategory = actual.category;
+    transferSourceVariance = roundToCents(actual.variance);
+    isEditingTransfers = false;
+
+    // Check if there are existing outgoing transfers from this category
+    const existingTransfers = outgoingTransfers.filter(t => t.fromCategory === actual.category);
+    if (existingTransfers.length > 0) {
+      // Editing existing transfers
+      isEditingTransfers = true;
+      transferRows = existingTransfers.map(t => ({
+        id: t.id,
+        toCategory: t.toCategory,
+        amount: t.amount,
+      }));
+    } else {
+      // New transfer - default to same category (simple rollover)
+      transferRows = [{
+        id: generateTransferId(),
+        toCategory: actual.category,
+        amount: actual.variance,
+      }];
+    }
+
+    showTransferModal = true;
   }
 
-  function closeRolloverModal() {
-    showRolloverModal = false;
-    rolloverCategoryName = "";
-    rolloverAmount = 0;
-    rolloverTargetMonth = "";
+  // Open modal to edit incoming transfers (transfers TO current month)
+  function openEditIncomingTransfers(categoryName: string, e: MouseEvent) {
+    e.stopPropagation();
+    // Incoming transfers are stored in the previous month's config
+    // For editing, we need to load from there
+    const transfers = incomingTransfers.filter(t => t.toCategory === categoryName);
+    if (transfers.length === 0) return;
+
+    // Get the source category (might be different categories)
+    const sourceCategories = [...new Set(transfers.map(t => t.fromCategory))];
+    transferSourceCategory = sourceCategories[0]; // Primary source
+    transferSourceVariance = 0; // Not relevant for editing incoming
+    isEditingTransfers = true;
+
+    transferRows = transfers.map(t => ({
+      id: t.id,
+      toCategory: t.toCategory,
+      amount: t.amount,
+    }));
+
+    showTransferModal = true;
+  }
+
+  function closeTransferModal() {
+    showTransferModal = false;
+    transferSourceCategory = "";
+    transferSourceVariance = 0;
+    transferRows = [];
+    isEditingTransfers = false;
     containerEl?.focus();
   }
 
-  async function saveRollover() {
-    if (!rolloverCategoryName || !rolloverTargetMonth) return;
-
-    const config = await loadConfig(rolloverTargetMonth);
-    if (!config.rollovers) config.rollovers = {};
-
-    config.rollovers[rolloverCategoryName] = {
-      amount: roundToCents(rolloverAmount),
-      from: selectedMonth,
-    };
-
-    const monthFile = `${MONTHS_DIR}/${rolloverTargetMonth}.json`;
-    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
-
-    await loadCategories();
-    closeRolloverModal();
+  function addTransferRow() {
+    transferRows = [...transferRows, {
+      id: generateTransferId(),
+      toCategory: transferSourceCategory, // Default to same category
+      amount: 0,
+    }];
   }
 
-  async function removeRollover() {
-    if (!rolloverCategoryName || !rolloverTargetMonth) return;
+  function removeTransferRow(id: string) {
+    transferRows = transferRows.filter(r => r.id !== id);
+  }
 
-    const config = await loadConfig(rolloverTargetMonth);
-    if (config.rollovers && config.rollovers[rolloverCategoryName]) {
-      delete config.rollovers[rolloverCategoryName];
-    }
+  // Get available categories for transfer destination
+  let availableTransferCategories = $derived(
+    budgetActuals.map(a => a.category)
+  );
 
-    const monthFile = `${MONTHS_DIR}/${rolloverTargetMonth}.json`;
+  // Compute total allocated and remaining
+  let totalAllocated = $derived(transferRows.reduce((sum, r) => sum + (r.amount || 0), 0));
+  let remainingToAllocate = $derived(transferSourceVariance - totalAllocated);
+
+  async function saveTransfers() {
+    if (!transferSourceCategory) return;
+
+    // Load current month's config (where outgoing transfers are stored)
+    const config = await loadConfig(selectedMonth);
+
+    // Remove any existing transfers from this source category
+    const otherTransfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+
+    // Add the new transfers (filter out zero amounts)
+    const newTransfers: Transfer[] = transferRows
+      .filter(r => r.amount !== 0)
+      .map(r => ({
+        id: r.id,
+        fromCategory: transferSourceCategory,
+        toCategory: r.toCategory,
+        amount: roundToCents(r.amount),
+      }));
+
+    config.transfers = [...otherTransfers, ...newTransfers];
+
+    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
     await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
 
     await loadCategories();
-    closeRolloverModal();
+    closeTransferModal();
+  }
+
+  async function removeAllTransfers() {
+    if (!transferSourceCategory) return;
+
+    // Load current month's config
+    const config = await loadConfig(selectedMonth);
+
+    // Remove all transfers from this source category
+    config.transfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+
+    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
+    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
+
+    await loadCategories();
+    closeTransferModal();
   }
 
   function scrollToCursor() {
@@ -876,8 +970,10 @@
           </div>
           {#each budgetActuals as actual, i}
             {@const globalIndex = incomeActuals.length + i}
-            {@const rollover = rollovers[actual.category]}
-            {@const outgoing = outgoingRollovers[actual.category]}
+            {@const incoming = incomingTransfers.filter(t => t.toCategory === actual.category)}
+            {@const incomingNet = roundToCents(incoming.reduce((sum, t) => sum + t.amount, 0))}
+            {@const outgoing = outgoingTransfers.filter(t => t.fromCategory === actual.category)}
+            {@const outgoingNet = roundToCents(outgoing.reduce((sum, t) => sum + t.amount, 0))}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="row"
@@ -888,26 +984,26 @@
               role="listitem"
             >
               <div class="row-name">
-                {#if rollover}
+                {#if incomingNet !== 0}
                   <button
-                    class="rollover-badge"
-                    class:positive={rollover.amount >= 0}
-                    class:negative={rollover.amount < 0}
-                    title="Click to edit rollover from {rollover.from}"
-                    onclick={(e) => openEditRolloverModal(actual.category, rollover, e)}
+                    class="transfer-badge incoming"
+                    class:positive={incomingNet >= 0}
+                    class:negative={incomingNet < 0}
+                    title="Click to view incoming transfers"
+                    onclick={(e) => openEditIncomingTransfers(actual.category, e)}
                   >
-                    {rollover.amount >= 0 ? '+' : ''}{formatCurrency(rollover.amount)}
+                    {incomingNet >= 0 ? '+' : ''}{formatCurrency(incomingNet)}
                   </button>
                 {/if}
                 {actual.category}
-                {#if outgoing}
+                {#if outgoingNet !== 0}
                   <span
-                    class="outgoing-badge"
-                    class:positive={outgoing.amount >= 0}
-                    class:negative={outgoing.amount < 0}
-                    title="Rolled to {formatMonth(getNextMonth(selectedMonth))}"
+                    class="transfer-badge outgoing"
+                    class:positive={outgoingNet >= 0}
+                    class:negative={outgoingNet < 0}
+                    title="Transferred to {formatMonth(getNextMonth(selectedMonth))}"
                   >
-                    → {outgoing.amount >= 0 ? '+' : ''}{formatCurrency(outgoing.amount)}
+                    → {outgoingNet >= 0 ? '+' : ''}{formatCurrency(outgoingNet)}
                   </span>
                 {/if}
               </div>
@@ -915,19 +1011,19 @@
                 <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {getStatusColor(actual)}"></div></div>
               </div>
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
-              <div class="row-expected">/ {formatCurrency(actual.expected + (rollover?.amount || 0))}</div>
+              <div class="row-expected">/ {formatCurrency(actual.expected + incomingNet)}</div>
               <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
-              {#if outgoing}
+              {#if outgoing.length > 0}
                 <button
-                  class="rollover-btn has-outgoing"
-                  onclick={(e) => openEditOutgoingRollover(actual.category, outgoing, e)}
-                  title="Edit rollover to {formatMonth(getNextMonth(selectedMonth))}"
+                  class="transfer-btn has-outgoing"
+                  onclick={(e) => openTransferModal(actual, e)}
+                  title="Edit transfers to {formatMonth(getNextMonth(selectedMonth))}"
                 >→</button>
               {:else if actual.variance !== 0}
                 <button
-                  class="rollover-btn"
-                  onclick={(e) => openRolloverModal(actual, e)}
-                  title="Carry forward"
+                  class="transfer-btn"
+                  onclick={(e) => openTransferModal(actual, e)}
+                  title="Transfer to next month"
                 >→</button>
               {/if}
               <RowMenu
@@ -996,23 +1092,49 @@
           </div>
         </div>
 
-        {#if currentRollover || currentOutgoing}
+        {#if currentIncomingTransfers.length > 0 || currentOutgoingTransfers.length > 0}
           <div class="sidebar-section">
-            <div class="sidebar-title">Rollovers</div>
-            {#if currentRollover}
-              <div class="rollover-detail incoming">
-                <span class="rollover-label">From {formatMonth(currentRollover.from)}</span>
-                <span class="rollover-value" class:positive={currentRollover.amount >= 0} class:negative={currentRollover.amount < 0}>
-                  {currentRollover.amount >= 0 ? '+' : ''}{formatCurrency(currentRollover.amount)}
-                </span>
+            <div class="sidebar-title">Transfers</div>
+            {#if currentIncomingTransfers.length > 0}
+              <div class="transfer-group incoming">
+                <div class="transfer-group-label">Incoming</div>
+                {#each currentIncomingTransfers as transfer}
+                  <div class="transfer-detail">
+                    <span class="transfer-from">from {transfer.fromCategory}</span>
+                    <span class="transfer-amount" class:positive={transfer.amount >= 0} class:negative={transfer.amount < 0}>
+                      {transfer.amount >= 0 ? '+' : ''}{formatCurrency(transfer.amount)}
+                    </span>
+                  </div>
+                {/each}
+                {#if currentIncomingTransfers.length > 1}
+                  <div class="transfer-total">
+                    <span>Total:</span>
+                    <span class="transfer-amount" class:positive={currentIncomingNet >= 0} class:negative={currentIncomingNet < 0}>
+                      {currentIncomingNet >= 0 ? '+' : ''}{formatCurrency(currentIncomingNet)}
+                    </span>
+                  </div>
+                {/if}
               </div>
             {/if}
-            {#if currentOutgoing}
-              <div class="rollover-detail outgoing">
-                <span class="rollover-label">To {formatMonth(getNextMonth(selectedMonth))}</span>
-                <span class="rollover-value" class:positive={currentOutgoing.amount >= 0} class:negative={currentOutgoing.amount < 0}>
-                  {currentOutgoing.amount >= 0 ? '+' : ''}{formatCurrency(currentOutgoing.amount)}
-                </span>
+            {#if currentOutgoingTransfers.length > 0}
+              <div class="transfer-group outgoing">
+                <div class="transfer-group-label">To {formatMonth(getNextMonth(selectedMonth))}</div>
+                {#each currentOutgoingTransfers as transfer}
+                  <div class="transfer-detail">
+                    <span class="transfer-to">→ {transfer.toCategory}</span>
+                    <span class="transfer-amount" class:positive={transfer.amount >= 0} class:negative={transfer.amount < 0}>
+                      {transfer.amount >= 0 ? '+' : ''}{formatCurrency(transfer.amount)}
+                    </span>
+                  </div>
+                {/each}
+                {#if currentOutgoingTransfers.length > 1}
+                  <div class="transfer-total">
+                    <span>Total:</span>
+                    <span class="transfer-amount" class:positive={currentOutgoingNet >= 0} class:negative={currentOutgoingNet < 0}>
+                      {currentOutgoingNet >= 0 ? '+' : ''}{formatCurrency(currentOutgoingNet)}
+                    </span>
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>
@@ -1109,39 +1231,74 @@
     {/snippet}
   </Modal>
 
-  <!-- Rollover Modal (used for both create and edit) -->
+  <!-- Transfer Modal (supports multiple transfers from one source) -->
   <Modal
-    open={showRolloverModal}
-    title="Rollover"
-    onclose={closeRolloverModal}
-    width="400px"
+    open={showTransferModal}
+    title="Transfer to {formatMonth(getNextMonth(selectedMonth))}"
+    onclose={closeTransferModal}
+    width="450px"
   >
-    <div class="rollover-modal-content">
-      <div class="rollover-header">
-        <span class="rollover-category">{rolloverCategoryName}</span>
-        <span class="rollover-direction">→ {formatMonth(rolloverTargetMonth)}</span>
+    <div class="transfer-modal-content">
+      <div class="transfer-header">
+        <span class="transfer-source">{transferSourceCategory}</span>
+        {#if transferSourceVariance !== 0}
+          <span class="transfer-variance" class:positive={transferSourceVariance >= 0} class:negative={transferSourceVariance < 0}>
+            {transferSourceVariance >= 0 ? 'Surplus' : 'Deficit'}: {formatCurrency(Math.abs(transferSourceVariance))}
+          </span>
+        {/if}
       </div>
 
-      <div class="rollover-form">
-        <label>
-          Amount
-          <input
-            type="number"
-            bind:value={rolloverAmount}
-            step="1"
-          />
-        </label>
-        <p class="rollover-hint">
-          Positive = surplus (adds to budget), Negative = deficit (reduces budget)
-        </p>
+      <div class="transfer-rows">
+        {#each transferRows as row, i (row.id)}
+          <div class="transfer-row">
+            <label class="transfer-to-label">
+              To
+              <select bind:value={row.toCategory}>
+                {#each availableTransferCategories as cat}
+                  <option value={cat}>{cat}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="transfer-amount-label">
+              Amount
+              <input
+                type="number"
+                bind:value={row.amount}
+                step="1"
+              />
+            </label>
+            {#if transferRows.length > 1}
+              <button class="transfer-row-delete" onclick={() => removeTransferRow(row.id)} title="Remove">×</button>
+            {/if}
+          </div>
+        {/each}
       </div>
+
+      <button class="add-transfer-btn" onclick={addTransferRow}>+ Add another transfer</button>
+
+      {#if transferSourceVariance !== 0}
+        <div class="transfer-summary">
+          <div class="transfer-summary-row">
+            <span>Allocated:</span>
+            <span class="mono">{formatCurrency(totalAllocated)} / {formatCurrency(transferSourceVariance)}</span>
+          </div>
+          <div class="transfer-summary-row">
+            <span>Remaining:</span>
+            <span class="mono" class:positive={remainingToAllocate >= 0} class:negative={remainingToAllocate < 0}>
+              {formatCurrency(remainingToAllocate)}
+            </span>
+          </div>
+        </div>
+      {/if}
     </div>
 
     {#snippet actions()}
-      <button class="btn danger" onclick={removeRollover}>Remove</button>
+      {#if isEditingTransfers}
+        <button class="btn danger" onclick={removeAllTransfers}>Remove All</button>
+      {/if}
       <div style="flex: 1;"></div>
-      <button class="btn secondary" onclick={closeRolloverModal}>Cancel</button>
-      <button class="btn primary" onclick={saveRollover}>Save</button>
+      <button class="btn secondary" onclick={closeTransferModal}>Cancel</button>
+      <button class="btn primary" onclick={saveTransfers}>Save</button>
     {/snippet}
   </Modal>
 </div>
@@ -1705,28 +1862,48 @@
     margin-right: 2px;
   }
 
-  /* Rollover badge */
-  .rollover-badge {
+  /* Transfer badge (row inline) */
+  .transfer-badge {
     display: inline-block;
     padding: 1px 5px;
     border-radius: 3px;
     font-size: 10px;
     font-weight: 600;
+  }
+
+  .transfer-badge.incoming {
     margin-right: 6px;
   }
 
-  .rollover-badge.positive {
+  .transfer-badge.outgoing {
+    margin-left: 6px;
+    opacity: 0.8;
+  }
+
+  .transfer-badge.positive {
     background: rgba(34, 197, 94, 0.15);
     color: var(--accent-success, #22c55e);
   }
 
-  .rollover-badge.negative {
+  .transfer-badge.negative {
     background: rgba(239, 68, 68, 0.15);
     color: var(--accent-danger, #ef4444);
   }
 
-  /* Rollover arrow button */
-  .rollover-btn {
+  /* Make transfer badge look like a button when clickable */
+  button.transfer-badge {
+    cursor: pointer;
+    border: none;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+
+  button.transfer-badge:hover {
+    transform: scale(1.05);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Transfer arrow button */
+  .transfer-btn {
     width: 24px;
     height: 24px;
     display: flex;
@@ -1742,18 +1919,28 @@
     margin-right: 4px;
   }
 
-  .rollover-btn:hover {
+  .transfer-btn:hover {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
     color: white;
   }
 
-  /* Rollover modal */
-  .rollover-modal-content {
+  .transfer-btn.has-outgoing {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+  }
+
+  .transfer-btn.has-outgoing:hover {
+    filter: brightness(1.1);
+  }
+
+  /* Transfer modal */
+  .transfer-modal-content {
     padding: var(--spacing-md) var(--spacing-lg);
   }
 
-  .rollover-header {
+  .transfer-header {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1762,24 +1949,32 @@
     border-bottom: 1px solid var(--border-primary);
   }
 
-  .rollover-category {
+  .transfer-source {
     font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
   }
 
-  .rollover-direction {
+  .transfer-variance {
     font-size: 12px;
-    color: var(--text-muted);
+    font-family: var(--font-mono);
   }
 
-  .rollover-form {
+  .transfer-rows {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
   }
 
-  .rollover-form label {
+  .transfer-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: flex-end;
+  }
+
+  .transfer-to-label {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1787,7 +1982,37 @@
     color: var(--text-secondary);
   }
 
-  .rollover-form input {
+  .transfer-to-label select {
+    padding: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+
+  .transfer-to-label select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .transfer-amount-label {
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .transfer-amount-label input {
     padding: 8px;
     background: var(--bg-primary);
     border: 1px solid var(--border-primary);
@@ -1797,97 +2022,117 @@
     font-family: var(--font-mono);
   }
 
-  .rollover-form input:focus {
+  .transfer-amount-label input:focus {
     outline: none;
     border-color: var(--accent-primary);
   }
 
-  .rollover-hint {
-    font-size: 11px;
+  .transfer-row-delete {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
     color: var(--text-muted);
-    margin: 0;
-  }
-
-  /* Make rollover badge look like a button */
-  button.rollover-badge {
+    font-size: 18px;
     cursor: pointer;
-    border: none;
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
 
-  button.rollover-badge:hover {
-    transform: scale(1.05);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  }
-
-  /* Outgoing rollover badge (shown on source month) */
-  .outgoing-badge {
-    display: inline-block;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 500;
-    margin-left: 6px;
-    opacity: 0.7;
-  }
-
-  .outgoing-badge.positive {
-    background: rgba(34, 197, 94, 0.1);
-    color: var(--accent-success, #22c55e);
-  }
-
-  .outgoing-badge.negative {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--accent-danger, #ef4444);
-  }
-
-  /* Arrow button when there's an outgoing rollover */
-  .rollover-btn.has-outgoing {
-    background: var(--accent-primary);
-    border-color: var(--accent-primary);
+  .transfer-row-delete:hover {
+    background: var(--accent-danger);
+    border-color: var(--accent-danger);
     color: white;
   }
 
-  .rollover-btn.has-outgoing:hover {
-    background: var(--accent-primary);
-    filter: brightness(1.1);
+  .add-transfer-btn {
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: 1px dashed var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    margin-bottom: var(--spacing-md);
   }
 
-  /* Sidebar rollover details */
-  .rollover-detail {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 8px;
+  .add-transfer-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+  }
+
+  .transfer-summary {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
     border-radius: 4px;
-    margin-bottom: 4px;
     font-size: 12px;
   }
 
-  .rollover-detail.incoming {
+  .transfer-summary-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+  }
+
+  .transfer-summary-row:last-child {
+    margin-bottom: 0;
+  }
+
+  /* Sidebar transfer details */
+  .transfer-group {
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm);
+    border-radius: 4px;
+  }
+
+  .transfer-group.incoming {
     background: rgba(59, 130, 246, 0.1);
     border-left: 2px solid var(--accent-primary);
   }
 
-  .rollover-detail.outgoing {
+  .transfer-group.outgoing {
     background: rgba(107, 114, 128, 0.1);
     border-left: 2px solid var(--text-muted);
   }
 
-  .rollover-label {
+  .transfer-group-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .transfer-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+
+  .transfer-from, .transfer-to {
     color: var(--text-secondary);
   }
 
-  .rollover-value {
+  .transfer-amount {
     font-family: var(--font-mono);
     font-weight: 600;
   }
 
-  .rollover-value.positive {
-    color: var(--accent-success, #22c55e);
-  }
-
-  .rollover-value.negative {
-    color: var(--accent-danger, #ef4444);
+  .transfer-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    padding-top: 4px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border-primary);
+    color: var(--text-secondary);
   }
 </style>

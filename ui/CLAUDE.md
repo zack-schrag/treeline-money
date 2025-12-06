@@ -106,3 +106,17 @@ await executeQuery("UPDATE sys_transactions SET ...", { readonly: false });
 ```
 
 **Important**: Use `sys_transactions` (base table) for UPDATE/INSERT, not `transactions` (view).
+
+## UX Philosophy
+
+### Progressive Disclosure
+Make the common case easy, but don't restrict power users. Examples:
+- Auto-tag rules: Simple "contains/starts with" by default, but "Edit SQL" link for power users
+- Budget transfers: Single transfer with defaults, but "+ Add another" to split across categories
+
+### Don't Over-Constrain
+Surface helpful indicators (e.g., "Remaining: $20") but don't prevent users from doing what they want. Let them over-allocate, under-allocate, etc. - it's their budget.
+
+### Data Patterns
+- Round currency amounts to cents (`Math.round(amount * 100) / 100`) to avoid floating point display errors
+- Store config as JSON in plugin files via `invoke("write_plugin_config", ...)`
