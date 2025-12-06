@@ -1,13 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
-  import { executeQuery, getPluginSettings, setPluginSettings, registry, getDemoMode } from "../../sdk";
+  import { executeQuery, registry } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem } from "../../shared";
-  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, BudgetConfig, Transaction, Transfer } from "./types";
-
-  // Plugin ID changes based on demo mode to keep configs separate
-  let currentPluginId = $state("budget");
-  const MONTHS_DIR = "months"; // monthly overrides (kept as plugin files, not settings)
+  import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, Transaction, Transfer } from "./types";
+  import * as budgetDb from "./db";
 
   // State
   let categories = $state<BudgetCategory[]>([]);
@@ -18,7 +14,7 @@
   // Month selection
   let availableMonths = $state<string[]>([]);
   let selectedMonth = $state<string>("");
-  let isCustomMonth = $state(false); // true if this month has its own budget config
+  let showCopyFromPrevious = $state(false); // Show prompt to copy from previous month
 
   // Current month helper
   function getCurrentMonth(): string {
@@ -143,137 +139,48 @@
     return { expected, actual, percent };
   });
 
-
-  // Config helpers
-  function configToCategories(config: BudgetConfig): BudgetCategory[] {
-    const result: BudgetCategory[] = [];
-
-    // Get income categories in order
-    const incomeNames = config.incomeOrder || Object.keys(config.income || {});
-    for (const category of incomeNames) {
-      const data = config.income?.[category];
-      if (data) {
-        result.push({ id: `income-${category}`, type: "income", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
-      }
-    }
-
-    // Get expense categories in order
-    const expenseNames = config.expensesOrder || Object.keys(config.expenses || {});
-    for (const category of expenseNames) {
-      const data = config.expenses?.[category];
-      if (data) {
-        result.push({ id: `expense-${category}`, type: "expense", category, expected: data.expected, tags: data.tags, require_all: data.require_all || false, amount_sign: data.amount_sign || null });
-      }
-    }
-
-    return result;
+  // Default template with common categories - used when DB has no data for ANY month
+  function getDefaultCategories(): BudgetCategory[] {
+    return [
+      { id: crypto.randomUUID(), type: "income", category: "Salary", expected: 7000, tags: ["income"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Groceries", expected: 600, tags: ["groceries"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Dining", expected: 300, tags: ["dining", "coffee"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Transportation", expected: 400, tags: ["transportation"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Shopping", expected: 400, tags: ["shopping"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Entertainment", expected: 100, tags: ["entertainment"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Utilities", expected: 250, tags: ["utilities"], require_all: false, amount_sign: null },
+      { id: crypto.randomUUID(), type: "expense", category: "Health", expected: 100, tags: ["health"], require_all: false, amount_sign: null },
+    ];
   }
 
-  function categoriesToConfig(cats: BudgetCategory[]): BudgetConfig {
-    const config: BudgetConfig = { income: {}, expenses: {}, selectedAccounts: selectedAccounts.length > 0 ? selectedAccounts : undefined };
-    const incomeOrder: string[] = [];
-    const expensesOrder: string[] = [];
-
-    for (const cat of cats) {
-      const data: { expected: number; tags: string[]; require_all?: boolean; amount_sign?: AmountSign } = { expected: cat.expected, tags: cat.tags };
-      if (cat.require_all) data.require_all = true;
-      if (cat.amount_sign) data.amount_sign = cat.amount_sign;
-      if (cat.type === "income") {
-        config.income[cat.category] = data;
-        incomeOrder.push(cat.category);
-      } else if (cat.type === "expense") {
-        config.expenses[cat.category] = data;
-        expensesOrder.push(cat.category);
-      }
-    }
-
-    config.incomeOrder = incomeOrder;
-    config.expensesOrder = expensesOrder;
-    return config;
-  }
-
-  // Budget settings structure (template only - monthly overrides are stored as plugin files)
-  interface BudgetSettings {
-    template: BudgetConfig;
-  }
-
-  // Default template with common categories - users can customize
-  // Tags match demo data so demo mode works out of the box
-  const DEFAULT_SETTINGS: BudgetSettings = {
-    template: {
-      income: {
-        "Salary": { expected: 7000, tags: ["income"] },
-      },
-      expenses: {
-        "Groceries": { expected: 600, tags: ["groceries"] },
-        "Dining": { expected: 300, tags: ["dining", "coffee"] },
-        "Transportation": { expected: 400, tags: ["transportation"] },
-        "Shopping": { expected: 400, tags: ["shopping"] },
-        "Entertainment": { expected: 100, tags: ["entertainment"] },
-        "Utilities": { expected: 250, tags: ["utilities"] },
-        "Health": { expected: 100, tags: ["health"] },
-      },
-      incomeOrder: ["Salary"],
-      expensesOrder: ["Groceries", "Dining", "Transportation", "Shopping", "Entertainment", "Utilities", "Health"],
-    },
-  };
-
-  async function loadConfig(month?: string): Promise<BudgetConfig> {
-    const targetMonth = month || selectedMonth;
-
-    // Try month-specific config first (stored as plugin files, not settings)
-    if (targetMonth) {
-      try {
-        const monthFile = `${MONTHS_DIR}/${targetMonth}.json`;
-        const content = await invoke<string>("read_plugin_config", { pluginId: currentPluginId, filename: monthFile });
-        if (content && content !== "null") {
-          isCustomMonth = true;
-          return JSON.parse(content);
-        }
-      } catch (e) {
-        // Month-specific file doesn't exist, fall through to template
-      }
-    }
-
-    // Fall back to template (from unified settings)
-    try {
-      isCustomMonth = false;
-      const settings = await getPluginSettings<BudgetSettings>(currentPluginId, DEFAULT_SETTINGS);
-      return settings.template || { income: {}, expenses: {} };
-    } catch (e) {
-      console.error("Failed to load config:", e);
-      return { income: {}, expenses: {} };
-    }
-  }
-
-  async function saveConfig(config: BudgetConfig): Promise<void> {
-    // Always save to month-specific file (as plugin files, not settings)
+  async function saveCategoriesToDb(cats: BudgetCategory[]): Promise<void> {
     if (!selectedMonth) return;
-    const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
-    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
-    isCustomMonth = true;
+    await budgetDb.saveAllCategories(selectedMonth, cats);
   }
 
-  async function saveAsTemplate(config: BudgetConfig): Promise<void> {
-    // Save current config as the template for future months (to unified settings)
-    const settings = await getPluginSettings<BudgetSettings>(currentPluginId, DEFAULT_SETTINGS);
-    settings.template = config;
-    await setPluginSettings(currentPluginId, settings);
-  }
-
-  async function resetToTemplate(): Promise<void> {
-    // Delete month-specific config to revert to template
+  async function copyFromPreviousMonth(): Promise<void> {
     if (!selectedMonth) return;
+    const prevMonth = budgetDb.getPreviousMonth(selectedMonth);
     try {
-      const monthFile = `${MONTHS_DIR}/${selectedMonth}.json`;
-      // Write empty/null to effectively delete (or we could add a delete command)
-      await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: "null" });
-      isCustomMonth = false;
-      await loadCategories();
-      await calculateActuals();
+      const copiedCategories = await budgetDb.copyFromMonth(prevMonth, selectedMonth);
+      if (copiedCategories.length > 0) {
+        categories = copiedCategories;
+        showCopyFromPrevious = false;
+        await calculateActuals();
+      }
     } catch (e) {
-      console.error("Failed to reset to template:", e);
+      console.error("Failed to copy from previous month:", e);
     }
+  }
+
+  async function startFresh(): Promise<void> {
+    // User declined copy from previous - start with defaults for this month
+    if (!selectedMonth) return;
+    const defaults = getDefaultCategories();
+    await budgetDb.saveAllCategories(selectedMonth, defaults);
+    categories = defaults;
+    showCopyFromPrevious = false;
+    await calculateActuals();
   }
 
   async function loadAllAccounts() {
@@ -286,37 +193,43 @@
     allTags = result.rows.map(r => r[0] as string);
   }
 
-  // Helper to validate transfer objects (filter out old rollover format)
-  function isValidTransfer(t: unknown): t is Transfer {
-    return (
-      t !== null &&
-      typeof t === 'object' &&
-      'id' in t &&
-      'fromCategory' in t &&
-      'toCategory' in t &&
-      'amount' in t &&
-      typeof (t as Transfer).amount === 'number'
-    );
+  async function loadCategoriesFromDb() {
+    if (!selectedMonth) return;
+
+    try {
+      // Load from database - each month is self-contained
+      const monthData = await budgetDb.loadMonthData(selectedMonth);
+
+      if (monthData.categories.length === 0) {
+        // Check if there's any budget data at all
+        const hasAnyData = await budgetDb.hasBudgetData();
+        if (!hasAnyData) {
+          // First time setup - create defaults for this month
+          const defaults = getDefaultCategories();
+          await budgetDb.saveAllCategories(selectedMonth, defaults);
+          categories = defaults;
+        } else {
+          // No categories for this month but other months have data
+          // Prompt user to copy from previous month
+          categories = [];
+          showCopyFromPrevious = true;
+        }
+      } else {
+        categories = monthData.categories;
+        showCopyFromPrevious = false;
+      }
+
+      outgoingTransfers = monthData.outgoingRollovers;
+      incomingTransfers = monthData.incomingRollovers;
+    } catch (e) {
+      console.error("Failed to load categories:", e);
+      categories = [];
+    }
   }
 
+  // Alias for compatibility with existing code
   async function loadCategories() {
-    const config = await loadConfig();
-    categories = configToCategories(config);
-    if (config.selectedAccounts && config.selectedAccounts.length > 0) selectedAccounts = config.selectedAccounts;
-
-    // Outgoing transfers are stored in THIS month's config
-    // Filter to ensure valid transfer objects (not old rollover format)
-    outgoingTransfers = (config.transfers || []).filter(isValidTransfer);
-
-    // Incoming transfers are from the PREVIOUS month's config
-    if (selectedMonth) {
-      const prevMonth = getPrevMonth(selectedMonth);
-      const prevConfig = await loadConfig(prevMonth);
-      // Get transfers from previous month - filter for valid format
-      incomingTransfers = (prevConfig.transfers || []).filter(isValidTransfer);
-    } else {
-      incomingTransfers = [];
-    }
+    await loadCategoriesFromDb();
   }
 
   function buildAccountFilter(): string {
@@ -420,10 +333,6 @@
     isLoading = true;
     error = null;
     try {
-      // Set plugin ID based on demo mode (separate configs for demo vs real)
-      const isDemo = await getDemoMode();
-      currentPluginId = isDemo ? "budget_demo" : "budget";
-
       // Load months first but don't set selectedMonth yet to avoid triggering effect
       const result = await executeQuery(`SELECT DISTINCT strftime('%Y-%m', transaction_date) as month FROM transactions ORDER BY month DESC`);
       const transactionMonths = result.rows.map(r => r[0] as string);
@@ -517,22 +426,25 @@
 
   async function saveCategory() {
     const tags = editorForm.tags.split(",").map(t => t.trim()).filter(t => t);
-    if (!editorForm.category.trim() || tags.length === 0) return;
+    if (!editorForm.category.trim() || tags.length === 0 || !selectedMonth) return;
 
-    const newCategory: BudgetCategory = { id: `${editorForm.type}-${editorForm.category}`, type: editorForm.type, category: editorForm.category.trim(), expected: editorForm.expected, tags, require_all: editorForm.require_all, amount_sign: editorForm.amount_sign };
+    // Use existing ID if editing, otherwise generate new UUID
+    const categoryId = editingCategory?.id ?? crypto.randomUUID();
+    const newCategory: BudgetCategory = { id: categoryId, type: editorForm.type, category: editorForm.category.trim(), expected: editorForm.expected, tags, require_all: editorForm.require_all, amount_sign: editorForm.amount_sign };
     let updatedCategories = categories.filter(c => editingCategory ? c.id !== editingCategory.id : true);
     updatedCategories.push(newCategory);
 
-    await saveConfig(categoriesToConfig(updatedCategories));
+    // Save to database for this month
+    await budgetDb.saveAllCategories(selectedMonth, updatedCategories);
     cancelEdit();
     await loadCategories();
     await calculateActuals();
   }
 
   async function deleteCategory(cat: BudgetCategory) {
-    // Note: confirm() may not work in Tauri - removing for now
+    if (!selectedMonth) return;
     const updatedCategories = categories.filter(c => c.id !== cat.id);
-    await saveConfig(categoriesToConfig(updatedCategories));
+    await budgetDb.saveAllCategories(selectedMonth, updatedCategories);
     await loadCategories();
     await Promise.all([calculateActuals(), loadAllTrends()]);
   }
@@ -764,14 +676,17 @@
   async function saveTransfers() {
     if (!transferSourceCategory || !transferStorageMonth) return;
 
-    // Load the config for the month where transfers are stored
-    const config = await loadConfig(transferStorageMonth);
+    // Determine target month for rollovers
+    const toMonth = getNextMonth(transferStorageMonth);
 
-    // Remove any existing transfers from this source category
-    const otherTransfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+    // Load existing rollovers from this source month
+    const existingRollovers = await budgetDb.loadOutgoingRollovers(transferStorageMonth);
 
-    // Add the new transfers (filter out zero amounts)
-    const newTransfers: Transfer[] = transferRows
+    // Remove any existing rollovers from this source category
+    const otherRollovers = existingRollovers.filter(t => t.fromCategory !== transferSourceCategory);
+
+    // Add the new rollovers (filter out zero amounts)
+    const newRollovers: Transfer[] = transferRows
       .filter(r => r.amount !== 0)
       .map(r => ({
         id: r.id,
@@ -780,10 +695,9 @@
         amount: roundToCents(r.amount),
       }));
 
-    config.transfers = [...otherTransfers, ...newTransfers];
-
-    const monthFile = `${MONTHS_DIR}/${transferStorageMonth}.json`;
-    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
+    // Save all rollovers for this source month
+    const allRollovers = [...otherRollovers, ...newRollovers];
+    await budgetDb.saveMonthRollovers(transferStorageMonth, toMonth, allRollovers);
 
     await loadCategories();
     closeTransferModal();
@@ -792,21 +706,22 @@
   async function removeAllTransfers() {
     if (!transferStorageMonth) return;
 
-    // Load the config for the month where transfers are stored
-    const config = await loadConfig(transferStorageMonth);
+    // Load existing rollovers from this source month
+    const existingRollovers = await budgetDb.loadOutgoingRollovers(transferStorageMonth);
+    const toMonth = getNextMonth(transferStorageMonth);
 
+    let remainingRollovers: Transfer[];
     if (isEditingIncoming) {
-      // Remove all transfers TO the target category
+      // Remove all rollovers TO the target category
       if (!transferTargetCategory) return;
-      config.transfers = (config.transfers || []).filter(t => t.toCategory !== transferTargetCategory);
+      remainingRollovers = existingRollovers.filter(t => t.toCategory !== transferTargetCategory);
     } else {
-      // Remove all transfers FROM the source category
+      // Remove all rollovers FROM the source category
       if (!transferSourceCategory) return;
-      config.transfers = (config.transfers || []).filter(t => t.fromCategory !== transferSourceCategory);
+      remainingRollovers = existingRollovers.filter(t => t.fromCategory !== transferSourceCategory);
     }
 
-    const monthFile = `${MONTHS_DIR}/${transferStorageMonth}.json`;
-    await invoke("write_plugin_config", { pluginId: currentPluginId, filename: monthFile, content: JSON.stringify(config, null, 2) });
+    await budgetDb.saveMonthRollovers(transferStorageMonth, toMonth, remainingRollovers);
 
     await loadCategories();
     closeTransferModal();
@@ -855,7 +770,8 @@
     const newCategories = [...incomeCats, ...expenseCats];
 
     // Save and update
-    await saveConfig(categoriesToConfig(newCategories));
+    if (!selectedMonth) return;
+    await budgetDb.saveAllCategories(selectedMonth, newCategories);
     categories = newCategories;
     await calculateActuals();
 
@@ -899,23 +815,11 @@
         <button class="nav-btn" onclick={() => cycleMonth(1)} disabled={availableMonths.indexOf(selectedMonth) === availableMonths.length - 1}>←</button>
         <span class="current-month">
           {formatMonth(selectedMonth)}
-          {#if isCustomMonth}<span class="custom-badge" title="Custom budget for this month">*</span>{/if}
         </span>
         <button class="nav-btn" onclick={() => cycleMonth(-1)} disabled={availableMonths.indexOf(selectedMonth) === 0}>→</button>
         <button class="this-month-btn" onclick={goToCurrentMonth} title="Jump to current month" disabled={isCurrentMonth}>This Month</button>
       </div>
     </div>
-    {#if isCustomMonth}
-      <div class="template-actions">
-        <span class="template-hint">Custom budget</span>
-        <button class="template-btn" onclick={resetToTemplate}>Reset to template</button>
-        <button class="template-btn" onclick={() => saveAsTemplate(categoriesToConfig(categories))}>Set as default</button>
-      </div>
-    {:else}
-      <div class="template-actions">
-        <span class="template-hint">Using template</span>
-      </div>
-    {/if}
   </div>
 
   {#if error}
@@ -927,6 +831,17 @@
     <div class="list-container">
       {#if isLoading}
         <div class="empty-state">Loading...</div>
+      {:else if showCopyFromPrevious}
+        <div class="copy-from-previous">
+          <div class="copy-prompt">
+            <p>No budget configured for <strong>{formatMonth(selectedMonth)}</strong></p>
+            <p class="copy-hint">Copy categories from the previous month?</p>
+          </div>
+          <div class="copy-actions">
+            <button class="btn primary" onclick={copyFromPreviousMonth}>Copy from {formatMonth(budgetDb.getPreviousMonth(selectedMonth))}</button>
+            <button class="btn secondary" onclick={startFresh}>Start fresh</button>
+          </div>
+        </div>
       {:else if allActuals.length === 0}
         <div class="empty-state">No budget categories. Press <kbd>a</kbd> to add one.</div>
       {:else}
@@ -1402,38 +1317,6 @@
     text-align: center;
   }
 
-  .custom-badge {
-    color: var(--accent-warning, #f59e0b);
-    margin-left: 2px;
-  }
-
-  .template-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-top: 6px;
-    font-size: 11px;
-  }
-
-  .template-hint {
-    color: var(--text-muted);
-  }
-
-  .template-btn {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
-    color: var(--text-secondary);
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    cursor: pointer;
-  }
-
-  .template-btn:hover {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
   .error-bar {
     padding: var(--spacing-sm) var(--spacing-lg);
     background: var(--accent-danger);
@@ -1466,6 +1349,56 @@
     border: 1px solid var(--border-primary);
     border-radius: 3px;
     font-family: var(--font-mono);
+  }
+
+  /* Copy from previous month prompt */
+  .copy-from-previous {
+    padding: var(--spacing-xl);
+    text-align: center;
+  }
+
+  .copy-prompt p {
+    margin: 0 0 var(--spacing-sm) 0;
+    color: var(--text-primary);
+  }
+
+  .copy-prompt .copy-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .copy-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    justify-content: center;
+  }
+
+  .copy-actions .btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .copy-actions .btn.primary {
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+  }
+
+  .copy-actions .btn.primary:hover {
+    opacity: 0.9;
+  }
+
+  .copy-actions .btn.secondary {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+  }
+
+  .copy-actions .btn.secondary:hover {
+    background: var(--bg-primary);
   }
 
   /* Section divider */
