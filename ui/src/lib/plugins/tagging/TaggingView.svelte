@@ -151,6 +151,34 @@
       .slice(0, 9); // Limit to 9 (keys 1-9)
   });
 
+  // Selection stats (Excel-style summary)
+  let selectionStats = $derived.by(() => {
+    if (selectedIndices.size === 0) return null;
+
+    const selected = Array.from(selectedIndices).map(i => transactions[i]).filter(Boolean);
+    if (selected.length === 0) return null;
+
+    const amounts = selected.map(t => t.amount);
+    const sum = amounts.reduce((a, b) => a + b, 0);
+    const avg = sum / amounts.length;
+    const min = Math.min(...amounts);
+    const max = Math.max(...amounts);
+
+    // Count positive vs negative
+    const positiveCount = amounts.filter(a => a >= 0).length;
+    const negativeCount = amounts.filter(a => a < 0).length;
+
+    return {
+      count: selected.length,
+      sum,
+      avg,
+      min,
+      max,
+      positiveCount,
+      negativeCount,
+    };
+  });
+
   // Group split transactions by parent_id for visual grouping
   let splitGroups = $derived.by(() => {
     const groups = new Map<string, number[]>();
@@ -881,10 +909,8 @@
     // Force reactivity
     transactions = [...transactions];
 
-    // Don't auto-advance cursor - let users apply multiple tags to the same transaction
-    // They can press j/k to move manually when ready
-
-    deselectAll();
+    // Don't auto-advance cursor or deselect - let users apply multiple tags or clear+tag
+    // They can press Esc to deselect or j/k to move when ready
 
     // Persist in background (fire and forget)
     persistTagChanges(indices.map(i => transactions[i]));
@@ -921,8 +947,10 @@
     rulePromptTags = [];
   }
 
-  function handleRuleSaved() {
-    showToast({ type: "success", title: "Rule saved!", message: "It will apply to future transactions." });
+  async function handleRuleSaved() {
+    showToast({ type: "success", title: "Rule saved!", message: "Tags applied to matching transactions." });
+    // Refresh transactions to show updated tags
+    await loadTransactions();
   }
 
   function openRulesModal() {
@@ -1070,8 +1098,7 @@
 
     transactions = [...transactions];
 
-    // Don't auto-advance - consistent with quick tag behavior
-    deselectAll();
+    // Don't auto-advance or deselect - let users apply multiple operations
     cancelCustomTagging();
 
     // Persist in background
@@ -1114,8 +1141,7 @@
 
     transactions = [...transactions];
 
-    // Don't auto-advance - consistent with quick tag behavior
-    deselectAll();
+    // Don't auto-advance or deselect - let users clear then tag
 
     // Persist in background
     persistTagChanges(indices.map(i => transactions[i]));
@@ -1701,13 +1727,6 @@
       <span class="toggle-label">Untagged only</span>
     </button>
 
-    <!-- Selection indicator -->
-    {#if selectedIndices.size > 0}
-      <div class="selection-badge">
-        <span class="selection-count">{selectedIndices.size}</span> selected
-        <button class="clear-selection-btn" onclick={deselectAll}>×</button>
-      </div>
-    {/if}
   </div>
 
   {#if error}
@@ -1815,91 +1834,153 @@
 
     <!-- Sidebar -->
     <div class="sidebar">
-      <!-- Quick Tags (actionable) -->
-      <div class="sidebar-section">
-        <div class="sidebar-title">Quick Tags</div>
-        {#if currentSuggestions.length === 0}
-          <div class="sidebar-empty">No suggestions</div>
-        {:else}
-          <div class="tag-suggestions">
-            {#each currentSuggestions as suggestion, i}
-              <button
-                class="tag-suggestion"
-                onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
-              >
-                <span class="tag-shortcut">{i + 1}</span>
-                <span class="tag-name">{suggestion.tag}</span>
-              </button>
-            {/each}
+      {#if selectedIndices.size > 0 && selectionStats}
+        <!-- Selection Mode Sidebar -->
+        <div class="sidebar-section selection-section">
+          <div class="sidebar-title selection-title">
+            <span class="selection-badge">{selectionStats.count}</span>
+            Selected
           </div>
-        {/if}
-      </div>
+          <p class="selection-hint">Apply tags to all selected transactions</p>
+        </div>
 
-      <!-- Transaction Info (details + current tags) -->
-      {#if currentTxn}
-        <div class="sidebar-section txn-details">
-          <div class="sidebar-title">Selected Transaction</div>
-          <div class="txn-details-content">
-            <div class="txn-detail-row">
-              <span class="txn-detail-label">Date</span>
-              <span class="txn-detail-value">{currentTxn.transaction_date}</span>
+        <div class="sidebar-section">
+          <div class="sidebar-title">Quick Tags</div>
+          {#if currentSuggestions.length === 0}
+            <div class="sidebar-empty">No suggestions for selection</div>
+          {:else}
+            <div class="tag-suggestions">
+              {#each currentSuggestions as suggestion, i}
+                <button
+                  class="tag-suggestion"
+                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
+                >
+                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-name">{suggestion.tag}</span>
+                </button>
+              {/each}
             </div>
-            <div class="txn-detail-stacked">
-              <span class="txn-detail-label">Account</span>
-              <span class="txn-detail-value">{currentTxn.account_nickname || currentTxn.account_name || 'Unknown'}</span>
-            </div>
-            <div class="txn-detail-row">
-              <span class="txn-detail-label">Amount</span>
-              <span class="txn-detail-value" class:negative={currentTxn.amount < 0} class:positive={currentTxn.amount >= 0}>
-                {currentTxn.amount < 0 ? '-' : ''}${formatAmount(currentTxn.amount)}
+          {/if}
+        </div>
+
+        <!-- Selection Stats (Excel-style) -->
+        <div class="sidebar-section selection-stats">
+          <div class="sidebar-title">Stats</div>
+          <div class="stats-grid">
+            <div class="stat-row">
+              <span class="stat-label">Sum</span>
+              <span class="stat-value" class:negative={selectionStats.sum < 0} class:positive={selectionStats.sum >= 0}>
+                {selectionStats.sum < 0 ? '-' : ''}${formatAmount(selectionStats.sum)}
               </span>
             </div>
-            <div class="txn-detail-desc">
-              <span class="txn-detail-label">Description</span>
-              <span class="txn-detail-value desc">{currentTxn.description}</span>
+            <div class="stat-row">
+              <span class="stat-label">Average</span>
+              <span class="stat-value" class:negative={selectionStats.avg < 0} class:positive={selectionStats.avg >= 0}>
+                {selectionStats.avg < 0 ? '-' : ''}${formatAmount(selectionStats.avg)}
+              </span>
             </div>
-            {#if currentTxn.tags.length > 0}
-              <div class="txn-detail-tags">
-                <span class="txn-detail-label">Tags <span class="tag-hint">(click × to remove)</span></span>
-                <div class="current-tags">
-                  {#each currentTxn.tags as tag}
-                    <span class="current-tag">
-                      {tag}
-                      <button
-                        class="tag-remove-btn"
-                        onclick={() => removeSingleTag(tag)}
-                        aria-label="Remove tag {tag}"
-                      >×</button>
-                    </span>
-                  {/each}
-                </div>
-              </div>
-            {/if}
+            <div class="stat-row">
+              <span class="stat-label">Min</span>
+              <span class="stat-value" class:negative={selectionStats.min < 0} class:positive={selectionStats.min >= 0}>
+                {selectionStats.min < 0 ? '-' : ''}${formatAmount(selectionStats.min)}
+              </span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Max</span>
+              <span class="stat-value" class:negative={selectionStats.max < 0} class:positive={selectionStats.max >= 0}>
+                {selectionStats.max < 0 ? '-' : ''}${formatAmount(selectionStats.max)}
+              </span>
+            </div>
           </div>
         </div>
-      {/if}
+      {:else}
+        <!-- Normal Mode Sidebar -->
+        <!-- Quick Tags (actionable) -->
+        <div class="sidebar-section">
+          <div class="sidebar-title">Quick Tags</div>
+          {#if currentSuggestions.length === 0}
+            <div class="sidebar-empty">No suggestions</div>
+          {:else}
+            <div class="tag-suggestions">
+              {#each currentSuggestions as suggestion, i}
+                <button
+                  class="tag-suggestion"
+                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
+                >
+                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-name">{suggestion.tag}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
-      <!-- Split Transaction Info -->
-      {#if currentTxn?.parent_transaction_id}
-        {@const siblingIndices = splitGroups.get(currentTxn.parent_transaction_id) || []}
-        {@const siblings = siblingIndices.map(i => transactions[i]).filter(Boolean)}
-        <div class="sidebar-section split-info">
-          <div class="sidebar-title">Split Transaction</div>
-          <div class="split-siblings">
-            {#each siblings as sibling}
-              <div class="split-sibling" class:current={sibling.transaction_id === currentTxn.transaction_id}>
-                <span class="sibling-desc">{sibling.description}</span>
-                <span class="sibling-amount" class:negative={sibling.amount < 0}>
-                  ${Math.abs(sibling.amount).toFixed(2)}
+        <!-- Transaction Info (details + current tags) -->
+        {#if currentTxn}
+          <div class="sidebar-section txn-details">
+            <div class="sidebar-title">Current Transaction</div>
+            <div class="txn-details-content">
+              <div class="txn-detail-row">
+                <span class="txn-detail-label">Date</span>
+                <span class="txn-detail-value">{currentTxn.transaction_date}</span>
+              </div>
+              <div class="txn-detail-stacked">
+                <span class="txn-detail-label">Account</span>
+                <span class="txn-detail-value">{currentTxn.account_nickname || currentTxn.account_name || 'Unknown'}</span>
+              </div>
+              <div class="txn-detail-row">
+                <span class="txn-detail-label">Amount</span>
+                <span class="txn-detail-value" class:negative={currentTxn.amount < 0} class:positive={currentTxn.amount >= 0}>
+                  {currentTxn.amount < 0 ? '-' : ''}${formatAmount(currentTxn.amount)}
                 </span>
               </div>
-            {/each}
-            <div class="split-total">
-              <span class="total-label">Total:</span>
-              <span class="total-amount">${Math.abs(siblings.reduce((sum, s) => sum + s.amount, 0)).toFixed(2)}</span>
+              <div class="txn-detail-desc">
+                <span class="txn-detail-label">Description</span>
+                <span class="txn-detail-value desc">{currentTxn.description}</span>
+              </div>
+              {#if currentTxn.tags.length > 0}
+                <div class="txn-detail-tags">
+                  <span class="txn-detail-label">Tags <span class="tag-hint">(click × to remove)</span></span>
+                  <div class="current-tags">
+                    {#each currentTxn.tags as tag}
+                      <span class="current-tag">
+                        {tag}
+                        <button
+                          class="tag-remove-btn"
+                          onclick={() => removeSingleTag(tag)}
+                          aria-label="Remove tag {tag}"
+                        >×</button>
+                      </span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
             </div>
           </div>
-        </div>
+        {/if}
+
+        <!-- Split Transaction Info -->
+        {#if currentTxn?.parent_transaction_id}
+          {@const siblingIndices = splitGroups.get(currentTxn.parent_transaction_id) || []}
+          {@const siblings = siblingIndices.map(i => transactions[i]).filter(Boolean)}
+          <div class="sidebar-section split-info">
+            <div class="sidebar-title">Split Transaction</div>
+            <div class="split-siblings">
+              {#each siblings as sibling}
+                <div class="split-sibling" class:current={sibling.transaction_id === currentTxn.transaction_id}>
+                  <span class="sibling-desc">{sibling.description}</span>
+                  <span class="sibling-amount" class:negative={sibling.amount < 0}>
+                    ${Math.abs(sibling.amount).toFixed(2)}
+                  </span>
+                </div>
+              {/each}
+              <div class="split-total">
+                <span class="total-label">Total:</span>
+                <span class="total-amount">${Math.abs(siblings.reduce((sum, s) => sum + s.amount, 0)).toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        {/if}
       {/if}
     </div>
   </div>
@@ -1921,7 +2002,7 @@
         <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
       </div>
     {:else}
-      <!-- Keyboard shortcuts footer -->
+      <!-- Default keyboard shortcuts footer -->
       <div class="shortcuts-row">
         <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
         <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
@@ -2198,39 +2279,6 @@
     color: white;
   }
 
-  /* Selection badge */
-  .selection-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
-    background: var(--accent-primary);
-    color: white;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-    flex-shrink: 0;
-  }
-
-  .selection-count {
-    font-weight: 700;
-  }
-
-  .clear-selection-btn {
-    background: none;
-    border: none;
-    color: white;
-    opacity: 0.7;
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0;
-    line-height: 1;
-  }
-
-  .clear-selection-btn:hover {
-    opacity: 1;
-  }
-
   /* Account filter dropdown */
   .account-filter-container {
     position: relative;
@@ -2451,6 +2499,90 @@
     font-size: 12px;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  /* Selection section in sidebar */
+  .selection-section {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.08);
+    border: 1px solid rgba(var(--accent-primary-rgb, 59, 130, 246), 0.2);
+    border-radius: 6px;
+    padding: var(--spacing-md);
+  }
+
+  .selection-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .selection-title .selection-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 6px;
+    background: var(--accent-primary);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 12px;
+  }
+
+  .selection-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: var(--spacing-xs) 0 0 0;
+  }
+
+  /* Selection stats sidebar styles */
+  .selection-stats {
+    background: rgba(var(--accent-primary-rgb, 59, 130, 246), 0.06);
+    border: 1px solid rgba(var(--accent-primary-rgb, 59, 130, 246), 0.15);
+    border-radius: 6px;
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .selection-stats .sidebar-title {
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .stats-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    padding: 2px 0;
+  }
+
+  .stat-label {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .stat-value {
+    font-family: var(--font-mono, monospace);
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .stat-value.negative {
+    color: var(--amount-negative, #ef4444);
+  }
+
+  .stat-value.positive {
+    color: var(--amount-positive, #22c55e);
   }
 
   .txn-details-content {
@@ -2985,6 +3117,13 @@
     font-size: 10px;
     color: var(--text-secondary);
     margin-right: 2px;
+  }
+
+  /* Selection bar */
+  .no-suggestions {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
   }
 
   .loading-spinner {

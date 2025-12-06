@@ -13,6 +13,7 @@
     saveRule,
     testSqlCondition,
     generateSqlFromTransactions,
+    applyTagsToMatching,
   } from "./rules";
 
   interface Props {
@@ -46,6 +47,7 @@
   let testResult = $state<RuleTestResult | null>(null);
   let error = $state<string | null>(null);
   let isSaving = $state(false);
+  let applyToExisting = $state(true); // Default to applying to existing transactions
 
   // Track initialization and last tested value
   let lastInitializedFor = $state<string | null>(null);
@@ -246,6 +248,12 @@
       };
 
       await saveRule(rule);
+
+      // Apply tags to existing matching transactions if requested
+      if (applyToExisting) {
+        await applyTagsToMatching(sql.trim(), tags);
+      }
+
       onsaved();
       onclose();
     } catch (e) {
@@ -442,6 +450,17 @@
           {/if}
         </div>
       {/if}
+
+      <!-- Apply to existing checkbox -->
+      <label class="apply-existing-option">
+        <input type="checkbox" bind:checked={applyToExisting} />
+        <span class="checkbox-label">
+          Apply to existing transactions
+          {#if testResult && testResult.matchingCount > 0}
+            <span class="match-count">({testResult.matchingCount} match{testResult.matchingCount !== 1 ? 'es' : ''})</span>
+          {/if}
+        </span>
+      </label>
     </div>
 
     {#snippet actions()}
@@ -820,5 +839,38 @@
     background: var(--bg-secondary);
     border-color: var(--accent-primary);
     color: var(--accent-primary);
+  }
+
+  /* Apply to existing checkbox */
+  .apply-existing-option {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .apply-existing-option:hover {
+    background: var(--bg-secondary);
+  }
+
+  .apply-existing-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+  }
+
+  .checkbox-label {
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  .checkbox-label .match-count {
+    color: var(--text-muted);
+    font-size: 12px;
   }
 </style>

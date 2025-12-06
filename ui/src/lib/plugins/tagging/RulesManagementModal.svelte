@@ -211,6 +211,12 @@
     testResult = null;
     testError = null;
     lastTestedCondition = null;
+
+    // Auto-preview when entering edit mode
+    const effectiveSql = formShowSql ? sql : buildSqlFromPattern(formPattern, formMatchType);
+    if (effectiveSql) {
+      runTest(effectiveSql);
+    }
   }
 
   function cancelEdit() {
@@ -376,8 +382,6 @@
   }
 
   async function handleDelete(rule: TagRule) {
-    if (!confirm(`Delete rule "${rule.name}"?`)) return;
-
     try {
       await deleteRule(rule.id);
       await refreshRules();
@@ -419,22 +423,15 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div onkeydown={handleKeyDown}>
-  <Modal {open} title="Auto-Tag Rules" {onclose} width="700px" maxHeight="85vh">
+  <Modal {open} title={isCreating ? "New Rule" : editingRule ? "Edit Rule" : "Auto-Tag Rules"} {onclose} width={isCreating || editingRule ? "600px" : "500px"} maxHeight="85vh">
     <div class="modal-content">
       {#if error}
         <div class="error-bar">{error}</div>
       {/if}
 
       {#if isCreating || editingRule}
-        <!-- Edit/Create Form -->
+        <!-- Edit/Create Form - Full featured -->
         <div class="edit-form">
-          <div class="form-header">
-            <h3 class="form-title">
-              {isCreating ? "Create Rule" : "Edit Rule"}
-            </h3>
-            <button class="cancel-btn" onclick={cancelEdit}>Cancel</button>
-          </div>
-
           <div class="form-row">
             <div class="form-group flex-1">
               <label for="rule-name">Rule Name</label>
@@ -505,7 +502,7 @@
               </div>
 
               <div class="sql-help">
-                <details open>
+                <details>
                   <summary>Available columns</summary>
                   <div class="columns-list">
                     {#each columns as col}
@@ -601,84 +598,62 @@
           </div>
         </div>
       {:else}
-        <!-- Rules List -->
-        <div class="rules-header">
-          <p class="rules-description">
-            Rules automatically apply tags to matching transactions during sync.
-          </p>
-          <button class="create-btn" onclick={startCreate}>
-            + New Rule
-          </button>
-        </div>
-
+        <!-- Rules List - Clean table-like design -->
         {#if isLoading}
-          <div class="loading">Loading rules...</div>
+          <div class="loading">Loading...</div>
         {:else if rules.length === 0}
           <div class="empty-state">
+            <div class="empty-icon">📋</div>
             <p>No rules yet</p>
-            <p class="empty-hint">
-              Create a rule to automatically tag matching transactions.
-            </p>
+            <p class="empty-hint">Rules auto-tag matching transactions during sync</p>
+            <button class="btn primary" onclick={startCreate}>Create Rule</button>
           </div>
         {:else}
           <div class="rules-list">
             {#each rules as rule}
-              <div class="rule-card" class:disabled={!rule.enabled}>
-                <div class="rule-header">
-                  <div class="rule-name-row">
+              <div class="rule-row" class:disabled={!rule.enabled}>
+                <div class="rule-main" onclick={() => startEdit(rule)}>
+                  <div class="rule-info">
                     <span class="rule-name">{rule.name}</span>
-                    {#if !rule.enabled}
-                      <span class="disabled-badge">Disabled</span>
-                    {/if}
+                    <span class="rule-tags-inline">
+                      {#each rule.tags as tag}
+                        <span class="mini-tag">{tag}</span>
+                      {/each}
+                    </span>
                   </div>
-                  <div class="rule-actions">
-                    <button
-                      class="action-btn"
-                      onclick={() => handleQuickTest(rule)}
-                      title="Test rule"
-                    >
-                      Test
-                    </button>
-                    <button class="action-btn" onclick={() => startEdit(rule)} title="Edit">
-                      Edit
-                    </button>
-                    <button
-                      class="action-btn"
-                      onclick={() => handleToggleEnabled(rule)}
-                      title={rule.enabled ? "Disable" : "Enable"}
-                    >
-                      {rule.enabled ? "Disable" : "Enable"}
-                    </button>
-                    <button
-                      class="action-btn danger"
-                      onclick={() => handleDelete(rule)}
-                      title="Delete"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  {#if !rule.enabled}
+                    <span class="status-badge">off</span>
+                  {/if}
                 </div>
-
-                <div class="rule-sql">
-                  <code>{getRuleWhereClause(rule) || "No condition"}</code>
-                </div>
-
-                <div class="rule-tags">
-                  <span class="tags-label">Tags:</span>
-                  {#each rule.tags as tag}
-                    <span class="tag">{tag}</span>
-                  {/each}
+                <div class="rule-actions">
+                  <button
+                    class="icon-btn"
+                    onclick={(e) => { e.stopPropagation(); handleToggleEnabled(rule); }}
+                    title={rule.enabled ? "Disable" : "Enable"}
+                  >
+                    {rule.enabled ? "○" : "●"}
+                  </button>
+                  <button
+                    class="icon-btn danger"
+                    onclick={(e) => { e.stopPropagation(); handleDelete(rule); }}
+                    title="Delete"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
             {/each}
           </div>
         {/if}
+
+        {#snippet actions()}
+          <button class="btn text" onclick={onclose}>Close</button>
+          {#if rules.length > 0}
+            <button class="btn primary" onclick={startCreate}>+ New Rule</button>
+          {/if}
+        {/snippet}
       {/if}
     </div>
-
-    {#snippet actions()}
-      <button class="btn secondary" onclick={onclose}>Close</button>
-    {/snippet}
   </Modal>
 </div>
 
@@ -688,164 +663,156 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
-    min-height: 400px;
+    min-height: 300px;
   }
 
   .error-bar {
     padding: var(--spacing-sm) var(--spacing-md);
     background: rgba(239, 68, 68, 0.1);
-    border: 1px solid var(--accent-danger, #ef4444);
     border-radius: 4px;
     color: var(--accent-danger, #ef4444);
-    font-size: 13px;
+    font-size: 12px;
   }
 
-  /* Rules List View */
-  .rules-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--spacing-md);
-  }
-
-  .rules-description {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-
-  .create-btn {
-    padding: 8px 16px;
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border: none;
-    border-radius: 4px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .loading,
-  .empty-state {
+  /* Loading & Empty states */
+  .loading {
     text-align: center;
     padding: var(--spacing-xl);
     color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: var(--spacing-xl) var(--spacing-lg);
+    color: var(--text-muted);
+  }
+
+  .empty-icon {
+    font-size: 32px;
+    margin-bottom: var(--spacing-sm);
+    opacity: 0.5;
+  }
+
+  .empty-state p {
+    margin: 0;
+    font-size: 14px;
   }
 
   .empty-hint {
     font-size: 12px;
     margin-top: var(--spacing-xs);
+    opacity: 0.7;
   }
 
+  .empty-state .btn {
+    margin-top: var(--spacing-md);
+  }
+
+  /* Rules List - Clean table-like design */
   .rules-list {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-md);
   }
 
-  .rule-card {
-    padding: var(--spacing-md);
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 6px;
-  }
-
-  .rule-card.disabled {
-    opacity: 0.6;
-  }
-
-  .rule-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .rule-name-row {
+  .rule-row {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .rule-row:last-child {
+    border-bottom: none;
+  }
+
+  .rule-row.disabled {
+    opacity: 0.5;
+  }
+
+  .rule-main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    padding: var(--spacing-xs) 0;
+  }
+
+  .rule-main:hover .rule-name {
+    color: var(--accent-primary);
+  }
+
+  .rule-info {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
   }
 
   .rule-name {
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .disabled-badge {
+  .rule-tags-inline {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .mini-tag {
+    padding: 1px 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 3px;
     font-size: 10px;
-    padding: 2px 6px;
+  }
+
+  .status-badge {
+    font-size: 9px;
+    padding: 2px 5px;
     background: var(--bg-tertiary);
     color: var(--text-muted);
     border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   .rule-actions {
     display: flex;
-    gap: 4px;
+    gap: 2px;
+    flex-shrink: 0;
   }
 
-  .action-btn {
-    padding: 4px 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
+  .icon-btn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
     border-radius: 4px;
-    font-size: 11px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
+    font-size: 14px;
     cursor: pointer;
   }
 
-  .action-btn:hover {
-    background: var(--bg-secondary);
-  }
-
-  .action-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--accent-danger);
-    border-color: var(--accent-danger);
-  }
-
-  .action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .rule-sql {
-    margin-bottom: var(--spacing-sm);
-    padding: var(--spacing-xs) var(--spacing-sm);
+  .icon-btn:hover {
     background: var(--bg-tertiary);
-    border-radius: 4px;
-    overflow-x: auto;
+    color: var(--text-primary);
   }
 
-  .rule-sql code {
-    font-family: var(--font-mono, monospace);
-    font-size: 11px;
-    color: var(--text-secondary);
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-
-  .rule-tags {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .tags-label {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .tag {
-    padding: 2px 8px;
-    background: var(--accent-primary);
-    color: var(--bg-primary);
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
+  .icon-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--accent-danger, #ef4444);
   }
 
   /* Edit Form */
@@ -853,27 +820,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
-  }
-
-  .form-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .form-title {
-    margin: 0;
-    font-size: 16px;
-    color: var(--text-primary);
-  }
-
-  .cancel-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    text-decoration: underline;
   }
 
   .form-row {
@@ -959,7 +905,28 @@
     position: relative;
   }
 
+  .sql-input-wrapper textarea {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+    resize: none;
+  }
+
+  .sql-input-wrapper textarea:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
   .sql-input-wrapper textarea.error {
+    border-color: var(--accent-danger, #ef4444);
+  }
+
+  .sql-input-wrapper.has-error textarea {
     border-color: var(--accent-danger, #ef4444);
   }
 
@@ -1148,6 +1115,36 @@
     font-family: var(--font-mono, monospace);
   }
 
+  .common-filters {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: var(--spacing-sm);
+  }
+
+  .filters-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .filter-chip {
+    padding: 3px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .filter-chip:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+  }
+
   .test-error {
     padding: var(--spacing-sm) var(--spacing-md);
     background: rgba(239, 68, 68, 0.1);
@@ -1238,6 +1235,7 @@
     border-top: 1px solid var(--border-primary);
   }
 
+  /* Buttons */
   .btn {
     padding: 8px 16px;
     border-radius: 4px;
@@ -1252,44 +1250,27 @@
     color: var(--bg-primary);
   }
 
+  .btn.primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn.primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .btn.secondary {
     background: var(--bg-tertiary);
     color: var(--text-primary);
     border: 1px solid var(--border-primary);
   }
 
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .common-filters {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: var(--spacing-sm);
-  }
-
-  .filters-label {
-    font-size: 11px;
+  .btn.text {
+    background: transparent;
     color: var(--text-muted);
   }
 
-  .filter-chip {
-    padding: 3px 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    font-size: 10px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .filter-chip:hover {
-    background: var(--bg-secondary);
-    border-color: var(--accent-primary);
-    color: var(--accent-primary);
+  .btn.text:hover {
+    color: var(--text-primary);
   }
 </style>

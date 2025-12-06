@@ -499,3 +499,107 @@ export function describeRule(rule: TagRule): string {
   const logic = rule.conditionLogic === "all" ? " AND " : " OR ";
   return conditionDescs.join(logic);
 }
+
+/**
+ * Apply a rule's tags to all matching transactions in the database
+ * Returns the number of transactions updated
+ */
+export async function applyRuleToExisting(rule: TagRule): Promise<number> {
+  const whereClause = getRuleWhereClause(rule);
+
+  if (!whereClause || rule.tags.length === 0) {
+    return 0;
+  }
+
+  try {
+    // Get all matching transactions (use view for querying)
+    const result = await executeQuery(`
+      SELECT transaction_id, tags
+      FROM transactions
+      WHERE ${whereClause}
+    `);
+
+    if (result.rows.length === 0) {
+      return 0;
+    }
+
+    // Update each transaction to add the rule's tags
+    // Note: Must update sys_transactions (base table), not the transactions view
+    let updatedCount = 0;
+    for (const row of result.rows) {
+      const transactionId = row[0] as string;
+      const existingTags = (row[1] as string[]) || [];
+
+      // Merge tags (avoid duplicates)
+      const newTags = [...new Set([...existingTags, ...rule.tags])];
+
+      // Only update if tags actually changed
+      if (newTags.length !== existingTags.length || !newTags.every((t) => existingTags.includes(t))) {
+        const tagList = newTags.map((t) => `'${t.replace(/'/g, "''")}'`).join(", ");
+        await executeQuery(
+          `UPDATE sys_transactions
+           SET tags = [${tagList}]
+           WHERE transaction_id = '${transactionId}'`,
+          { readonly: false }
+        );
+        updatedCount++;
+      }
+    }
+
+    return updatedCount;
+  } catch (e) {
+    console.error("Failed to apply rule to existing transactions:", e);
+    throw e;
+  }
+}
+
+/**
+ * Apply tags to matching transactions using a SQL condition
+ * Returns the number of transactions updated
+ */
+export async function applyTagsToMatching(sqlCondition: string, tags: string[]): Promise<number> {
+  if (!sqlCondition.trim() || tags.length === 0) {
+    return 0;
+  }
+
+  try {
+    // Get all matching transactions (use view for querying)
+    const result = await executeQuery(`
+      SELECT transaction_id, tags
+      FROM transactions
+      WHERE ${sqlCondition}
+    `);
+
+    if (result.rows.length === 0) {
+      return 0;
+    }
+
+    // Update each transaction to add the tags
+    // Note: Must update sys_transactions (base table), not the transactions view
+    let updatedCount = 0;
+    for (const row of result.rows) {
+      const transactionId = row[0] as string;
+      const existingTags = (row[1] as string[]) || [];
+
+      // Merge tags (avoid duplicates)
+      const newTags = [...new Set([...existingTags, ...tags])];
+
+      // Only update if tags actually changed
+      if (newTags.length !== existingTags.length || !newTags.every((t) => existingTags.includes(t))) {
+        const tagList = newTags.map((t) => `'${t.replace(/'/g, "''")}'`).join(", ");
+        await executeQuery(
+          `UPDATE sys_transactions
+           SET tags = [${tagList}]
+           WHERE transaction_id = '${transactionId}'`,
+          { readonly: false }
+        );
+        updatedCount++;
+      }
+    }
+
+    return updatedCount;
+  } catch (e) {
+    console.error("Failed to apply tags to matching transactions:", e);
+    throw e;
+  }
+}
