@@ -15,6 +15,8 @@ export interface Toast {
   action?: {
     label: string;
     onClick: () => void;
+    /** Keyboard shortcut to trigger the action (e.g., "r" for pressing R key) */
+    shortcut?: string;
   };
 }
 
@@ -26,6 +28,8 @@ export interface ToastOptions {
   action?: {
     label: string;
     onClick: () => void;
+    /** Keyboard shortcut to trigger the action (e.g., "r" for pressing R key) */
+    shortcut?: string;
   };
 }
 

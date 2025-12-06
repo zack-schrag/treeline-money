@@ -9,6 +9,8 @@
   import SplitTransactionModal from "./SplitTransactionModal.svelte";
   import AddTransactionModal from "./AddTransactionModal.svelte";
   import EditTransactionModal from "./EditTransactionModal.svelte";
+  import SaveAsRuleModal from "./SaveAsRuleModal.svelte";
+  import RulesManagementModal from "./RulesManagementModal.svelte";
 
   // Initialize suggester
   const suggester = new FrequencyBasedSuggester();
@@ -86,6 +88,15 @@
   // Row context menu
   let contextMenuTxn = $state<Transaction | null>(null);
 
+  // Rules modals
+  let showRulesModal = $state(false);
+  let showSaveAsRuleModal = $state(false);
+  let rulePromptTransactions = $state<Transaction[]>([]);
+  let rulePromptTags = $state<string[]>([]);
+
+  // Threshold for prompting to save as rule (min transactions tagged at once)
+  const RULE_PROMPT_THRESHOLD = 3;
+
   function getRowMenuItems(txn: Transaction): RowMenuItem[] {
     const items: RowMenuItem[] = [
       { label: "Edit", action: () => handleContextEdit() },
@@ -107,11 +118,37 @@
   let searchInputEl: HTMLInputElement | null = null;
   let containerEl: HTMLDivElement | null = null;
 
-  // Suggestions for current transaction
+  // Suggestions for current/selected transactions
+  // When transactions are selected, aggregate suggestions from all selected
   let currentSuggestions = $derived.by(() => {
-    const txn = transactions[cursorIndex];
-    if (!txn) return [];
-    return suggestions.get(txn.transaction_id) || [];
+    const indices = selectedIndices.size > 0
+      ? Array.from(selectedIndices)
+      : [cursorIndex];
+
+    if (indices.length === 0) return [];
+
+    // Aggregate suggestions from all relevant transactions
+    const tagScores = new Map<string, { tag: string; score: number; count: number }>();
+
+    for (const idx of indices) {
+      const txn = transactions[idx];
+      if (!txn) continue;
+      const txnSuggestions = suggestions.get(txn.transaction_id) || [];
+      for (const s of txnSuggestions) {
+        const existing = tagScores.get(s.tag);
+        if (existing) {
+          existing.score += s.score;
+          existing.count += 1;
+        } else {
+          tagScores.set(s.tag, { tag: s.tag, score: s.score, count: 1 });
+        }
+      }
+    }
+
+    // Sort by count (more transactions suggest it = higher priority), then by score
+    return Array.from(tagScores.values())
+      .sort((a, b) => b.count - a.count || b.score - a.score)
+      .slice(0, 9); // Limit to 9 (keys 1-9)
   });
 
   // Group split transactions by parent_id for visual grouping
@@ -813,6 +850,7 @@
 
     // Record undo entries before making changes
     const undoEntries: UndoEntry[] = [];
+    const taggedTransactions: Transaction[] = [];
 
     // Optimistic update - update local state immediately
     for (const idx of indices) {
@@ -834,6 +872,7 @@
         ...txn,
         tags: newTags
       };
+      taggedTransactions.push(transactions[idx]);
     }
 
     // Push to undo stack
@@ -849,6 +888,49 @@
 
     // Persist in background (fire and forget)
     persistTagChanges(indices.map(i => transactions[i]));
+
+    // Prompt to save as rule if enough transactions were tagged
+    if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
+      promptSaveAsRule(taggedTransactions, [tag]);
+    }
+  }
+
+  // Prompt user to save tagging action as a rule (non-intrusive toast)
+  function promptSaveAsRule(txns: Transaction[], tags: string[]) {
+    rulePromptTransactions = txns;
+    rulePromptTags = tags;
+    // Show a subtle toast with action instead of interrupting with a modal
+    showToast({
+      type: "info",
+      title: `Tagged ${txns.length} transactions`,
+      message: "Create a rule to auto-tag similar transactions?",
+      duration: 8000,
+      action: {
+        label: "Save as Rule",
+        shortcut: "cmd+s",
+        onClick: () => {
+          showSaveAsRuleModal = true;
+        },
+      },
+    });
+  }
+
+  function closeSaveAsRuleModal() {
+    showSaveAsRuleModal = false;
+    rulePromptTransactions = [];
+    rulePromptTags = [];
+  }
+
+  function handleRuleSaved() {
+    showToast({ type: "success", title: "Rule saved!", message: "It will apply to future transactions." });
+  }
+
+  function openRulesModal() {
+    showRulesModal = true;
+  }
+
+  function closeRulesModal() {
+    showRulesModal = false;
   }
 
   async function persistTagChanges(txns: Transaction[], tagAdded: boolean = true) {
@@ -893,7 +975,7 @@
   // Undo the last tag operation
   async function performUndo() {
     if (undoStack.length === 0) {
-      showToast("Nothing to undo", "info");
+      showToast({ type: "info", title: "Nothing to undo" });
       return;
     }
 
@@ -919,7 +1001,7 @@
       .filter((t): t is Transaction => t !== undefined);
 
     await persistTagChanges(txnsToUpdate);
-    showToast(`Undid ${entries.length} tag change${entries.length > 1 ? 's' : ''}`, "success");
+    showToast({ type: "success", title: `Undid ${entries.length} tag change${entries.length > 1 ? 's' : ''}` });
   }
 
   function startCustomTagging() {
@@ -952,6 +1034,7 @@
 
     // Record undo entries before making changes
     const undoEntries: UndoEntry[] = [];
+    const taggedTransactions: Transaction[] = [];
 
     // Optimistic update
     for (const idx of indices) {
@@ -961,6 +1044,9 @@
       // Merge tags (dedupe)
       const currentTags = txn.tags || [];
       const mergedTags = [...new Set([...currentTags, ...tags])];
+
+      // Only count as tagged if new tags were actually added
+      const addedNewTags = mergedTags.length > currentTags.length;
 
       // Record for undo
       undoEntries.push({
@@ -973,6 +1059,10 @@
         ...txn,
         tags: mergedTags
       };
+
+      if (addedNewTags) {
+        taggedTransactions.push(transactions[idx]);
+      }
     }
 
     // Push to undo stack
@@ -986,6 +1076,11 @@
 
     // Persist in background
     persistTagChanges(indices.map(i => transactions[i]));
+
+    // Prompt to save as rule if enough transactions were tagged
+    if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
+      promptSaveAsRule(taggedTransactions, tags);
+    }
   }
 
   // Clear all tags (set to empty)
@@ -1031,6 +1126,35 @@
     await clearTagsFromCurrent();
   }
 
+  // Remove a single tag from current/selected transactions
+  async function removeSingleTag(tagToRemove: string) {
+    const indices = getSelectedIndicesArray();
+    if (indices.length === 0) return;
+
+    const undoEntries: UndoEntry[] = [];
+
+    for (const idx of indices) {
+      const txn = transactions[idx];
+      if (!txn || !txn.tags.includes(tagToRemove)) continue;
+
+      const newTags = txn.tags.filter(t => t !== tagToRemove);
+
+      undoEntries.push({
+        transactionId: txn.transaction_id,
+        previousTags: [...txn.tags],
+        newTags
+      });
+
+      transactions[idx] = { ...txn, tags: newTags };
+    }
+
+    if (undoEntries.length === 0) return;
+
+    pushUndo(undoEntries);
+    transactions = [...transactions];
+    persistTagChanges(indices.map(i => transactions[i]));
+  }
+
   // Transaction edit modal functions
   function openTagModal(txn: Transaction) {
     editingTransaction = txn;
@@ -1072,7 +1196,7 @@
     if (contextMenuTxn) {
       // Check if it's already a split child - can't split a split
       if (contextMenuTxn.parent_transaction_id) {
-        showToast("Cannot split a transaction that is already part of a split", "error");
+        showToast({ type: "error", title: "Cannot split", message: "This transaction is already part of a split" });
         closeContextMenu();
         return;
       }
@@ -1534,6 +1658,11 @@
         {/if}
       </div>
 
+      <!-- Rules button -->
+      <button class="rules-btn" onclick={openRulesModal} title="Manage auto-tag rules">
+        Rules
+      </button>
+
       <!-- Add button -->
       <button class="add-btn" onclick={openAddModal} title="Add transaction">+</button>
     </div>
@@ -1731,10 +1860,17 @@
             </div>
             {#if currentTxn.tags.length > 0}
               <div class="txn-detail-tags">
-                <span class="txn-detail-label">Tags</span>
+                <span class="txn-detail-label">Tags <span class="tag-hint">(click × to remove)</span></span>
                 <div class="current-tags">
                   {#each currentTxn.tags as tag}
-                    <span class="current-tag">{tag}</span>
+                    <span class="current-tag">
+                      {tag}
+                      <button
+                        class="tag-remove-btn"
+                        onclick={() => removeSingleTag(tag)}
+                        aria-label="Remove tag {tag}"
+                      >×</button>
+                    </span>
                   {/each}
                 </div>
               </div>
@@ -1790,10 +1926,10 @@
         <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
         <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
         <span class="shortcut"><kbd>t</kbd> custom tag</span>
+        <span class="shortcut"><kbd>c</kbd> clear tags</span>
         <span class="shortcut"><kbd>a</kbd> toggle all</span>
         <span class="shortcut"><kbd>space</kbd> select</span>
         <span class="shortcut"><kbd>n</kbd> next untagged</span>
-        <span class="shortcut"><kbd>⌘F</kbd> search</span>
         <span class="shortcut"><kbd>⌘Z</kbd> undo</span>
       </div>
     {/if}
@@ -1836,6 +1972,19 @@
   onsave={handleAddTransaction}
 />
 
+<SaveAsRuleModal
+  open={showSaveAsRuleModal}
+  transactions={rulePromptTransactions}
+  tags={rulePromptTags}
+  onclose={closeSaveAsRuleModal}
+  onsaved={handleRuleSaved}
+/>
+
+<RulesManagementModal
+  open={showRulesModal}
+  onclose={closeRulesModal}
+/>
+
 <style>
   .tagging-view {
     height: 100%;
@@ -1864,8 +2013,24 @@
     margin: 0;
   }
 
+  .rules-btn {
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .rules-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+
   .add-btn {
-    margin-left: auto;
     width: 28px;
     height: 28px;
     padding: 0;
@@ -2466,12 +2631,44 @@
   }
 
   .current-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 2px 6px;
     background: var(--accent-primary);
     color: var(--bg-primary);
     border-radius: 3px;
     font-size: 10px;
     font-weight: 600;
+  }
+
+  .tag-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    margin-left: 2px;
+    background: rgba(0, 0, 0, 0.2);
+    border: none;
+    border-radius: 50%;
+    color: inherit;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  .tag-remove-btn:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .tag-hint {
+    font-weight: 400;
+    opacity: 0.6;
   }
 
   .empty-state {

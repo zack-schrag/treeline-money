@@ -9,11 +9,69 @@
     unsubscribe = subscribeToToasts((newToasts) => {
       toasts = newToasts;
     });
+
+    // Listen for keyboard shortcuts
+    window.addEventListener("keydown", handleKeyDown);
   });
 
   onDestroy(() => {
     unsubscribe?.();
+    window.removeEventListener("keydown", handleKeyDown);
   });
+
+  function handleKeyDown(e: KeyboardEvent) {
+    // Ignore if typing in an input/textarea
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+      return;
+    }
+
+    // Check if any toast has a matching shortcut
+    for (const toast of toasts) {
+      if (toast.action?.shortcut) {
+        const shortcut = toast.action.shortcut.toLowerCase();
+        const key = e.key.toLowerCase();
+
+        // Check for modifier+key shortcuts (e.g., "cmd+s", "ctrl+s")
+        if (shortcut.includes("+")) {
+          const parts = shortcut.split("+");
+          const modifier = parts[0];
+          const shortcutKey = parts[1];
+
+          const modifierMatch =
+            (modifier === "cmd" && e.metaKey) ||
+            (modifier === "ctrl" && e.ctrlKey) ||
+            (modifier === "alt" && e.altKey) ||
+            (modifier === "shift" && e.shiftKey);
+
+          if (modifierMatch && key === shortcutKey) {
+            e.preventDefault();
+            toast.action.onClick();
+            dismissToast(toast.id);
+            return;
+          }
+        } else {
+          // Simple key shortcut (no modifier)
+          if (key === shortcut && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            toast.action.onClick();
+            dismissToast(toast.id);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  function formatShortcut(shortcut: string): string {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    return shortcut
+      .replace(/cmd\+/i, isMac ? "⌘" : "Ctrl+")
+      .replace(/ctrl\+/i, "Ctrl+")
+      .replace(/alt\+/i, isMac ? "⌥" : "Alt+")
+      .replace(/shift\+/i, "⇧")
+      .toUpperCase();
+  }
 
   function getIcon(type: Toast["type"]): string {
     switch (type) {
@@ -43,6 +101,9 @@
         {#if toast.action}
           <button class="toast-action-btn" onclick={toast.action.onClick}>
             {toast.action.label}
+            {#if toast.action.shortcut}
+              <kbd class="shortcut-hint">{formatShortcut(toast.action.shortcut)}</kbd>
+            {/if}
           </button>
         {/if}
         <button
@@ -167,6 +228,25 @@
   .toast-action-btn:hover {
     background: var(--accent-primary, #3b82f6);
     color: white;
+  }
+
+  .toast-action-btn:hover .shortcut-hint {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+    color: white;
+  }
+
+  .shortcut-hint {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    color: var(--text-muted);
   }
 
   .toast-dismiss {
