@@ -1057,19 +1057,12 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected + incomingNet)}</div>
               <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
-              {#if outgoing.length > 0}
-                <button
-                  class="transfer-btn has-outgoing"
-                  onclick={(e) => openTransferModal(actual, e)}
-                  title="Edit transfers to {formatMonth(getNextMonth(selectedMonth))}"
-                >→</button>
-              {:else if actual.variance !== 0}
-                <button
-                  class="transfer-btn"
-                  onclick={(e) => openTransferModal(actual, e)}
-                  title="Transfer to next month"
-                >→</button>
-              {/if}
+              <button
+                class="transfer-btn"
+                class:has-outgoing={outgoing.length > 0}
+                onclick={(e) => openTransferModal(actual, e)}
+                title={outgoing.length > 0 ? `Edit transfers to ${formatMonth(getNextMonth(selectedMonth))}` : "Transfer to next month"}
+              >→</button>
               <RowMenu
                 items={[
                   { label: "View", action: () => { loadTransactionsForCategory(actual); closeMenu(); } },
