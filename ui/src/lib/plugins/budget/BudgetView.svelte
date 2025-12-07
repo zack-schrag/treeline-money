@@ -237,19 +237,6 @@
     resetSourceMonth = null;
   }
 
-  async function resetToDefaults(): Promise<void> {
-    if (!selectedMonth) return;
-    const defaults = getDefaultCategories();
-    await budgetDb.saveAllCategories(selectedMonth, defaults);
-    // Also clear any rollovers from this month
-    await budgetDb.deleteMonthRollovers(selectedMonth);
-    categories = defaults;
-    outgoingTransfers = [];
-    closeResetModal();
-    await calculateActuals();
-    await loadAllTrends();
-  }
-
   async function resetFromMonth(): Promise<void> {
     if (!selectedMonth || !resetSourceMonth) return;
     try {
@@ -1362,17 +1349,17 @@
   <!-- Reset Budget Modal -->
   <Modal
     open={showResetModal}
-    title="Reset Budget for {formatMonth(selectedMonth)}"
+    title="Reset Budget"
     onclose={closeResetModal}
     width="400px"
   >
     <div class="reset-modal-content">
-      <p class="reset-description">Choose how to reset this month's budget:</p>
+      <div class="reset-month-label">{formatMonth(selectedMonth)}</div>
 
       {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
-        <div class="reset-option">
-          <label class="reset-option-label">Copy from another month:</label>
-          <div class="reset-option-row">
+        <div class="reset-section">
+          <div class="reset-section-title">Copy from another month</div>
+          <div class="reset-copy-row">
             <select class="reset-month-select" bind:value={resetSourceMonth}>
               {#each monthsWithData.filter(m => m !== selectedMonth) as month}
                 <option value={month}>{formatMonth(month)}</option>
@@ -1381,22 +1368,12 @@
             <button class="btn primary" onclick={resetFromMonth} disabled={!resetSourceMonth}>Copy</button>
           </div>
         </div>
-
-        <div class="reset-divider">or</div>
       {/if}
 
-      <div class="reset-option">
-        <button class="btn secondary reset-full-btn" onclick={resetToDefaults}>
-          Reset to default categories
-        </button>
-      </div>
-
-      <div class="reset-divider">or</div>
-
-      <div class="reset-option">
-        <button class="btn danger reset-full-btn" onclick={deleteBudget}>
-          Delete budget for this month
-        </button>
+      <div class="reset-section reset-delete-section">
+        <div class="reset-section-title">Delete this budget</div>
+        <p class="reset-delete-hint">Remove all categories and transfers for this month.</p>
+        <button class="btn danger" onclick={deleteBudget}>Delete Budget</button>
       </div>
     </div>
 
@@ -2317,27 +2294,36 @@
 
   /* Reset modal styles */
   .reset-modal-content {
+    padding: var(--spacing-lg);
+  }
+
+  .reset-month-label {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: center;
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .reset-section {
+    margin-bottom: var(--spacing-lg);
     padding: var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 6px;
   }
 
-  .reset-description {
-    margin: 0 0 var(--spacing-lg) 0;
-    color: var(--text-secondary);
-    font-size: 13px;
-  }
-
-  .reset-option {
-    margin-bottom: var(--spacing-md);
-  }
-
-  .reset-option-label {
-    display: block;
+  .reset-section-title {
     font-size: 12px;
+    font-weight: 600;
     color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     margin-bottom: var(--spacing-sm);
   }
 
-  .reset-option-row {
+  .reset-copy-row {
     display: flex;
     gap: var(--spacing-sm);
     align-items: center;
@@ -2371,15 +2357,15 @@
     padding: 8px;
   }
 
-  .reset-divider {
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 12px;
-    margin: var(--spacing-md) 0;
+  .reset-delete-section {
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.2);
   }
 
-  .reset-full-btn {
-    width: 100%;
+  .reset-delete-hint {
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 
   .btn.danger {
