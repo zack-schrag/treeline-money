@@ -1349,31 +1349,33 @@
   <!-- Reset Budget Modal -->
   <Modal
     open={showResetModal}
-    title="Reset Budget"
+    title="Reset Budget — {formatMonth(selectedMonth)}"
     onclose={closeResetModal}
     width="400px"
   >
     <div class="reset-modal-content">
-      <div class="reset-month-label">{formatMonth(selectedMonth)}</div>
-
       {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
-        <div class="reset-section">
-          <div class="reset-section-title">Copy from another month</div>
-          <div class="reset-copy-row">
-            <select class="reset-month-select" bind:value={resetSourceMonth}>
+        <div class="reset-form-group">
+          <label class="reset-label">Copy from another month</label>
+          <div class="reset-row">
+            <select bind:value={resetSourceMonth}>
               {#each monthsWithData.filter(m => m !== selectedMonth) as month}
                 <option value={month}>{formatMonth(month)}</option>
               {/each}
             </select>
-            <button class="btn primary" onclick={resetFromMonth} disabled={!resetSourceMonth}>Copy</button>
+            <button class="reset-copy-btn" onclick={resetFromMonth} disabled={!resetSourceMonth}>Copy</button>
           </div>
+        </div>
+
+        <div class="reset-divider">
+          <span>or</span>
         </div>
       {/if}
 
-      <div class="reset-section reset-delete-section">
-        <div class="reset-section-title">Delete this budget</div>
-        <p class="reset-delete-hint">Remove all categories and transfers for this month.</p>
-        <button class="btn danger" onclick={deleteBudget}>Delete Budget</button>
+      <div class="reset-form-group">
+        <label class="reset-label">Delete budget</label>
+        <p class="reset-hint">Remove all categories and transfers for this month.</p>
+        <button class="reset-delete-btn" onclick={deleteBudget}>Delete Budget</button>
       </div>
     </div>
 
@@ -2297,39 +2299,25 @@
     padding: var(--spacing-lg);
   }
 
-  .reset-month-label {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    text-align: center;
-    padding-bottom: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
+  .reset-form-group {
+    margin-bottom: var(--spacing-md);
   }
 
-  .reset-section {
-    margin-bottom: var(--spacing-lg);
-    padding: var(--spacing-md);
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-  }
-
-  .reset-section-title {
+  .reset-label {
+    display: block;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     margin-bottom: var(--spacing-sm);
   }
 
-  .reset-copy-row {
+  .reset-row {
     display: flex;
     gap: var(--spacing-sm);
     align-items: center;
   }
 
-  .reset-month-select {
+  .reset-modal-content select {
     flex: 1;
     padding: 8px;
     background: var(--bg-primary);
@@ -2346,36 +2334,74 @@
     cursor: pointer;
   }
 
-  .reset-month-select:focus {
+  .reset-modal-content select:focus {
     outline: none;
     border-color: var(--accent-primary);
   }
 
-  .reset-month-select option {
+  .reset-modal-content select option {
     background: var(--bg-secondary);
     color: var(--text-primary);
     padding: 8px;
   }
 
-  .reset-delete-section {
-    background: rgba(239, 68, 68, 0.05);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+  .reset-copy-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: var(--accent-primary);
+    color: white;
+    transition: opacity 0.15s;
   }
 
-  .reset-delete-hint {
+  .reset-copy-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .reset-copy-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .reset-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin: var(--spacing-lg) 0;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .reset-divider::before,
+  .reset-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-primary);
+  }
+
+  .reset-hint {
     margin: 0 0 var(--spacing-sm) 0;
     font-size: 12px;
     color: var(--text-muted);
   }
 
-  .btn.danger {
-    background: transparent;
-    border: 1px solid var(--accent-danger);
-    color: var(--accent-danger);
-  }
-
-  .btn.danger:hover {
+  .reset-delete-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
     background: var(--accent-danger);
     color: white;
+    transition: opacity 0.15s;
+  }
+
+  .reset-delete-btn:hover {
+    opacity: 0.9;
   }
 </style>
