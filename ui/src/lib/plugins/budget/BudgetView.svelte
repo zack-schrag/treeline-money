@@ -15,6 +15,8 @@
   let availableMonths = $state<string[]>([]);
   let selectedMonth = $state<string>("");
   let showCopyFromPrevious = $state(false); // Show prompt to copy from previous month
+  let copySourceMonth = $state<string | null>(null); // Month to copy from (selected by user)
+  let monthsWithData = $state<string[]>([]); // All months that have budget data
 
   // Current month helper
   function getCurrentMonth(): string {
@@ -158,19 +160,51 @@
     await budgetDb.saveAllCategories(selectedMonth, cats);
   }
 
-  async function copyFromPreviousMonth(): Promise<void> {
-    if (!selectedMonth) return;
-    const prevMonth = budgetDb.getPreviousMonth(selectedMonth);
+  async function copyFromSourceMonth(): Promise<void> {
+    if (!selectedMonth || !copySourceMonth) return;
     try {
-      const copiedCategories = await budgetDb.copyFromMonth(prevMonth, selectedMonth);
+      const copiedCategories = await budgetDb.copyFromMonth(copySourceMonth, selectedMonth);
       if (copiedCategories.length > 0) {
         categories = copiedCategories;
         showCopyFromPrevious = false;
+        copySourceMonth = null;
         await calculateActuals();
       }
     } catch (e) {
-      console.error("Failed to copy from previous month:", e);
+      console.error("Failed to copy from source month:", e);
     }
+  }
+
+  /**
+   * Find the nearest month that has budget data
+   * Prefers more recent months, then falls back to older months
+   */
+  function findNearestMonth(targetMonth: string, availableMonths: string[]): string | null {
+    if (availableMonths.length === 0) return null;
+
+    // Sort by distance from target month, preferring more recent
+    const targetDate = new Date(targetMonth + "-01");
+
+    let nearest: string | null = null;
+    let nearestDistance = Infinity;
+
+    for (const month of availableMonths) {
+      if (month === targetMonth) continue; // Skip the target month itself
+
+      const monthDate = new Date(month + "-01");
+      const distance = Math.abs(monthDate.getTime() - targetDate.getTime());
+      const isMoreRecent = monthDate > targetDate;
+
+      // Prefer more recent months by giving them a slight advantage
+      const adjustedDistance = isMoreRecent ? distance * 0.9 : distance;
+
+      if (adjustedDistance < nearestDistance) {
+        nearestDistance = adjustedDistance;
+        nearest = month;
+      }
+    }
+
+    return nearest;
   }
 
   async function startFresh(): Promise<void> {
@@ -180,6 +214,7 @@
     await budgetDb.saveAllCategories(selectedMonth, defaults);
     categories = defaults;
     showCopyFromPrevious = false;
+    copySourceMonth = null;
     await calculateActuals();
   }
 
@@ -201,22 +236,29 @@
       const monthData = await budgetDb.loadMonthData(selectedMonth);
 
       if (monthData.categories.length === 0) {
-        // Check if there's any budget data at all
-        const hasAnyData = await budgetDb.hasBudgetData();
-        if (!hasAnyData) {
+        // Check what months have budget data
+        monthsWithData = await budgetDb.getMonthsWithData();
+        const otherMonths = monthsWithData.filter(m => m !== selectedMonth);
+
+        if (otherMonths.length === 0) {
           // First time setup - create defaults for this month
           const defaults = getDefaultCategories();
           await budgetDb.saveAllCategories(selectedMonth, defaults);
           categories = defaults;
+          showCopyFromPrevious = false;
+          copySourceMonth = null;
         } else {
           // No categories for this month but other months have data
-          // Prompt user to copy from previous month
+          // Default to nearest month, user can change via dropdown
           categories = [];
+          copySourceMonth = findNearestMonth(selectedMonth, otherMonths);
           showCopyFromPrevious = true;
         }
       } else {
         categories = monthData.categories;
         showCopyFromPrevious = false;
+        copySourceMonth = null;
+        monthsWithData = [];
       }
 
       outgoingTransfers = monthData.outgoingRollovers;
@@ -431,8 +473,15 @@
     // Use existing ID if editing, otherwise generate new UUID
     const categoryId = editingCategory?.id ?? crypto.randomUUID();
     const newCategory: BudgetCategory = { id: categoryId, type: editorForm.type, category: editorForm.category.trim(), expected: editorForm.expected, tags, require_all: editorForm.require_all, amount_sign: editorForm.amount_sign };
-    let updatedCategories = categories.filter(c => editingCategory ? c.id !== editingCategory.id : true);
-    updatedCategories.push(newCategory);
+
+    let updatedCategories: BudgetCategory[];
+    if (editingCategory) {
+      // Replace in place to preserve position
+      updatedCategories = categories.map(c => c.id === editingCategory.id ? newCategory : c);
+    } else {
+      // New category - append to end
+      updatedCategories = [...categories, newCategory];
+    }
 
     // Save to database for this month
     await budgetDb.saveAllCategories(selectedMonth, updatedCategories);
@@ -835,10 +884,23 @@
         <div class="copy-from-previous">
           <div class="copy-prompt">
             <p>No budget configured for <strong>{formatMonth(selectedMonth)}</strong></p>
-            <p class="copy-hint">Copy categories from the previous month?</p>
+            {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
+              <p class="copy-hint">Copy categories from an existing month?</p>
+            {:else}
+              <p class="copy-hint">Start with default categories?</p>
+            {/if}
           </div>
           <div class="copy-actions">
-            <button class="btn primary" onclick={copyFromPreviousMonth}>Copy from {formatMonth(budgetDb.getPreviousMonth(selectedMonth))}</button>
+            {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
+              <div class="copy-select-row">
+                <select class="copy-month-select" bind:value={copySourceMonth}>
+                  {#each monthsWithData.filter(m => m !== selectedMonth) as month}
+                    <option value={month}>{formatMonth(month)}</option>
+                  {/each}
+                </select>
+                <button class="btn primary" onclick={copyFromSourceMonth} disabled={!copySourceMonth}>Copy</button>
+              </div>
+            {/if}
             <button class="btn secondary" onclick={startFresh}>Start fresh</button>
           </div>
         </div>
@@ -1370,8 +1432,42 @@
 
   .copy-actions {
     display: flex;
+    flex-direction: column;
     gap: var(--spacing-md);
-    justify-content: center;
+    align-items: center;
+  }
+
+  .copy-select-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+  }
+
+  .copy-month-select {
+    padding: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+
+  .copy-month-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .copy-month-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px;
   }
 
   .copy-actions .btn {
