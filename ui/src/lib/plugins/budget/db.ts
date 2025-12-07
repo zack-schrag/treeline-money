@@ -88,15 +88,31 @@ export async function saveCategory(month: string, category: BudgetCategory, sort
 
 /**
  * Save all categories for a month (replaces all existing for that month)
+ * Uses a single batched INSERT for performance
  */
 export async function saveAllCategories(month: string, categories: BudgetCategory[]): Promise<void> {
-  // Delete all existing categories for this month
-  await executeQuery(`DELETE FROM sys_plugin_budget_categories WHERE month = '${month}'`, { readonly: false });
-
-  // Insert all categories with sort order
-  for (let i = 0; i < categories.length; i++) {
-    await saveCategory(month, categories[i], i);
+  if (categories.length === 0) {
+    // Just delete if no categories
+    await executeQuery(`DELETE FROM sys_plugin_budget_categories WHERE month = '${month}'`, { readonly: false });
+    return;
   }
+
+  // Build a single INSERT statement with all categories
+  const values = categories.map((cat, i) => {
+    const tagsArray = cat.tags.map((t) => `'${t.replace(/'/g, "''")}'`).join(", ");
+    const amountSignValue = cat.amount_sign ? `'${cat.amount_sign}'` : "NULL";
+    return `('${cat.id}', '${month}', '${cat.type}', '${cat.category.replace(/'/g, "''")}', ${cat.expected}, [${tagsArray}], ${cat.require_all}, ${amountSignValue}, ${i}, now())`;
+  }).join(",\n    ");
+
+  // Delete and insert in one transaction-like operation
+  await executeQuery(`DELETE FROM sys_plugin_budget_categories WHERE month = '${month}'`, { readonly: false });
+  await executeQuery(
+    `INSERT INTO sys_plugin_budget_categories
+      (category_id, month, type, name, expected, tags, require_all, amount_sign, sort_order, updated_at)
+    VALUES
+    ${values}`,
+    { readonly: false }
+  );
 }
 
 /**
@@ -230,6 +246,7 @@ export async function deleteMonthRollovers(sourceMonth: string): Promise<void> {
 
 /**
  * Save multiple rollovers for a month (replaces existing)
+ * Uses a single batched INSERT for performance
  */
 export async function saveMonthRollovers(
   sourceMonth: string,
@@ -239,10 +256,20 @@ export async function saveMonthRollovers(
   // Delete existing rollovers from this source month
   await deleteMonthRollovers(sourceMonth);
 
-  // Insert new rollovers
-  for (const rollover of rollovers) {
-    await saveRollover(sourceMonth, toMonth, rollover);
-  }
+  if (rollovers.length === 0) return;
+
+  // Build a single INSERT statement with all rollovers
+  const values = rollovers.map((r) =>
+    `('${r.id}', '${sourceMonth}', '${r.fromCategory.replace(/'/g, "''")}', '${r.toCategory.replace(/'/g, "''")}', '${toMonth}', ${r.amount})`
+  ).join(",\n    ");
+
+  await executeQuery(
+    `INSERT INTO sys_plugin_budget_rollovers
+      (rollover_id, source_month, from_category, to_category, to_month, amount)
+    VALUES
+    ${values}`,
+    { readonly: false }
+  );
 }
 
 // ============================================================================
