@@ -69,6 +69,10 @@
   let incomingTransfers = $state<Transfer[]>([]);
   let outgoingTransfers = $state<Transfer[]>([]);
 
+  // Reset modal state
+  let showResetModal = $state(false);
+  let resetSourceMonth = $state<string | null>(null); // Month to copy from when resetting
+
   // Transfer modal state
   let showTransferModal = $state(false);
   let transferSourceCategory = $state<string>(""); // The category we're transferring FROM
@@ -216,6 +220,63 @@
     showCopyFromPrevious = false;
     copySourceMonth = null;
     await calculateActuals();
+  }
+
+  async function openResetModal(): Promise<void> {
+    // Load months with data for the dropdown
+    monthsWithData = await budgetDb.getMonthsWithData();
+    const otherMonths = monthsWithData.filter(m => m !== selectedMonth);
+    // Default to previous month if it has data, otherwise nearest
+    const prevMonth = budgetDb.getPreviousMonth(selectedMonth);
+    resetSourceMonth = otherMonths.includes(prevMonth) ? prevMonth : findNearestMonth(selectedMonth, otherMonths);
+    showResetModal = true;
+  }
+
+  function closeResetModal(): void {
+    showResetModal = false;
+    resetSourceMonth = null;
+  }
+
+  async function resetToDefaults(): Promise<void> {
+    if (!selectedMonth) return;
+    const defaults = getDefaultCategories();
+    await budgetDb.saveAllCategories(selectedMonth, defaults);
+    // Also clear any rollovers from this month
+    await budgetDb.deleteMonthRollovers(selectedMonth);
+    categories = defaults;
+    outgoingTransfers = [];
+    closeResetModal();
+    await calculateActuals();
+    await loadAllTrends();
+  }
+
+  async function resetFromMonth(): Promise<void> {
+    if (!selectedMonth || !resetSourceMonth) return;
+    try {
+      const copiedCategories = await budgetDb.copyFromMonth(resetSourceMonth, selectedMonth);
+      // Also clear any existing rollovers from this month
+      await budgetDb.deleteMonthRollovers(selectedMonth);
+      categories = copiedCategories;
+      outgoingTransfers = [];
+      closeResetModal();
+      await calculateActuals();
+      await loadAllTrends();
+    } catch (e) {
+      console.error("Failed to reset from month:", e);
+    }
+  }
+
+  async function deleteBudget(): Promise<void> {
+    if (!selectedMonth) return;
+    // Delete all categories for this month
+    await budgetDb.saveAllCategories(selectedMonth, []);
+    // Delete any rollovers from this month
+    await budgetDb.deleteMonthRollovers(selectedMonth);
+    categories = [];
+    outgoingTransfers = [];
+    closeResetModal();
+    // This will trigger the "no budget" state
+    await loadCategories();
   }
 
   async function loadAllAccounts() {
@@ -867,6 +928,7 @@
         </span>
         <button class="nav-btn" onclick={() => cycleMonth(-1)} disabled={availableMonths.indexOf(selectedMonth) === 0}>→</button>
         <button class="this-month-btn" onclick={goToCurrentMonth} title="Jump to current month" disabled={isCurrentMonth}>This Month</button>
+        <button class="reset-btn" onclick={openResetModal} title="Reset or delete this month's budget" disabled={showCopyFromPrevious}>Reset</button>
       </div>
     </div>
   </div>
@@ -1296,6 +1358,52 @@
       <button class="btn primary" onclick={saveTransfers}>Save</button>
     {/snippet}
   </Modal>
+
+  <!-- Reset Budget Modal -->
+  <Modal
+    open={showResetModal}
+    title="Reset Budget for {formatMonth(selectedMonth)}"
+    onclose={closeResetModal}
+    width="400px"
+  >
+    <div class="reset-modal-content">
+      <p class="reset-description">Choose how to reset this month's budget:</p>
+
+      {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
+        <div class="reset-option">
+          <label class="reset-option-label">Copy from another month:</label>
+          <div class="reset-option-row">
+            <select class="reset-month-select" bind:value={resetSourceMonth}>
+              {#each monthsWithData.filter(m => m !== selectedMonth) as month}
+                <option value={month}>{formatMonth(month)}</option>
+              {/each}
+            </select>
+            <button class="btn primary" onclick={resetFromMonth} disabled={!resetSourceMonth}>Copy</button>
+          </div>
+        </div>
+
+        <div class="reset-divider">or</div>
+      {/if}
+
+      <div class="reset-option">
+        <button class="btn secondary reset-full-btn" onclick={resetToDefaults}>
+          Reset to default categories
+        </button>
+      </div>
+
+      <div class="reset-divider">or</div>
+
+      <div class="reset-option">
+        <button class="btn danger reset-full-btn" onclick={deleteBudget}>
+          Delete budget for this month
+        </button>
+      </div>
+    </div>
+
+    {#snippet actions()}
+      <button class="btn secondary" onclick={closeResetModal}>Cancel</button>
+    {/snippet}
+  </Modal>
 </div>
 
 <style>
@@ -1366,6 +1474,30 @@
   }
 
   .this-month-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+
+  .reset-btn {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-muted);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    margin-left: var(--spacing-sm);
+    transition: all 0.15s ease;
+  }
+
+  .reset-btn:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--accent-danger);
+  }
+
+  .reset-btn:disabled {
     opacity: 0.3;
     cursor: default;
   }
@@ -2181,5 +2313,83 @@
     margin-top: 4px;
     border-top: 1px solid var(--border-primary);
     color: var(--text-secondary);
+  }
+
+  /* Reset modal styles */
+  .reset-modal-content {
+    padding: var(--spacing-md);
+  }
+
+  .reset-description {
+    margin: 0 0 var(--spacing-lg) 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .reset-option {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .reset-option-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .reset-option-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+  }
+
+  .reset-month-select {
+    flex: 1;
+    padding: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+
+  .reset-month-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .reset-month-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px;
+  }
+
+  .reset-divider {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: var(--spacing-md) 0;
+  }
+
+  .reset-full-btn {
+    width: 100%;
+  }
+
+  .btn.danger {
+    background: transparent;
+    border: 1px solid var(--accent-danger);
+    color: var(--accent-danger);
+  }
+
+  .btn.danger:hover {
+    background: var(--accent-danger);
+    color: white;
   }
 </style>
