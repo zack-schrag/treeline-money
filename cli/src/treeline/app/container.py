@@ -4,12 +4,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 from treeline.abstractions import (
+    BackupStorageProvider,
     DataAggregationProvider,
     IntegrationProvider,
     Repository,
 )
 from treeline.app.account_service import AccountService
 from treeline.app.backfill_service import BackfillService
+from treeline.app.backup_service import BackupService
 from treeline.app.db_service import DbService
 from treeline.app.import_service import ImportService
 from treeline.app.integration_service import IntegrationService
@@ -20,7 +22,10 @@ from treeline.app.tagging_service import TaggingService
 from treeline.infra.csv import CSVProvider
 from treeline.infra.demo import DemoDataProvider
 from treeline.infra.duckdb import DuckDBRepository
+from treeline.infra.local_backup import LocalBackupStorage
 from treeline.infra.simplefin import SimpleFINProvider
+
+DEFAULT_MAX_BACKUPS = 7
 
 
 class Container:
@@ -35,7 +40,13 @@ class Container:
         """
         self.treeline_dir = treeline_dir
         self.db_file_path = str(Path(treeline_dir) / db_filename)
+        self.db_filename = db_filename
         self._instances: Dict[str, Any] = {}
+
+    @property
+    def is_demo_mode(self) -> bool:
+        """Check if this container is configured for demo mode."""
+        return self.db_filename == "demo.duckdb"
 
     def repository(self) -> Repository:
         """Get the repository instance."""
@@ -131,3 +142,31 @@ class Container:
             plugins_dir = Path(self.treeline_dir) / "plugins"
             self._instances["plugin_service"] = PluginService(plugins_dir)
         return self._instances["plugin_service"]
+
+    def backup_storage_provider(self) -> BackupStorageProvider:
+        """Get the backup storage provider instance.
+
+        Uses factory pattern: demo mode gets a separate backup directory.
+        """
+        if "backup_storage_provider" not in self._instances:
+            # Demo mode uses separate backup directory
+            if self.is_demo_mode:
+                backup_dir = Path(self.treeline_dir) / "backups-demo"
+            else:
+                backup_dir = Path(self.treeline_dir) / "backups"
+
+            self._instances["backup_storage_provider"] = LocalBackupStorage(backup_dir)
+        return self._instances["backup_storage_provider"]
+
+    def backup_service(self, max_backups: int = DEFAULT_MAX_BACKUPS) -> BackupService:
+        """Get the backup service instance.
+
+        Args:
+            max_backups: Maximum number of backups to retain (default: 7)
+        """
+        # Don't cache - max_backups can vary per call
+        return BackupService(
+            storage_provider=self.backup_storage_provider(),
+            db_path=Path(self.db_file_path),
+            max_backups=max_backups,
+        )

@@ -371,3 +371,21 @@ class ChartConfig(BaseModel):
     ylabel: str | None = None
     color: str | None = None
     description: str | None = None
+
+
+# Backup Models
+
+
+class BackupMetadata(BaseModel):
+    """Metadata for a backup file."""
+
+    model_config = ConfigDict(frozen=True, str_strip_whitespace=True, extra="forbid")
+
+    name: str  # e.g., "treeline-2025-01-15T10-30-00.duckdb"
+    created_at: datetime  # When backup was created (timezone-aware UTC)
+    size_bytes: int  # File size in bytes
+
+    @field_validator("created_at")
+    @classmethod
+    def _require_timezone(cls, value: datetime) -> datetime:
+        return _ensure_tzinfo(value)
