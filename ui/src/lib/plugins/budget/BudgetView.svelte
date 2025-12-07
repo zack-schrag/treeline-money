@@ -1701,12 +1701,13 @@
   }
 
   .row-details-placeholder {
-    width: 28px;
+    width: 24px;
     flex-shrink: 0;
   }
 
   .transfer-btn-placeholder {
-    width: 28px;
+    width: 24px;
+    margin-right: 4px;
     flex-shrink: 0;
   }
 
