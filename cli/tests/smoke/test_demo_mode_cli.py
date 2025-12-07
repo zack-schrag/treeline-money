@@ -449,3 +449,124 @@ class TestSetupCommand:
             result = run_cli(["setup", "simplefin", "--token", "fake-token"], tmpdir)
             assert result.returncode != 0
             assert "demo mode" in result.stdout.lower()
+
+
+class TestBackupCommand:
+    """Tests for tl backup command."""
+
+    def test_backup_create(self):
+        """Test that 'tl backup create' creates a backup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            result = run_cli(["backup", "create"], tmpdir)
+            assert result.returncode == 0
+            assert "Backup created" in result.stdout
+
+    def test_backup_list(self):
+        """Test that 'tl backup list' shows created backups."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            run_cli(["backup", "create"], tmpdir)
+            result = run_cli(["backup", "list"], tmpdir)
+            assert result.returncode == 0
+            assert "treeline-" in result.stdout
+
+    def test_backup_list_json(self):
+        """Test that 'tl backup list --json' returns valid JSON."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            run_cli(["backup", "create"], tmpdir)
+            result = run_cli(["backup", "list", "--json"], tmpdir)
+            assert result.returncode == 0
+            data = json.loads(result.stdout)
+            assert len(data) > 0
+            assert "name" in data[0]
+            assert "size_bytes" in data[0]
+
+    def test_backup_restore(self):
+        """Test that 'tl backup restore' restores from backup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+
+            # Create backup
+            result = run_cli(["backup", "create", "--json"], tmpdir)
+            data = json.loads(result.stdout)
+            backup_name = data["name"]
+
+            # Restore from backup
+            result = run_cli(["backup", "restore", backup_name, "--force"], tmpdir)
+            assert result.returncode == 0
+            assert "restored" in result.stdout.lower()
+
+    def test_backup_clear(self):
+        """Test that 'tl backup clear' deletes all backups."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+
+            # Create some backups
+            run_cli(["backup", "create"], tmpdir)
+            run_cli(["backup", "create"], tmpdir)
+
+            # Clear all backups
+            result = run_cli(["backup", "clear", "--force"], tmpdir)
+            assert result.returncode == 0
+            assert "Deleted" in result.stdout
+
+            # Verify empty
+            result = run_cli(["backup", "list"], tmpdir)
+            assert "No backups found" in result.stdout
+
+    def test_backup_retention(self):
+        """Test that backup respects --max-backups retention."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+
+            # Create 3 backups with max 2
+            run_cli(["backup", "create", "--max-backups", "2"], tmpdir)
+            run_cli(["backup", "create", "--max-backups", "2"], tmpdir)
+            run_cli(["backup", "create", "--max-backups", "2"], tmpdir)
+
+            # Should only have 2 backups
+            result = run_cli(["backup", "list", "--json"], tmpdir)
+            data = json.loads(result.stdout)
+            assert len(data) == 2
+
+
+class TestCompactCommand:
+    """Tests for tl compact command."""
+
+    def test_compact_works(self):
+        """Test that 'tl compact' compacts the database."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            result = run_cli(["compact"], tmpdir)
+            assert result.returncode == 0
+            assert "compacted" in result.stdout.lower()
+            assert "Before:" in result.stdout
+            assert "After:" in result.stdout
+
+    def test_compact_creates_backup_by_default(self):
+        """Test that compact creates a safety backup by default."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            result = run_cli(["compact"], tmpdir)
+            assert result.returncode == 0
+            assert "Safety backup:" in result.stdout
+
+    def test_compact_skip_backup(self):
+        """Test that --skip-backup skips safety backup."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            result = run_cli(["compact", "--skip-backup"], tmpdir)
+            assert result.returncode == 0
+            assert "Safety backup:" not in result.stdout
+
+    def test_compact_json_output(self):
+        """Test that compact --json returns valid JSON."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run_cli(["demo", "on"], tmpdir)
+            result = run_cli(["compact", "--json"], tmpdir)
+            assert result.returncode == 0
+            data = json.loads(result.stdout)
+            assert "original_size" in data
+            assert "compacted_size" in data

@@ -16,9 +16,8 @@ This is a monorepo with two main components:
 - Use `cargo clippy` for linting
 
 # CLI Implementation Guidelines
-- ALWAYS use Test Driven Development unless explicitly told otherwise
 - ALWAYS follow Hexagonal architecture principles
-- ALWAYS run unit tests before doing a git commit, unless explicitly asked not to
+- Run tests before doing a git commit, unless explicitly asked not to
 
 # CLI Architecture Rules
 - The CLI (`cli/src/treeline/cli.py`) MUST be a thin presentation layer
@@ -29,10 +28,22 @@ This is a monorepo with two main components:
 
 # Testing Instructions
 
-## Python Unit Tests
-Run from the cli/ directory:
+## Testing Philosophy
+- **Prefer smoke tests over unit tests** for CLI commands
+- Smoke tests run actual CLI commands via subprocess in demo mode - see `tests/smoke/`
+- Unit tests are good for edge cases that are hard to hit via CLI (e.g., malformed CSV formats, unusual date parsing)
+- Simple smoke tests are preferred over complex unit tests that require maintenance
+
+## Running Tests
 ```bash
-cd cli && uv run pytest tests/unit
+# Smoke tests (preferred for CLI features)
+cd cli && uv run pytest tests/smoke -v
+
+# Unit tests (for edge cases and complex parsing logic)
+cd cli && uv run pytest tests/unit -v
+
+# All tests
+cd cli && uv run pytest tests/ -v
 ```
 
 # Running the CLI

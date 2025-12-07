@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from treeline.app.container import Container
-from treeline.commands import backfill, backup, demo, import_cmd, new, plugin, query, remove, setup, status, sync, tag
+from treeline.commands import backfill, backup, compact, demo, import_cmd, new, plugin, query, remove, setup, status, sync, tag
 from treeline.config import is_demo_mode
 from treeline.theme import get_theme
 from treeline.utils import get_treeline_dir
@@ -102,6 +102,7 @@ tag.register(app, get_container, ensure_treeline_initialized)
 new.register(app, get_container, ensure_treeline_initialized)
 backfill.register(app, get_container, ensure_treeline_initialized)
 backup.register(app, get_container, ensure_treeline_initialized)
+compact.register(app, get_container, ensure_treeline_initialized)
 plugin.register(app, get_container)
 demo.register(app, get_container, ensure_treeline_initialized)
 remove.register(app, get_container, ensure_treeline_initialized)

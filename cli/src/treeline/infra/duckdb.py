@@ -1,6 +1,7 @@
 """DuckDB infrastructure implementation."""
 
 import json
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -965,3 +966,58 @@ class DuckDBRepository(Repository):
             return Ok(transaction)
         except Exception as e:
             return Fail(f"Failed to update transaction tags: {str(e)}")
+
+    async def compact(self) -> Result[Dict[str, Any]]:
+        """Compact the database to reclaim space from deleted rows.
+
+        Uses DuckDB's EXPORT/IMPORT DATABASE to create a fresh, optimized copy.
+        This approach handles foreign key constraints properly by generating
+        SQL scripts that respect table dependencies.
+        """
+        import tempfile
+        import shutil
+
+        try:
+            # Get original file size
+            if not self.db_path.exists():
+                return Fail("Database file not found")
+
+            original_size = self.db_path.stat().st_size
+
+            # Create temp directory for export and temp file for new database
+            with tempfile.TemporaryDirectory() as export_dir:
+                fd, temp_db_str = tempfile.mkstemp(suffix=".duckdb")
+                os.close(fd)
+                temp_db_path = Path(temp_db_str)
+                temp_db_path.unlink()  # Remove so DuckDB creates fresh
+
+                try:
+                    # Export original database to parquet files (more efficient)
+                    conn = duckdb.connect(str(self.db_path), read_only=True)
+                    conn.execute(f"EXPORT DATABASE '{export_dir}' (FORMAT PARQUET)")
+                    conn.close()
+
+                    # Import into fresh database
+                    new_conn = duckdb.connect(str(temp_db_path))
+                    new_conn.execute(f"IMPORT DATABASE '{export_dir}'")
+                    new_conn.close()
+
+                    # Get compacted file size
+                    compacted_size = temp_db_path.stat().st_size
+
+                    # Replace original with compacted version
+                    shutil.move(str(temp_db_path), str(self.db_path))
+
+                    return Ok({
+                        "original_size": original_size,
+                        "compacted_size": compacted_size,
+                    })
+
+                except Exception as e:
+                    # Clean up temp db file on error
+                    if temp_db_path.exists():
+                        temp_db_path.unlink()
+                    raise e
+
+        except Exception as e:
+            return Fail(f"Failed to compact database: {str(e)}")

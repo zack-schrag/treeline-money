@@ -212,3 +212,17 @@ class Repository(ABC):
         self, integration_name: str
     ) -> Result[Dict[str, Any]]:
         pass
+
+    @abstractmethod
+    async def compact(self) -> Result[Dict[str, Any]]:
+        """Compact the database to reclaim space from deleted rows.
+
+        Creates a fresh copy of the database, eliminating fragmentation
+        and unused space.
+
+        Returns:
+            Result containing dict with:
+              - "original_size": int - size in bytes before compaction
+              - "compacted_size": int - size in bytes after compaction
+        """
+        pass
