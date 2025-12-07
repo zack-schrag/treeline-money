@@ -1616,6 +1616,7 @@
   /* Income header - green accent */
   .section-header.income-header {
     border-left: 3px solid var(--accent-success, #22c55e);
+    padding-left: calc(var(--spacing-lg) - 3px);
   }
 
   .section-header.income-header .section-title {
@@ -1625,6 +1626,7 @@
   /* Budget header - blue accent */
   .section-header.budget-header {
     border-left: 3px solid var(--accent-primary, #3b82f6);
+    padding-left: calc(var(--spacing-lg) - 3px);
   }
 
   .section-header.budget-header .section-title {
