@@ -964,6 +964,7 @@
             <div class="row-actual">{formatCurrency(incomeSummary.actual)}</div>
             <div class="row-expected">/ {formatCurrency(incomeSummary.expected)}</div>
             <div class="row-percent" style="color: {incomeSummary.percent >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{incomeSummary.percent}%</div>
+            <div class="transfer-btn-placeholder"></div>
             <div class="row-details-placeholder"></div>
           </div>
           {#each incomeActuals as actual, i}
@@ -984,6 +985,7 @@
               <div class="row-actual">{formatCurrency(actual.actual)}</div>
               <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
               <div class="row-percent" style="color: {actual.percentUsed >= 100 ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{actual.percentUsed}%</div>
+              <div class="transfer-btn-placeholder"></div>
               <RowMenu
                 items={[
                   { label: "View", action: () => { loadTransactionsForCategory(actual); closeMenu(); } },
@@ -1010,6 +1012,7 @@
             <div class="row-actual">{formatCurrency(budgetSummary.actual)}</div>
             <div class="row-expected">/ {formatCurrency(budgetSummary.expected)}</div>
             <div class="row-percent" style="color: {budgetSummary.percent > 100 ? 'var(--accent-danger, #ef4444)' : budgetSummary.percent > 90 ? 'var(--accent-warning, #f59e0b)' : 'var(--accent-success, #22c55e)'}">{budgetSummary.percent}%</div>
+            <div class="transfer-btn-placeholder"></div>
             <div class="row-details-placeholder"></div>
           </div>
           {#each budgetActuals as actual, i}
@@ -1087,6 +1090,7 @@
           <div class="row-actual" style="color: {remainingSummary.actual >= 0 ? 'var(--accent-success, #22c55e)' : 'var(--accent-danger, #ef4444)'}">{formatCurrency(remainingSummary.actual)}</div>
           <div class="row-expected">/ {formatCurrency(remainingSummary.expected)}</div>
           <div class="row-percent" style="color: {remainingSummary.actual >= remainingSummary.expected ? 'var(--accent-success, #22c55e)' : 'var(--text-muted)'}">{remainingSummary.percent}%</div>
+          <div class="transfer-btn-placeholder"></div>
           <div class="row-details-placeholder"></div>
         </div>
       {/if}
@@ -1695,7 +1699,12 @@
   }
 
   .row-details-placeholder {
-    width: 24px;
+    width: 28px;
+    flex-shrink: 0;
+  }
+
+  .transfer-btn-placeholder {
+    width: 28px;
     flex-shrink: 0;
   }
 
