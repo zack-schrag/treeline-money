@@ -65,11 +65,11 @@ jobs:
             artifact: tl-linux-x64
             binary: tl
             target-triple: x86_64-unknown-linux-gnu
-          - os: macos-13-large
+          - os: macos-15-large
             artifact: tl-macos-x64
             binary: tl
             target-triple: x86_64-apple-darwin
-          - os: macos-14  # Apple Silicon
+          - os: macos-15  # Apple Silicon
             artifact: tl-macos-arm64
             binary: tl
             target-triple: aarch64-apple-darwin
@@ -133,10 +133,10 @@ jobs:
           - os: ubuntu-latest
             target-triple: x86_64-unknown-linux-gnu
             artifact-name: treeline-linux-x64
-          - os: macos-13-large
+          - os: macos-15-large
             target-triple: x86_64-apple-darwin
             artifact-name: treeline-macos-x64
-          - os: macos-14
+          - os: macos-15
             target-triple: aarch64-apple-darwin
             artifact-name: treeline-macos-arm64
           - os: windows-latest
