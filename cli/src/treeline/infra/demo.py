@@ -151,9 +151,9 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
         # RECURRING MONTHLY TRANSACTIONS
         # =========================================
         monthly_recurring = [
-            # Income
-            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), [], 1),
-            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), [], 15),
+            # Income (tagged for budget tracking)
+            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), ["income", "salary"], 1),
+            ("demo-checking-001", "Employer Direct Deposit - Payroll", Decimal("4250.00"), ["income", "salary"], 15),
 
             # Rent/Mortgage
             ("demo-checking-001", "Online Payment - Rent", Decimal("-2100.00"), ["housing", "rent"], 1),
@@ -456,3 +456,89 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
                 "demo": "true",
             }
         )
+
+    def generate_demo_budget_sql(self) -> str:
+        """Generate SQL to seed demo budget categories for multiple months.
+
+        Creates a realistic budget that shows off the app's capabilities:
+        - Mix of under/on/over budget categories
+        - Income tracking
+        - Various expense categories with appropriate tags
+        """
+        now = datetime.now(timezone.utc)
+
+        # Generate for current month and 5 previous months
+        months = []
+        for i in range(6):
+            dt = now - timedelta(days=i * 30)
+            months.append(dt.strftime("%Y-%m"))
+
+        sql_statements = []
+
+        # Clear existing demo budget data
+        sql_statements.append("DELETE FROM sys_plugin_budget_categories;")
+        sql_statements.append("DELETE FROM sys_plugin_budget_rollovers;")
+
+        # Budget categories - designed to create visually appealing results
+        # Income categories (match payroll transactions: $4250 x 2 = $8500/month)
+        # Expense categories with tags that match demo transactions
+        # Budget amounts calibrated against actual demo transaction generation:
+        # - Some categories under budget (green) - good financial habits
+        # - Some at budget (yellow) - need to watch spending
+        # - Some over budget (red) - areas to improve
+        categories = [
+            # Income (tags match payroll transactions)
+            ("income", "Salary", 8500, ["salary"], False, "positive"),
+            # Expenses - calibrated for realistic mix of green/yellow/red
+            ("expense", "Housing", 2100, ["housing", "rent"], False, "negative"),  # ~100% (on budget)
+            ("expense", "Groceries", 2500, ["groceries"], False, "negative"),  # ~85% (green)
+            ("expense", "Dining", 1500, ["dining"], False, "negative"),  # ~120% (red - overspending)
+            ("expense", "Transportation", 500, ["transportation"], False, "negative"),  # ~70% (green)
+            ("expense", "Shopping", 1500, ["shopping"], False, "negative"),  # ~125% (red - overspending)
+            ("expense", "Entertainment", 250, ["entertainment", "subscriptions"], False, "negative"),  # ~130% (red)
+            ("expense", "Utilities", 350, ["utilities"], False, "negative"),  # ~85% (green)
+            ("expense", "Health", 300, ["health", "fitness"], False, "negative"),  # ~165% (red - need insurance?)
+            ("expense", "Insurance", 500, ["insurance"], False, "negative"),  # ~95% (green)
+        ]
+
+        for month in months:
+            for i, (cat_type, name, expected, tags, require_all, amount_sign) in enumerate(categories):
+                cat_id = str(uuid4())
+                tags_sql = "[" + ", ".join(f"'{t}'" for t in tags) + "]" if tags else "[]"
+                amount_sign_sql = f"'{amount_sign}'" if amount_sign else "NULL"
+
+                sql_statements.append(f"""
+                    INSERT INTO sys_plugin_budget_categories
+                        (category_id, month, type, name, expected, tags, require_all, amount_sign, sort_order)
+                    VALUES
+                        ('{cat_id}', '{month}', '{cat_type}', '{name}', {expected}, {tags_sql}, {require_all}, {amount_sign_sql}, {i});
+                """)
+
+        # =========================================
+        # ROLLOVERS - demonstrate the rollover feature
+        # =========================================
+        # Create realistic rollovers based on actual spending patterns:
+        # Transportation budget: $500, actual spend: ~$360 → ~$140 leftover
+        # Groceries budget: $2500, actual spend: ~$2200 → ~$300 leftover
+        # Utilities budget: $350, actual spend: ~$310 → ~$40 leftover
+        rollovers = [
+            # From October: rolled over $125 leftover from Transportation to November
+            ("2025-10", "Transportation", "Transportation", "2025-11", 125),
+            # From October: moved $250 from underspent Groceries to Dining (holiday prep)
+            ("2025-10", "Groceries", "Dining", "2025-11", 250),
+            # From November: rolled over $130 from Transportation to December
+            ("2025-11", "Transportation", "Transportation", "2025-12", 130),
+            # From November: moved $35 from Utilities savings to Entertainment (holiday fun)
+            ("2025-11", "Utilities", "Entertainment", "2025-12", 35),
+        ]
+
+        for source_month, from_cat, to_cat, to_month, amount in rollovers:
+            rollover_id = str(uuid4())
+            sql_statements.append(f"""
+                INSERT INTO sys_plugin_budget_rollovers
+                    (rollover_id, source_month, from_category, to_category, to_month, amount)
+                VALUES
+                    ('{rollover_id}', '{source_month}', '{from_cat}', '{to_cat}', '{to_month}', {amount});
+            """)
+
+        return "\n".join(sql_statements)

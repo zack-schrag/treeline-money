@@ -93,6 +93,19 @@ class Repository(ABC):
         pass
 
     @abstractmethod
+    async def execute_write_query(self, sql: str) -> Result[None]:
+        """
+        Execute SQL write query (INSERT, UPDATE, DELETE).
+
+        Args:
+            sql: SQL query to execute (can be multiple statements separated by ;)
+
+        Returns:
+            Result indicating success or failure
+        """
+        pass
+
+    @abstractmethod
     async def get_schema_info(self) -> Result[Dict[str, Any]]:
         """
         Get complete schema information for all tables.

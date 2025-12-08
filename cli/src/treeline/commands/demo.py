@@ -93,9 +93,11 @@ def _enable_demo(get_container: callable, ensure_initialized: callable) -> None:
                 has_demo = True
                 break
 
+    # Get demo provider (used for integration and budget seeding)
+    demo_provider = container.get_integration_provider("demo")
+
     if not has_demo:
         # Create demo integration
-        demo_provider = container.get_integration_provider("demo")
         asyncio.run(integration_service.create_integration(demo_provider, "demo", {}))
 
     # Sync demo data
@@ -119,6 +121,17 @@ def _enable_demo(get_container: callable, ensure_initialized: callable) -> None:
         total = sum(s["created"] for s in data.get("accounts", []))
         if total > 0:
             console.print(f"[{theme.success}]Created {total} balance snapshots[/{theme.success}]")
+
+    # Seed demo budget categories
+    with console.status(f"[{theme.status_loading}]Setting up demo budget..."):
+        db_service = container.db_service()
+        budget_sql = demo_provider.generate_demo_budget_sql()
+        budget_result = asyncio.run(db_service.execute_write_query(budget_sql))
+
+    if budget_result.success:
+        console.print(f"[{theme.success}]Demo budget configured[/{theme.success}]")
+    else:
+        console.print(f"[{theme.warning}]Note: {budget_result.error}[/{theme.warning}]")
 
     console.print(f"\n[{theme.muted}]Run 'tl status' to see demo data[/{theme.muted}]")
     console.print(f"[{theme.muted}]Run 'tl demo off' to return to real data[/{theme.muted}]\n")

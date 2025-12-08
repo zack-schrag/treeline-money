@@ -530,6 +530,16 @@ class DuckDBRepository(Repository):
         except Exception as e:
             return Fail(f"Failed to execute query: {str(e)}")
 
+    async def execute_write_query(self, sql: str) -> Result[None]:
+        """Execute SQL write query (INSERT, UPDATE, DELETE)."""
+        try:
+            conn = self._get_connection(read_only=False)
+            conn.execute(sql)
+            conn.close()
+            return Ok(None)
+        except Exception as e:
+            return Fail(f"Failed to execute write query: {str(e)}")
+
     async def get_schema_info(self) -> Result[Dict[str, Any]]:
         """Get complete schema information for all tables."""
         try:

@@ -546,8 +546,15 @@
     await Promise.all([calculateActuals(), loadAllTrends()]);
   }
 
+  // Currency configuration - will be user-configurable in the future
+  const currencyConfig = { code: 'USD', locale: 'en-US' };
+
   function formatCurrency(amount: number): string {
-    return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return amount.toLocaleString(currencyConfig.locale, { style: 'currency', currency: currencyConfig.code, minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
+
+  function formatCurrencyCents(amount: number): string {
+    return amount.toLocaleString(currencyConfig.locale, { style: 'currency', currency: currencyConfig.code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   // Helper to round to cents (2 decimal places) - fixes floating point errors
@@ -684,7 +691,15 @@
   function openTransferModal(actual: BudgetActual, e: MouseEvent) {
     e.stopPropagation();
     transferSourceCategory = actual.category;
-    transferSourceVariance = roundToCents(actual.variance);
+
+    // Calculate effective variance including incoming rollovers
+    // Effective = Budget - (Spent - IncomingRollover) = Budget - Spent + IncomingRollover = Variance + IncomingRollover
+    const incomingRollover = incomingTransfers
+      .filter(t => t.toCategory === actual.category)
+      .reduce((sum, t) => sum + t.amount, 0);
+    const effectiveVariance = roundToCents(actual.variance + incomingRollover);
+
+    transferSourceVariance = effectiveVariance;
     transferStorageMonth = selectedMonth; // Outgoing transfers are stored in current month
     transferTargetCategory = ""; // Not used for outgoing
     isEditingIncoming = false;
@@ -705,7 +720,7 @@
       transferRows = [{
         id: generateTransferId(),
         toCategory: actual.category,
-        amount: roundToCents(actual.variance),
+        amount: effectiveVariance,
       }];
     }
 
@@ -1018,9 +1033,12 @@
           {#each budgetActuals as actual, i}
             {@const globalIndex = incomeActuals.length + i}
             {@const incoming = incomingTransfers.filter(t => t.toCategory === actual.category)}
-            {@const incomingNet = roundToCents(incoming.reduce((sum, t) => sum + t.amount, 0))}
+            {@const incomingRollover = roundToCents(incoming.reduce((sum, t) => sum + t.amount, 0))}
             {@const outgoing = outgoingTransfers.filter(t => t.fromCategory === actual.category)}
-            {@const outgoingNet = roundToCents(outgoing.reduce((sum, t) => sum + t.amount, 0))}
+            {@const outgoingRollover = roundToCents(outgoing.reduce((sum, t) => sum + t.amount, 0))}
+            <!-- Effective actual = transaction actual minus incoming rollover (rollover reduces what you've "used") -->
+            {@const effectiveActual = roundToCents(actual.actual - incomingRollover)}
+            {@const effectivePercent = actual.expected > 0 ? Math.round((effectiveActual / actual.expected) * 100) : 0}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="row"
@@ -1030,41 +1048,18 @@
               ondblclick={() => handleRowDoubleClick(globalIndex)}
               role="listitem"
             >
-              <div class="row-name">
-                {#if incomingNet !== 0}
-                  <button
-                    class="transfer-badge incoming"
-                    class:positive={incomingNet >= 0}
-                    class:negative={incomingNet < 0}
-                    title="Click to view incoming transfers"
-                    onclick={(e) => openEditIncomingTransfers(actual.category, e)}
-                  >
-                    {incomingNet >= 0 ? '+' : ''}{formatCurrency(incomingNet)}
-                  </button>
-                {/if}
-                {actual.category}
-                {#if outgoingNet !== 0}
-                  <span
-                    class="transfer-badge outgoing"
-                    class:positive={outgoingNet >= 0}
-                    class:negative={outgoingNet < 0}
-                    title="Transferred to {formatMonth(getNextMonth(selectedMonth))}"
-                  >
-                    → {outgoingNet >= 0 ? '+' : ''}{formatCurrency(outgoingNet)}
-                  </span>
-                {/if}
-              </div>
+              <div class="row-name">{actual.category}</div>
               <div class="row-bar">
-                <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(actual.percentUsed, 100)}%; background: {getStatusColor(actual)}"></div></div>
+                <div class="bar-bg"><div class="bar-fill" style="width: {Math.min(Math.max(effectivePercent, 0), 100)}%; background: {getStatusColor({...actual, percentUsed: effectivePercent})}"></div></div>
               </div>
-              <div class="row-actual">{formatCurrency(actual.actual)}</div>
-              <div class="row-expected">/ {formatCurrency(actual.expected + incomingNet)}</div>
-              <div class="row-percent" style="color: {getStatusColor(actual)}">{actual.percentUsed}%</div>
+              <div class="row-actual">{formatCurrency(effectiveActual)}</div>
+              <div class="row-expected">/ {formatCurrency(actual.expected)}</div>
+              <div class="row-percent" style="color: {getStatusColor({...actual, percentUsed: effectivePercent})}">{effectivePercent}%</div>
               <button
                 class="transfer-btn"
                 class:has-outgoing={outgoing.length > 0}
                 onclick={(e) => openTransferModal(actual, e)}
-                title={outgoing.length > 0 ? `Edit transfers to ${formatMonth(getNextMonth(selectedMonth))}` : "Transfer to next month"}
+                title={outgoing.length > 0 ? `${formatCurrency(outgoingRollover)} → ${formatMonth(getNextMonth(selectedMonth))}` : "Roll over to next month"}
               >→</button>
               <RowMenu
                 items={[
@@ -1117,25 +1112,33 @@
           {/if}
         </div>
 
+        {@const effectiveActual = roundToCents(currentActual.actual - currentIncomingNet)}
+        {@const remaining = roundToCents(currentActual.expected - effectiveActual)}
         <div class="sidebar-section">
           <div class="sidebar-title">Progress</div>
           <div class="detail-row">
-            <span>Actual:</span>
-            <span class="mono">{formatCurrency(currentActual.actual)}</span>
-          </div>
-          <div class="detail-row">
-            <span>Expected:</span>
+            <span>Budget:</span>
             <span class="mono">{formatCurrency(currentActual.expected)}</span>
           </div>
           <div class="detail-row">
-            <span>Variance:</span>
-            <span class="mono" class:positive={currentActual.variance >= 0} class:negative={currentActual.variance < 0}>{formatCurrency(currentActual.variance)}</span>
+            <span>− Spent:</span>
+            <span class="mono">{formatCurrency(currentActual.actual)}</span>
+          </div>
+          {#if currentIncomingNet !== 0}
+            <div class="detail-row">
+              <span>+ Rollover:</span>
+              <span class="mono">{formatCurrency(currentIncomingNet)}</span>
+            </div>
+          {/if}
+          <div class="detail-row detail-remaining">
+            <span>= Remaining:</span>
+            <span class="mono" class:positive={remaining >= 0} class:negative={remaining < 0}>{formatCurrency(remaining)}</span>
           </div>
         </div>
 
         {#if currentIncomingTransfers.length > 0 || currentOutgoingTransfers.length > 0}
           <div class="sidebar-section">
-            <div class="sidebar-title">Transfers</div>
+            <div class="sidebar-title">Rollovers</div>
             {#if currentIncomingTransfers.length > 0}
               <div class="transfer-group incoming">
                 <div class="transfer-group-label">Incoming</div>
@@ -1321,12 +1324,12 @@
         <div class="transfer-summary">
           <div class="transfer-summary-row">
             <span>Allocated:</span>
-            <span class="mono">{formatCurrency(totalAllocated)} / {formatCurrency(transferSourceVariance)}</span>
+            <span class="mono">{formatCurrencyCents(totalAllocated)} / {formatCurrencyCents(transferSourceVariance)}</span>
           </div>
           <div class="transfer-summary-row">
             <span>Remaining:</span>
             <span class="mono" class:positive={remainingToAllocate >= 0} class:negative={remainingToAllocate < 0}>
-              {formatCurrency(remainingToAllocate)}
+              {formatCurrencyCents(remainingToAllocate)}
             </span>
           </div>
         </div>
@@ -1713,7 +1716,7 @@
 
 
   .row-name {
-    width: 220px;
+    width: 180px;
     flex-shrink: 0;
     color: var(--text-primary);
     white-space: nowrap;
@@ -1881,6 +1884,22 @@
     margin-bottom: 4px;
   }
 
+  .detail-row.separator-row {
+    margin-bottom: 2px;
+    margin-top: 2px;
+  }
+
+  .separator-line {
+    flex: 1;
+    border-bottom: 1px solid var(--border-primary);
+    margin-left: 4px;
+  }
+
+  .detail-row.detail-remaining {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
   .mono { font-family: var(--font-mono); }
   .positive { color: var(--accent-success, #22c55e) !important; }
   .negative { color: var(--accent-danger, #ef4444) !important; }
@@ -2036,11 +2055,6 @@
 
   .transfer-badge.incoming {
     margin-right: 6px;
-  }
-
-  .transfer-badge.outgoing {
-    margin-left: 6px;
-    opacity: 0.8;
   }
 
   .transfer-badge.positive {

@@ -17,11 +17,6 @@ Most finance apps want your data on their servers. Treeline keeps everything loc
 - **SQL access** — Query your finances like a database, because it is one.
 - **Hackable** — Export anything, script anything, build your own plugins.
 
-## Quick Look
-
-<!-- TODO: quick-look.gif - 15-20 second recording showing: open app → click through Accounts/Tagging/Budget tabs → maybe tag one transaction. Keep it snappy, just enough to show the UI exists and looks good. -->
-<!-- ![Quick demo](./demo.gif) -->
-
 ## Features
 
 - **Account Dashboard** — View all accounts, balances, and recent transactions
@@ -52,7 +47,7 @@ Launch the app and you'll be prompted to try in Demo Mode to explore with sample
 
 ![CSV Import](./import_csv.png)
 
-**SimpleFIN** — For automatic syncing, connect via Settings → Integrations. [SimpleFIN](https://beta-bridge.simplefin.org/simplefin) is a bank aggregation service ($1.50/month) that pulls transactions from your accounts automatically.
+**SimpleFIN** — For automatic syncing, connect via Settings → Integrations. [SimpleFIN](https://beta-bridge.simplefin.org/simplefin) is a bank aggregation service ($1.50/month) that pulls transactions from your accounts automatically. It's not affiliated with this project, we just provide an integration with it.
 
 ## Using Treeline
 

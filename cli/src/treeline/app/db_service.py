@@ -26,6 +26,10 @@ class DbService:
         cleaned_sql = self._clean_and_validate_sql(sql)
         return await self.repository.execute_query(cleaned_sql)
 
+    async def execute_write_query(self, sql: str) -> Result:
+        cleaned_sql = self._clean_and_validate_sql(sql)
+        return await self.repository.execute_write_query(cleaned_sql)
+
     def _clean_and_validate_sql(self, sql: str) -> str:
         # TODO: Implement SQL cleaning and validation
         return sql
