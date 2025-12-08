@@ -65,11 +65,7 @@ jobs:
             artifact: tl-linux-x64
             binary: tl
             target-triple: x86_64-unknown-linux-gnu
-          - os: macos-15-large
-            artifact: tl-macos-x64
-            binary: tl
-            target-triple: x86_64-apple-darwin
-          - os: macos-15  # Apple Silicon
+          - os: macos-latest  # Apple Silicon (macos-15)
             artifact: tl-macos-arm64
             binary: tl
             target-triple: aarch64-apple-darwin
@@ -133,10 +129,7 @@ jobs:
           - os: ubuntu-latest
             target-triple: x86_64-unknown-linux-gnu
             artifact-name: treeline-linux-x64
-          - os: macos-15-large
-            target-triple: x86_64-apple-darwin
-            artifact-name: treeline-macos-x64
-          - os: macos-15
+          - os: macos-latest
             target-triple: aarch64-apple-darwin
             artifact-name: treeline-macos-arm64
           - os: windows-latest
@@ -241,16 +234,6 @@ jobs:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: artifacts/tl-linux-x64/tl
           asset_name: tl-linux-x64
-          asset_content_type: application/octet-stream
-
-      - name: Upload macOS x64 CLI binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: artifacts/tl-macos-x64/tl
-          asset_name: tl-macos-x64
           asset_content_type: application/octet-stream
 
       - name: Upload macOS ARM64 CLI binary
