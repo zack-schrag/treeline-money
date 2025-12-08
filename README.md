@@ -55,13 +55,22 @@ Launch the app and you'll be prompted to try in Demo Mode to explore with sample
 
 ![Tagging](./transactions.png)
 
-Categorize spending with tags like `groceries`, `dining`, `subscriptions`. Use keyboard shortcuts for speed: number keys apply quick tags, `t` to manual tag, `/` to search.
+The Treeline schema uses "tags" instead of categories, allowing you to add multiple tags to a transaction if desired. 
+
+Categorize spending with custom tags like `groceries`, `dining`, `subscriptions`. Use keyboard shortcuts for speed: number keys apply quick tags, `t` to manual tag, `/` to search.
+
+### Automatic Tagging Rules
+![New Tagging Rules](./tag_rule.png)
+
+- Use simple matching, regex, or SQL.
+- Preview transactions your rule would apply to, before applying.
+
 
 ### Budget Tracking
 
 ![Budget](./budget.png)
 
-Set monthly targets by category. Categories are defined by tags — tag transactions as `groceries` to budget for groceries.
+Set monthly targets by category. Categories are defined by grouping tags — tag transactions as `groceries` to budget for groceries.
 
 ### Querying
 ![Query](./query.png)
