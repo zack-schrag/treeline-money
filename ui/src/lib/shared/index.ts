@@ -5,3 +5,7 @@ export { emojiToIconName, getIconName } from "./icons";
 export { default as Modal } from "./Modal.svelte";
 export { default as RowMenu } from "./RowMenu.svelte";
 export type { RowMenuItem } from "./RowMenu.svelte";
+
+// Charts
+export { Sparkline, LineAreaChart } from "./charts";
+export type { DataPoint } from "./charts";

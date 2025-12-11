@@ -5,7 +5,7 @@
     registry,
     showToast,
   } from "../../sdk";
-  import { Modal, RowMenu, type RowMenuItem, Icon } from "../../shared";
+  import { Modal, RowMenu, type RowMenuItem, Icon, Sparkline, LineAreaChart, type DataPoint } from "../../shared";
   import type {
     AccountWithStats,
     BalanceClassification,
@@ -69,6 +69,25 @@
   // Net worth trend for MoM calculation (aggregates all accounts)
   let netWorthTrend = $state<{ month: string; netWorth: number }[]>([]);
 
+  // Daily net worth data for chart
+  let dailyNetWorth = $state<{ date: string; netWorth: number }[]>([]);
+
+  // Net worth chart time range
+  type TimeRange = "30d" | "90d" | "6m" | "1y" | "ytd" | "all";
+  let chartTimeRange = $state<TimeRange>("90d");
+
+  const timeRangeOptions: { value: TimeRange; label: string }[] = [
+    { value: "30d", label: "30D" },
+    { value: "90d", label: "90D" },
+    { value: "6m", label: "6M" },
+    { value: "1y", label: "1Y" },
+    { value: "ytd", label: "YTD" },
+    { value: "all", label: "All" },
+  ];
+
+  // Net worth section expanded state
+  let netWorthExpanded = $state(false);
+
   // Edit modal
   let isEditing = $state(false);
   let editingAccount = $state<AccountWithStats | null>(null);
@@ -131,6 +150,37 @@
     const percent = previous !== 0 ? (change / Math.abs(previous)) * 100 : 0;
     return { change, percent };
   });
+
+  // Sparkline data (just values for compact display - use daily data)
+  let sparklineData = $derived(dailyNetWorth.map((t) => t.netWorth));
+
+  // Chart data for LineAreaChart (daily data, show ~10 labels)
+  let netWorthChartData = $derived<DataPoint[]>(
+    dailyNetWorth.map((t, i) => {
+      // Show label every ~10 days for readability
+      const showLabel = i === 0 || i === dailyNetWorth.length - 1 || i % Math.max(1, Math.floor(dailyNetWorth.length / 5)) === 0;
+      return {
+        label: showLabel ? formatDateShort(t.date) : "",
+        value: t.netWorth,
+      };
+    })
+  );
+
+  // Period change calculation (based on daily data range)
+  let periodChange = $derived.by(() => {
+    if (dailyNetWorth.length < 2) return null;
+    const first = dailyNetWorth[0]?.netWorth ?? 0;
+    const last = dailyNetWorth[dailyNetWorth.length - 1]?.netWorth ?? 0;
+    const change = last - first;
+    const percent = first !== 0 ? (change / Math.abs(first)) * 100 : 0;
+    const days = dailyNetWorth.length;
+    return { change, percent, days };
+  });
+
+  function formatDateShort(dateStr: string): string {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
 
   /**
    * Load account overrides from DuckDB
@@ -302,6 +352,9 @@
       // Load net worth trend for MoM calculation
       await loadNetWorthTrend();
 
+      // Load daily net worth for chart
+      await loadDailyNetWorth();
+
       // Load trend for current account
       if (currentAccount) {
         await loadBalanceTrend(currentAccount.account_id);
@@ -461,6 +514,135 @@
     netWorthTrend = trends;
   }
 
+  /**
+   * Calculate number of days for the selected time range
+   */
+  function getTimeRangeDays(range: TimeRange): number | null {
+    const now = referenceDate;
+    switch (range) {
+      case "30d":
+        return 30;
+      case "90d":
+        return 90;
+      case "6m":
+        return 180;
+      case "1y":
+        return 365;
+      case "ytd": {
+        const startOfYear = new Date(now.getFullYear(), 0, 1);
+        return Math.ceil((now.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      }
+      case "all":
+        return null; // Will be determined by earliest data
+    }
+  }
+
+  /**
+   * Load daily net worth data for the chart based on selected time range
+   */
+  async function loadDailyNetWorth() {
+    const excludedIds = config.excludedFromNetWorth;
+    let days = getTimeRangeDays(chartTimeRange);
+
+    // For "all", get the earliest snapshot date first
+    if (days === null) {
+      const minResult = await executeQuery(`
+        SELECT MIN(snapshot_time) as min_date FROM balance_snapshots
+      `);
+      if (minResult.rows.length > 0 && minResult.rows[0][0]) {
+        const minDate = minResult.rows[0][0] as string;
+        const minDateObj = new Date(minDate.split(' ')[0]);
+        days = Math.ceil((referenceDate.getTime() - minDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        days = Math.max(days, 1);
+      } else {
+        days = 90; // Fallback
+      }
+    }
+
+    // Build list of dates
+    const dates: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(referenceDate);
+      date.setDate(date.getDate() - i);
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      dates.push(dateStr);
+    }
+
+    // Get all snapshots within the date range
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1] + " 23:59:59";
+
+    const result = await executeQuery(`
+      SELECT
+        bs.account_id,
+        bs.balance,
+        DATE_TRUNC('day', bs.snapshot_time) as snapshot_date,
+        a.account_type
+      FROM balance_snapshots bs
+      JOIN accounts a ON bs.account_id = a.account_id
+      WHERE bs.snapshot_time >= '${startDate}'
+        AND bs.snapshot_time <= '${endDate}'
+      ORDER BY bs.snapshot_time
+    `);
+
+    // Group snapshots by date and account, keeping the latest snapshot per day per account
+    const snapshotsByDateAccount = new Map<string, Map<string, { balance: number; accountType: string | null }>>();
+
+    for (const row of result.rows) {
+      const accountId = row[0] as string;
+      const balance = row[1] as number;
+      // DATE_TRUNC returns a string like "2024-12-10 00:00:00" from DuckDB
+      const rawDate = row[2] as string | Date;
+      const snapshotDate = typeof rawDate === 'string'
+        ? rawDate.split(' ')[0]  // "2024-12-10 00:00:00" -> "2024-12-10"
+        : rawDate.toISOString().split("T")[0];
+      const accountType = row[3] as string | null;
+
+      if (!snapshotsByDateAccount.has(snapshotDate)) {
+        snapshotsByDateAccount.set(snapshotDate, new Map());
+      }
+      // Later snapshot overwrites earlier one for same account on same day
+      snapshotsByDateAccount.get(snapshotDate)!.set(accountId, { balance, accountType });
+    }
+
+    // Build daily net worth by carrying forward balances
+    const daily: { date: string; netWorth: number }[] = [];
+    const currentBalances = new Map<string, { balance: number; accountType: string | null }>();
+
+    for (const dateStr of dates) {
+      // Update balances for this date
+      const daySnapshots = snapshotsByDateAccount.get(dateStr);
+      if (daySnapshots) {
+        for (const [accountId, data] of daySnapshots) {
+          currentBalances.set(accountId, data);
+        }
+      }
+
+      // Calculate net worth for this date
+      let netWorth = 0;
+      for (const [accountId, data] of currentBalances) {
+        if (excludedIds.includes(accountId)) continue;
+
+        const classification =
+          config.classificationOverrides[accountId] ??
+          getDefaultClassification(data.accountType);
+
+        if (classification === "liability") {
+          netWorth -= Math.abs(data.balance);
+        } else {
+          netWorth += data.balance;
+        }
+      }
+
+      // Only include days where we have at least some data
+      if (currentBalances.size > 0) {
+        daily.push({ date: dateStr, netWorth });
+      }
+    }
+
+    dailyNetWorth = daily;
+  }
+
   // Effect: load trend when account changes
   $effect(() => {
     if (currentAccount && !isLoading) {
@@ -476,6 +658,15 @@
       loadAccounts();
     }
     previousRefDate = currentRefDate;
+  });
+
+  // Effect: reload daily net worth when time range changes
+  let previousTimeRange: TimeRange | null = null;
+  $effect(() => {
+    if (previousTimeRange !== null && previousTimeRange !== chartTimeRange && !isLoading) {
+      loadDailyNetWorth();
+    }
+    previousTimeRange = chartTimeRange;
   });
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -990,15 +1181,75 @@ LIMIT 100`;
           </div>
         </div>
       {:else}
-        <!-- Net Worth -->
-        <div class="net-worth-row">
-          <div class="net-worth-label">NET WORTH</div>
-          <div class="net-worth-value" class:negative={netWorth < 0}>
-            {formatCurrency(netWorth)}
-          </div>
-          {#if momChange}
-            <div class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
-              {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)} MoM
+        <!-- Net Worth (Collapsible) -->
+        <div class="net-worth-section" class:expanded={netWorthExpanded}>
+          <button
+            class="net-worth-header"
+            onclick={() => (netWorthExpanded = !netWorthExpanded)}
+            aria-expanded={netWorthExpanded}
+          >
+            <span class="expand-icon">{netWorthExpanded ? "▼" : "▶"}</span>
+            <span class="net-worth-label">NET WORTH</span>
+            {#if sparklineData.length >= 2}
+              <Sparkline data={sparklineData} width={60} height={14} />
+            {/if}
+            <span class="net-worth-value" class:negative={netWorth < 0}>
+              {formatCurrency(netWorth)}
+            </span>
+            {#if momChange}
+              <span class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
+                {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)}
+                ({momChange.percent >= 0 ? "+" : ""}{momChange.percent.toFixed(1)}%) MoM
+              </span>
+            {/if}
+          </button>
+
+          {#if netWorthExpanded}
+            <div class="net-worth-details">
+              <div class="net-worth-breakdown">
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Assets:</span>
+                  <span class="breakdown-value">{formatCurrency(totalAssets)}</span>
+                </div>
+                <div class="breakdown-row">
+                  <span class="breakdown-label">Liabilities:</span>
+                  <span class="breakdown-value liability">{formatCurrency(totalLiabilities)}</span>
+                </div>
+              </div>
+
+              {#if netWorthChartData.length >= 2}
+                <div class="net-worth-chart">
+                  <div class="chart-header">
+                    <div class="time-range-selector">
+                      {#each timeRangeOptions as option}
+                        <button
+                          class="time-range-btn"
+                          class:active={chartTimeRange === option.value}
+                          onclick={() => (chartTimeRange = option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                  <LineAreaChart
+                    data={netWorthChartData}
+                    height={120}
+                    showArea={true}
+                    showLine={true}
+                    showLabels={true}
+                    showZeroLine={true}
+                    formatValue={formatCurrency}
+                  />
+                  {#if periodChange}
+                    <div class="chart-summary" class:positive={periodChange.change >= 0} class:negative={periodChange.change < 0}>
+                      {periodChange.change >= 0 ? "+" : ""}{formatCurrency(periodChange.change)}
+                      ({periodChange.percent >= 0 ? "+" : ""}{periodChange.percent.toFixed(1)}%)
+                      over {periodChange.days} days
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -1704,13 +1955,35 @@ LIMIT 100`;
   }
 
 
-  .net-worth-row {
+  /* Net Worth Section (Collapsible) */
+  .net-worth-section {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .net-worth-header {
     display: flex;
     align-items: center;
+    width: 100%;
     padding: 12px var(--spacing-lg);
-    background: var(--bg-secondary);
-    border-top: 2px solid var(--border-primary);
     gap: var(--spacing-md);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: background-color 0.15s;
+  }
+
+  .net-worth-header:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .expand-icon {
+    font-size: 10px;
+    color: var(--text-muted);
+    width: 12px;
+    flex-shrink: 0;
   }
 
   .net-worth-label {
@@ -1721,10 +1994,11 @@ LIMIT 100`;
   }
 
   .net-worth-value {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     color: var(--text-primary);
     margin-left: auto;
+    font-family: var(--font-mono);
   }
 
   .net-worth-value.negative {
@@ -1732,8 +2006,9 @@ LIMIT 100`;
   }
 
   .net-worth-change {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
+    font-family: var(--font-mono);
   }
 
   .net-worth-change.positive {
@@ -1741,6 +2016,95 @@ LIMIT 100`;
   }
 
   .net-worth-change.negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  /* Expanded Details */
+  .net-worth-details {
+    padding: 0 var(--spacing-lg) var(--spacing-lg);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .net-worth-breakdown {
+    display: flex;
+    gap: var(--spacing-xl);
+    padding: var(--spacing-md) 0;
+    padding-left: 24px;
+  }
+
+  .breakdown-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    font-size: 12px;
+  }
+
+  .breakdown-label {
+    color: var(--text-muted);
+  }
+
+  .breakdown-value {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .breakdown-value.liability {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .net-worth-chart {
+    margin-top: var(--spacing-sm);
+    padding-left: 24px;
+  }
+
+  .chart-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .time-range-selector {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    padding: 2px;
+  }
+
+  .time-range-btn {
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .time-range-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .time-range-btn.active {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .chart-summary {
+    margin-top: var(--spacing-sm);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+
+  .chart-summary.positive {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .chart-summary.negative {
     color: var(--accent-danger, #ef4444);
   }
 
