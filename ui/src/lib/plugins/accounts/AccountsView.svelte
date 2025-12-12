@@ -4,6 +4,7 @@
     executeQuery,
     registry,
     showToast,
+    runBackfill,
   } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem, Icon, Sparkline, LineAreaChart, type DataPoint } from "../../shared";
   import type {
@@ -14,6 +15,7 @@
   } from "./types";
   import { getDefaultClassification } from "./types";
   import CsvImportModal from "./CsvImportModal.svelte";
+  import SetBalanceModal from "./SetBalanceModal.svelte";
 
   // Props (passed from openView)
   interface Props {
@@ -118,6 +120,13 @@
   let showImportModal = $state(false);
   let importAccountId = $state("");
   let importAccountName = $state("");
+
+  // Set Balance modal
+  let showSetBalanceModal = $state(false);
+  let setBalanceAccountId = $state("");
+  let setBalanceAccountName = $state("");
+  let setBalanceCurrentBalance = $state<number | null>(null);
+  let setBalanceCurrentDate = $state<string | null>(null);
 
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
@@ -1059,6 +1068,38 @@ LIMIT 100`;
     await loadAccounts();
   }
 
+  // Set Balance modal functions
+  function openSetBalanceModal(account: AccountWithStats) {
+    setBalanceAccountId = account.account_id;
+    setBalanceAccountName = account.nickname || account.name;
+    setBalanceCurrentBalance = account.balance;
+    setBalanceCurrentDate = account.balance_as_of?.split("T")[0] ?? null;
+    showSetBalanceModal = true;
+    menuOpenForAccount = null;
+  }
+
+  function closeSetBalanceModal() {
+    showSetBalanceModal = false;
+  }
+
+  async function handleSetBalanceSave(balance: number, date: string, shouldBackfill: boolean) {
+    // Balance is already saved by the modal
+    if (shouldBackfill) {
+      showToast({ type: "info", title: "Calculating historical balances..." });
+      try {
+        await runBackfill(setBalanceAccountId);
+        showToast({ type: "success", title: "Historical balances calculated" });
+      } catch (e) {
+        console.error("Backfill failed:", e);
+        showToast({ type: "error", title: "Failed to calculate historical balances" });
+      }
+    } else {
+      showToast({ type: "success", title: "Balance saved" });
+    }
+    showSetBalanceModal = false;
+    await loadAccounts();
+  }
+
   function toggleAccountMenu(accountId: string, e: MouseEvent) {
     e.stopPropagation();
     menuOpenForAccount = menuOpenForAccount === accountId ? null : accountId;
@@ -1279,13 +1320,14 @@ LIMIT 100`;
                     <span class="account-subtitle">{getSubtitle(account)}</span>
                   {/if}
                 </div>
-                <div class="row-balance">{formatCurrency(getBalanceForDisplay(account))}</div>
+                <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
                 <RowMenu
                   items={[
                     { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
                     { label: "Import CSV", action: () => openImportModal(account) },
                     { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
                   ]}
@@ -1324,13 +1366,14 @@ LIMIT 100`;
                     <span class="account-subtitle">{getSubtitle(account)}</span>
                   {/if}
                 </div>
-                <div class="row-balance liability">{formatCurrency(Math.abs(getBalanceForDisplay(account)))}</div>
+                <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
                 <div class="row-type">{account.account_type || "—"}</div>
                 <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
                 <div class="row-last">{formatDate(account.last_transaction)}</div>
                 <RowMenu
                   items={[
                     { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
                     { label: "Import CSV", action: () => openImportModal(account) },
                     { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
                   ]}
@@ -1380,7 +1423,7 @@ LIMIT 100`;
           <div class="sidebar-title">Balance {isToday ? "" : `(as of ${referenceDateStr})`}</div>
           <div class="detail-row">
             <span>Amount:</span>
-            <span class="mono">{formatCurrency(getBalanceForDisplay(currentAccount))}</span>
+            <span class="mono">{currentAccount.balance !== null ? formatCurrency(getBalanceForDisplay(currentAccount)) : "—"}</span>
           </div>
           {#if balanceTrend.length >= 2}
             {@const current = balanceTrend[balanceTrend.length - 1]}
@@ -1673,6 +1716,16 @@ LIMIT 100`;
     accountName={importAccountName}
     onclose={closeImportModal}
     onsuccess={handleImportSuccess}
+  />
+
+  <SetBalanceModal
+    open={showSetBalanceModal}
+    accountId={setBalanceAccountId}
+    accountName={setBalanceAccountName}
+    currentBalance={setBalanceCurrentBalance}
+    currentBalanceDate={setBalanceCurrentDate}
+    onclose={closeSetBalanceModal}
+    onsave={handleSetBalanceSave}
   />
 </div>
 

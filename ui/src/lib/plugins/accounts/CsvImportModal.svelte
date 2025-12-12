@@ -1,15 +1,17 @@
 <script lang="ts">
   /**
    * CsvImportModal - Modal for importing transactions from CSV files
+   * After import, shows unified flow for setting balance and backfilling history
    */
-  import { onMount } from "svelte";
   import { Modal, Icon } from "../../shared";
   import {
     pickCsvFile,
     getCsvHeaders,
     importCsvPreview,
     importCsvExecute,
+    executeQuery,
     getDemoMode,
+    runBackfill,
     type ImportColumnMapping,
     type ImportPreviewResult,
     type ImportExecuteResult,
@@ -24,6 +26,15 @@
   }
 
   let { open, accountId, accountName, onclose, onsuccess }: Props = $props();
+
+  // Balance state for post-import flow
+  let existingBalance = $state<number | null>(null);
+  let existingBalanceDate = $state<string | null>(null);
+  let balanceInput = $state("");
+  let balanceDateInput = $state("");
+  let runBackfillChecked = $state(false);
+  let isSavingBalance = $state(false);
+  let balanceError = $state<string | null>(null);
 
   // Import state
   let filePath = $state("");
@@ -54,6 +65,14 @@
       error = null;
       isImporting = false;
       isLoadingPreview = false;
+      // Reset balance state
+      existingBalance = null;
+      existingBalanceDate = null;
+      balanceInput = "";
+      balanceDateInput = new Date().toISOString().split("T")[0];
+      runBackfillChecked = false;
+      isSavingBalance = false;
+      balanceError = null;
       checkDemoMode();
     }
   });
@@ -61,6 +80,80 @@
   async function checkDemoMode() {
     demoModeWarning = await getDemoMode();
   }
+
+  // Load existing balance for the account
+  async function loadExistingBalance() {
+    try {
+      const res = await executeQuery(`
+        SELECT balance, snapshot_time
+        FROM sys_balance_snapshots
+        WHERE account_id = '${accountId}'
+        ORDER BY snapshot_time DESC
+        LIMIT 1
+      `);
+      if (res.rows.length > 0) {
+        existingBalance = res.rows[0][0] as number;
+        const snapshotTime = res.rows[0][1] as string;
+        existingBalanceDate = snapshotTime.split("T")[0];
+        // Pre-fill the balance input
+        balanceInput = Math.abs(existingBalance).toFixed(2);
+      }
+    } catch (e) {
+      console.error("Failed to load existing balance", e);
+    }
+  }
+
+  // Save balance snapshot
+  async function saveBalance() {
+    const balance = parseFloat(balanceInput);
+    if (isNaN(balance)) {
+      balanceError = "Please enter a valid balance";
+      return;
+    }
+
+    isSavingBalance = true;
+    balanceError = null;
+
+    try {
+      const snapshotId = crypto.randomUUID();
+      const snapshotTime = `${balanceDateInput}T23:59:59`;
+      const now = new Date().toISOString();
+
+      await executeQuery(
+        `INSERT INTO sys_balance_snapshots (snapshot_id, account_id, balance, snapshot_time, created_at, updated_at)
+         VALUES ('${snapshotId}', '${accountId}', ${balance}, '${snapshotTime}', '${now}', '${now}')`,
+        { readonly: false }
+      );
+
+      // Update existing balance state
+      existingBalance = balance;
+      existingBalanceDate = balanceDateInput;
+
+      // Run backfill if checkbox is checked
+      if (runBackfillChecked) {
+        try {
+          await runBackfill(accountId);
+        } catch (backfillError) {
+          console.error("Backfill failed:", backfillError);
+          // Don't fail the whole save, just log the error
+          // The balance was saved successfully
+        }
+      }
+    } catch (e) {
+      balanceError = e instanceof Error ? e.message : "Failed to save balance";
+    } finally {
+      isSavingBalance = false;
+    }
+  }
+
+  // Derived: can run backfill (need a balance)
+  let canBackfill = $derived(existingBalance !== null || balanceInput.trim() !== "");
+
+  // Derived: is balance form valid
+  let isBalanceValid = $derived(() => {
+    const balance = parseFloat(balanceInput);
+    return !isNaN(balance) && balanceDateInput.length === 10;
+  });
 
   // Auto-update preview when mapping or options change
   $effect(() => {
@@ -181,6 +274,8 @@
         flipSigns,
         debitNegative
       );
+      // After successful import, load existing balance for post-import flow
+      await loadExistingBalance();
     } catch (e) {
       error = e instanceof Error ? e.message : "Import failed";
     } finally {
@@ -225,18 +320,73 @@
     {/if}
 
     {#if result}
-      <!-- Import complete -->
+      <!-- Import complete - unified post-import flow -->
       <div class="import-done">
-        <div class="done-icon">✓</div>
-        <p class="done-message">Import Complete</p>
-        <div class="import-stats">
-          <div class="stat">
-            <span class="stat-value">{result.imported}</span>
-            <span class="stat-label">Imported</span>
+        <div class="done-header">
+          <div class="done-icon">✓</div>
+          <div class="done-text">
+            <p class="done-message">Import Complete</p>
+            <p class="done-stats">{result.imported} imported, {result.skipped} skipped</p>
           </div>
-          <div class="stat">
-            <span class="stat-value">{result.skipped}</span>
-            <span class="stat-label">Skipped</span>
+        </div>
+
+        <div class="balance-section">
+          <div class="balance-header">
+            <span class="balance-title">Account Balance</span>
+          </div>
+
+          {#if existingBalance !== null}
+            <div class="balance-current">
+              <span class="balance-amount">${Math.abs(existingBalance).toFixed(2)}</span>
+              <span class="balance-date">as of {existingBalanceDate}</span>
+              <button class="btn-link" onclick={() => { existingBalance = null; }}>Update</button>
+            </div>
+          {:else}
+            <div class="balance-form">
+              {#if balanceError}
+                <div class="balance-error">{balanceError}</div>
+              {/if}
+              <p class="balance-hint">
+                To track this account's balance, enter the current balance from your bank.
+              </p>
+              <div class="balance-inputs">
+                <div class="input-group">
+                  <label>Balance</label>
+                  <div class="input-with-prefix">
+                    <span class="input-prefix">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      bind:value={balanceInput}
+                    />
+                  </div>
+                </div>
+                <div class="input-group">
+                  <label>As of</label>
+                  <input
+                    type="date"
+                    bind:value={balanceDateInput}
+                  />
+                </div>
+              </div>
+            </div>
+          {/if}
+
+          <div class="backfill-section">
+            <label class="checkbox-label" class:disabled={!canBackfill}>
+              <input type="checkbox" bind:checked={runBackfillChecked} disabled={!canBackfill} />
+              <span class="checkbox-content">
+                <span class="checkbox-title">Calculate historical balances</span>
+                <span class="checkbox-desc">
+                  {#if canBackfill}
+                    Estimate past balances from your transaction history
+                  {:else}
+                    Set a balance first to enable this option
+                  {/if}
+                </span>
+              </span>
+            </label>
           </div>
         </div>
       </div>
@@ -387,7 +537,14 @@
 
   {#snippet actions()}
     {#if result}
-      <button class="btn primary" onclick={handleClose}>Done</button>
+      {#if existingBalance === null && balanceInput.trim()}
+        <button class="btn secondary" onclick={handleClose}>Skip</button>
+        <button class="btn primary" onclick={saveBalance} disabled={!isBalanceValid() || isSavingBalance}>
+          {isSavingBalance ? "Saving..." : "Save & Done"}
+        </button>
+      {:else}
+        <button class="btn primary" onclick={handleClose}>Done</button>
+      {/if}
     {:else if isImporting}
       <button class="btn secondary" disabled>Importing...</button>
     {:else}
@@ -446,50 +603,209 @@
   }
 
   .import-done {
-    text-align: center;
-    padding: var(--spacing-xl);
+    padding: var(--spacing-md);
+  }
+
+  .done-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
   }
 
   .done-icon {
-    width: 48px;
-    height: 48px;
-    margin: 0 auto var(--spacing-md);
+    width: 36px;
+    height: 36px;
     background: var(--accent-success, #22c55e);
     color: white;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+
+  .done-text {
+    flex: 1;
   }
 
   .done-message {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
-    margin: 0 0 var(--spacing-lg);
+    margin: 0;
   }
 
-  .import-stats {
+  .done-stats {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 2px 0 0 0;
+  }
+
+  .balance-section {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: var(--spacing-md);
+  }
+
+  .balance-header {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .balance-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+
+  .balance-current {
     display: flex;
-    justify-content: center;
-    gap: var(--spacing-xl);
+    align-items: baseline;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) 0;
   }
 
-  .stat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .stat-value {
-    font-size: 24px;
-    font-weight: 700;
+  .balance-amount {
+    font-size: 20px;
+    font-weight: 600;
+    font-family: var(--font-mono);
     color: var(--text-primary);
   }
 
-  .stat-label {
+  .balance-date {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .balance-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .balance-error {
+    padding: var(--spacing-sm);
+    background: rgba(239, 68, 68, 0.15);
+    border-radius: 4px;
+    color: var(--accent-danger, #ef4444);
     font-size: 12px;
+  }
+
+  .balance-hint {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .balance-inputs {
+    display: flex;
+    gap: var(--spacing-md);
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .input-group label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .input-with-prefix {
+    display: flex;
+    align-items: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .input-with-prefix:focus-within {
+    border-color: var(--accent-primary);
+  }
+
+  .input-prefix {
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    font-size: 13px;
+    border-right: 1px solid var(--border-primary);
+  }
+
+  .input-with-prefix input {
+    flex: 1;
+    padding: 6px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    min-width: 0;
+  }
+
+  .input-with-prefix input:focus {
+    outline: none;
+  }
+
+  .input-group input[type="date"] {
+    padding: 6px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+  }
+
+  .input-group input[type="date"]:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .backfill-section {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .backfill-section .checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+  }
+
+  .backfill-section .checkbox-label.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .backfill-section .checkbox-label input {
+    margin-top: 2px;
+  }
+
+  .checkbox-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .checkbox-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .checkbox-desc {
+    font-size: 11px;
     color: var(--text-muted);
   }
 

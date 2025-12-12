@@ -55,6 +55,8 @@ export {
   getDisabledPlugins,
   enablePlugin,
   disablePlugin,
+  // Backfill
+  runBackfill,
   // CSV Import
   pickCsvFile,
   getCsvHeaders,

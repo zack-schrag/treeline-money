@@ -344,6 +344,20 @@ export async function disableDemo(): Promise<void> {
 }
 
 // ============================================================================
+// Backfill
+// ============================================================================
+
+/**
+ * Run balance backfill for an account
+ * Calculates historical balances by walking backwards from a known balance snapshot
+ */
+export async function runBackfill(accountId?: string): Promise<void> {
+  await invoke<void>("run_backfill", {
+    accountId: accountId || null,
+  });
+}
+
+// ============================================================================
 // CSV Import
 // ============================================================================
 

@@ -723,6 +723,29 @@ async fn get_csv_headers(file_path: String) -> Result<Vec<String>, String> {
     Ok(headers)
 }
 
+/// Run balance backfill via CLI
+/// Calculates historical balances by walking backwards from a known balance snapshot
+#[tauri::command]
+async fn run_backfill(app: AppHandle, account_id: Option<String>) -> Result<(), String> {
+    let mut args = vec!["backfill".to_string(), "balances".to_string()];
+
+    if let Some(id) = account_id {
+        args.push("--account-id".to_string());
+        args.push(id);
+    }
+
+    let output = run_cli(&app, &args).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Backfill failed: {}", error_msg));
+    }
+
+    Ok(())
+}
+
 /// Setup SimpleFIN integration via CLI
 #[tauri::command]
 async fn setup_simplefin(app: AppHandle, token: String) -> Result<String, String> {
@@ -877,7 +900,8 @@ pub fn run() {
             import_csv_execute,
             pick_csv_file,
             get_csv_headers,
-            setup_simplefin
+            setup_simplefin,
+            run_backfill
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
