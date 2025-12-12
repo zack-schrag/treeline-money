@@ -942,8 +942,8 @@
     // Don't auto-advance cursor or deselect - let users apply multiple tags or clear+tag
     // They can press Esc to deselect or j/k to move when ready
 
-    // Persist in background (fire and forget)
-    persistTagChanges(indices.map(i => transactions[i]));
+    // Persist and refresh suggestions
+    await persistTagChanges(indices.map(i => transactions[i]));
 
     // Prompt to save as rule if enough transactions were tagged
     if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
@@ -1027,6 +1027,13 @@
       // Update hasAnyTags flag if we just added tags
       if (tagAdded && txns.some(t => t.tags.length > 0)) {
         hasAnyTags = true;
+      }
+
+      // Refresh suggestions so newly added tags appear in quick tags
+      await suggester.refresh();
+      allTags = suggester.getAllTags();
+      if (transactions.length > 0) {
+        suggestions = await suggester.suggestBatch(transactions, 9);
       }
     } catch (e) {
       console.error("Failed to persist tags:", e);
@@ -1142,8 +1149,8 @@
     // Don't auto-advance or deselect - let users apply multiple operations
     cancelCustomTagging();
 
-    // Persist in background
-    persistTagChanges(indices.map(i => transactions[i]));
+    // Persist and refresh suggestions
+    await persistTagChanges(indices.map(i => transactions[i]));
 
     // Prompt to save as rule if enough transactions were tagged
     if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
@@ -1184,8 +1191,8 @@
 
     // Don't auto-advance or deselect - let users clear then tag
 
-    // Persist in background
-    persistTagChanges(indices.map(i => transactions[i]));
+    // Persist and refresh suggestions
+    await persistTagChanges(indices.map(i => transactions[i]));
   }
 
   // Remove tags (same as clear for now)
@@ -1219,7 +1226,7 @@
 
     pushUndo(undoEntries);
     transactions = [...transactions];
-    persistTagChanges(indices.map(i => transactions[i]));
+    await persistTagChanges(indices.map(i => transactions[i]));
   }
 
   // Transaction edit modal functions
@@ -1899,7 +1906,7 @@
             {#if !hasAnyTags && pinnedQuickTags.length === 0}
               <div class="sidebar-empty-state">
                 <p>No tags yet!</p>
-                <p class="empty-hint">Press <kbd>T</kbd> to type a tag name</p>
+                <p class="empty-hint">Create your first tag below</p>
               </div>
             {:else}
               <div class="sidebar-empty">No suggestions for selection</div>
@@ -1917,6 +1924,34 @@
                 </button>
               {/each}
             </div>
+          {/if}
+          <!-- Custom tag input (inline in sidebar) -->
+          {#if isCustomTagging}
+            <div class="inline-tag-input">
+              <input
+                bind:this={customTagInputEl}
+                type="text"
+                bind:value={customTagInput}
+                onkeydown={handleCustomTagKeyDown}
+                placeholder="Enter tags, comma-separated"
+              />
+              <div class="inline-tag-actions">
+                <button class="inline-btn apply" onclick={applyCustomTag} title="Apply (Enter)">
+                  <Icon name="check" size={14} />
+                </button>
+                <button class="inline-btn cancel" onclick={cancelCustomTagging} title="Cancel (Esc)">
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+              {#if tagAutocomplete}
+                <span class="inline-autocomplete-hint">{tagAutocomplete}</span>
+              {/if}
+            </div>
+          {:else}
+            <button class="custom-tag-btn" onclick={startCustomTagging}>
+              <span class="tag-shortcut custom">t</span>
+              <span class="tag-name">Type a tag...</span>
+            </button>
           {/if}
         </div>
 
@@ -1962,7 +1997,7 @@
             {#if !hasAnyTags && pinnedQuickTags.length === 0}
               <div class="sidebar-empty-state">
                 <p>No tags yet!</p>
-                <p class="empty-hint">Press <kbd>T</kbd> to type a tag name</p>
+                <p class="empty-hint">Create your first tag below</p>
               </div>
             {:else}
               <div class="sidebar-empty">No suggestions</div>
@@ -1980,6 +2015,34 @@
                 </button>
               {/each}
             </div>
+          {/if}
+          <!-- Custom tag input (inline in sidebar) -->
+          {#if isCustomTagging}
+            <div class="inline-tag-input">
+              <input
+                bind:this={customTagInputEl}
+                type="text"
+                bind:value={customTagInput}
+                onkeydown={handleCustomTagKeyDown}
+                placeholder="Enter tags, comma-separated"
+              />
+              <div class="inline-tag-actions">
+                <button class="inline-btn apply" onclick={applyCustomTag} title="Apply (Enter)">
+                  <Icon name="check" size={14} />
+                </button>
+                <button class="inline-btn cancel" onclick={cancelCustomTagging} title="Cancel (Esc)">
+                  <Icon name="x" size={14} />
+                </button>
+              </div>
+              {#if tagAutocomplete}
+                <span class="inline-autocomplete-hint">{tagAutocomplete}</span>
+              {/if}
+            </div>
+          {:else}
+            <button class="custom-tag-btn" onclick={startCustomTagging}>
+              <span class="tag-shortcut custom">t</span>
+              <span class="tag-name">Type a tag...</span>
+            </button>
           {/if}
         </div>
 
@@ -2054,34 +2117,18 @@
   </div>
 
   <!-- Command bar / Footer -->
-  <div class="command-bar" class:active={isCustomTagging}>
-    {#if isCustomTagging}
-      <div class="command-input-row">
-        <span class="command-prefix">tag ({getTargetCount()}):</span>
-        <span class="input-wrapper">
-          <input
-            bind:this={customTagInputEl}
-            type="text"
-            class="command-input"
-            bind:value={customTagInput}
-            placeholder="enter tags, comma-separated"
-          />{#if tagAutocomplete}<span class="autocomplete-hint" style="left: {customTagInput.length}ch">{tagAutocomplete}</span>{/if}
-        </span>
-        <span class="command-hint"><kbd>Tab</kbd> complete <kbd>Enter</kbd> apply <kbd>Esc</kbd> cancel</span>
-      </div>
-    {:else}
-      <!-- Default keyboard shortcuts footer -->
-      <div class="shortcuts-row">
-        <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
-        <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
-        <span class="shortcut"><kbd>t</kbd> custom tag</span>
-        <span class="shortcut"><kbd>c</kbd> clear tags</span>
-        <span class="shortcut"><kbd>a</kbd> toggle all</span>
-        <span class="shortcut"><kbd>space</kbd> select</span>
-        <span class="shortcut"><kbd>n</kbd> next untagged</span>
-        <span class="shortcut"><kbd>{modKey()}Z</kbd> undo</span>
-      </div>
-    {/if}
+  <div class="command-bar">
+    <!-- Keyboard shortcuts footer -->
+    <div class="shortcuts-row">
+      <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
+      <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
+      <span class="shortcut"><kbd>t</kbd> custom tag</span>
+      <span class="shortcut"><kbd>c</kbd> clear tags</span>
+      <span class="shortcut"><kbd>a</kbd> toggle all</span>
+      <span class="shortcut"><kbd>space</kbd> select</span>
+      <span class="shortcut"><kbd>n</kbd> next untagged</span>
+      <span class="shortcut"><kbd>{modKey()}Z</kbd> undo</span>
+    </div>
   </div>
 </div>
 
@@ -2818,6 +2865,128 @@
     align-items: center;
     flex-shrink: 0;
     color: var(--text-muted);
+  }
+
+  /* Custom tag button - styled similarly to quick tags but distinct */
+  .custom-tag-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    width: 100%;
+    padding: 4px 8px;
+    margin-top: var(--spacing-sm);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+  }
+
+  .custom-tag-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+  }
+
+  .custom-tag-btn .tag-shortcut.custom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+    border: 1px solid var(--border-primary);
+  }
+
+  .custom-tag-btn:hover .tag-shortcut.custom {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+  }
+
+  .custom-tag-btn .tag-name {
+    color: var(--text-muted);
+  }
+
+  .custom-tag-btn:hover .tag-name {
+    color: var(--text-primary);
+  }
+
+  /* Inline tag input in sidebar */
+  .inline-tag-input {
+    position: relative;
+    margin-top: var(--spacing-sm);
+  }
+
+  .inline-tag-input input {
+    width: 100%;
+    padding: 6px 70px 6px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+  }
+
+  .inline-tag-input input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  }
+
+  .inline-tag-actions {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    gap: 2px;
+  }
+
+  .inline-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .inline-btn.apply {
+    background: var(--accent-success, #22c55e);
+    color: white;
+  }
+
+  .inline-btn.apply:hover {
+    opacity: 0.9;
+  }
+
+  .inline-btn.cancel {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+
+  .inline-btn.cancel:hover {
+    background: var(--accent-danger);
+    color: white;
+  }
+
+  .inline-autocomplete-hint {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0.5;
   }
 
   .split-info {

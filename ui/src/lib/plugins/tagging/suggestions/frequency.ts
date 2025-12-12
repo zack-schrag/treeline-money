@@ -62,34 +62,61 @@ export class FrequencyBasedSuggester implements TagSuggester {
     const merchantTagFrequencies = new Map<string, Map<string, number>>();
 
     try {
-      // Single query to get all tagged transactions with their descriptions
-      const result = await executeQuery(`
-        SELECT description, tags
-        FROM transactions
-        WHERE tags IS NOT NULL AND len(tags) > 0
+      // Optimized: Use aggregation queries instead of fetching all rows
+      // This returns ~50-100 rows instead of potentially 20-30K
+
+      // Query 1: Global tag frequencies
+      const globalResult = await executeQuery(`
+        WITH unnested AS (
+          SELECT UNNEST(tags) as tag
+          FROM transactions
+          WHERE tags IS NOT NULL AND len(tags) > 0
+        )
+        SELECT tag, COUNT(*) as cnt
+        FROM unnested
+        GROUP BY tag
       `);
 
-      for (const row of result.rows) {
-        const description = row[0] as string;
-        const tags = (row[1] as string[]) || [];
+      for (const row of globalResult.rows) {
+        const tag = row[0] as string;
+        const count = row[1] as number;
+        globalFrequencies.set(tag, count);
+      }
 
-        // Extract merchant pattern
-        const pattern = this.extractMerchantPattern(description);
+      // Query 2: Merchant-specific tag frequencies
+      // Extract first significant word as merchant pattern (uppercase, skip short words)
+      const merchantResult = await executeQuery(`
+        WITH base AS (
+          SELECT
+            CASE
+              WHEN LENGTH(SPLIT_PART(UPPER(REGEXP_REPLACE(description, '[*#]+', ' ', 'g')), ' ', 1)) <= 3
+                AND LENGTH(TRIM(SPLIT_PART(UPPER(REGEXP_REPLACE(description, '[*#]+', ' ', 'g')), ' ', 2))) > 0
+              THEN TRIM(SPLIT_PART(UPPER(REGEXP_REPLACE(description, '[*#]+', ' ', 'g')), ' ', 1)) || ' ' ||
+                   TRIM(SPLIT_PART(UPPER(REGEXP_REPLACE(description, '[*#]+', ' ', 'g')), ' ', 2))
+              ELSE TRIM(SPLIT_PART(UPPER(REGEXP_REPLACE(description, '[*#]+', ' ', 'g')), ' ', 1))
+            END as merchant,
+            UNNEST(tags) as tag
+          FROM transactions
+          WHERE tags IS NOT NULL AND len(tags) > 0
+            AND LENGTH(TRIM(description)) > 2
+        )
+        SELECT merchant, tag, COUNT(*) as cnt
+        FROM base
+        WHERE LENGTH(merchant) > 2
+        GROUP BY merchant, tag
+      `);
 
-        for (const tag of tags) {
-          // Global frequency
-          globalFrequencies.set(tag, (globalFrequencies.get(tag) || 0) + 1);
+      for (const row of merchantResult.rows) {
+        const merchant = row[0] as string;
+        const tag = row[1] as string;
+        const count = row[2] as number;
 
-          // Merchant-specific frequency
-          if (pattern) {
-            let merchantTags = merchantTagFrequencies.get(pattern);
-            if (!merchantTags) {
-              merchantTags = new Map();
-              merchantTagFrequencies.set(pattern, merchantTags);
-            }
-            merchantTags.set(tag, (merchantTags.get(tag) || 0) + 1);
-          }
+        let merchantTags = merchantTagFrequencies.get(merchant);
+        if (!merchantTags) {
+          merchantTags = new Map();
+          merchantTagFrequencies.set(merchant, merchantTags);
         }
+        merchantTags.set(tag, count);
       }
     } catch (e) {
       console.error("Failed to load tag data:", e);
