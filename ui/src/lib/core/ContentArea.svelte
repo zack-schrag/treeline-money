@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { registry } from "../sdk";
+  import { registry, modKey } from "../sdk";
   import type { Tab, ViewDefinition } from "../sdk";
 
   let activeTab = $state<Tab | null>(registry.activeTab);
@@ -56,19 +56,19 @@
       <div class="empty-content">
         <div class="empty-logo">◈</div>
         <h2 class="empty-title">treeline</h2>
-        <p class="empty-subtitle">Select a view from the sidebar or press <kbd>⌘P</kbd> to open the command palette</p>
+        <p class="empty-subtitle">Select a view from the sidebar or press <kbd>{modKey()}P</kbd> to open the command palette</p>
 
         <div class="keyboard-hints">
           <div class="hint-group">
-            <kbd>⌘P</kbd>
+            <kbd>{modKey()}P</kbd>
             <span>Command palette</span>
           </div>
           <div class="hint-group">
-            <kbd>⌘1-9</kbd>
+            <kbd>{modKey()}1-9</kbd>
             <span>Switch tabs</span>
           </div>
           <div class="hint-group">
-            <kbd>⌘W</kbd>
+            <kbd>{modKey()}W</kbd>
             <span>Close tab</span>
           </div>
         </div>

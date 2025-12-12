@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { registry } from "../sdk";
+  import { registry, modKey, formatShortcut } from "../sdk";
   import type { Command } from "../sdk";
 
   let { isOpen = $bindable(false) } = $props();
@@ -101,7 +101,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="palette" onclick={(e) => e.stopPropagation()}>
       <div class="palette-input-container">
-        <span class="palette-icon">⌘</span>
+        <span class="palette-icon">{modKey()}</span>
         <input
           bind:this={inputEl}
           bind:value={searchQuery}
@@ -129,7 +129,7 @@
                 >
                   <span class="item-name">{cmd.name}</span>
                   {#if cmd.shortcut}
-                    <span class="item-shortcut">{cmd.shortcut}</span>
+                    <span class="item-shortcut">{formatShortcut(cmd.shortcut)}</span>
                   {/if}
                 </div>
               {/each}

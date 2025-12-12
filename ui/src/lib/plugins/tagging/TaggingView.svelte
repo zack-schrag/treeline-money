@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { executeQuery, showToast, registry } from "../../sdk";
+  import { executeQuery, showToast, registry, modKey } from "../../sdk";
   import { RowMenu, type RowMenuItem } from "../../shared";
   import { FrequencyBasedSuggester } from "./suggestions";
   import type { Transaction, TagSuggestion, SplitAmount, AccountInfo } from "./types";
@@ -1707,7 +1707,7 @@
         onkeydown={handleSearchKeyDown}
         onfocus={() => isSearching = true}
         onblur={() => isSearching = false}
-        placeholder="Search transactions... (/ or ⌘F)"
+        placeholder={`Search transactions... (/ or ${modKey()}F)`}
       />
       {#if searchQuery}
         <button class="clear-search" onclick={clearSearch}>×</button>
@@ -2011,7 +2011,7 @@
         <span class="shortcut"><kbd>a</kbd> toggle all</span>
         <span class="shortcut"><kbd>space</kbd> select</span>
         <span class="shortcut"><kbd>n</kbd> next untagged</span>
-        <span class="shortcut"><kbd>⌘Z</kbd> undo</span>
+        <span class="shortcut"><kbd>{modKey()}Z</kbd> undo</span>
       </div>
     {/if}
   </div>

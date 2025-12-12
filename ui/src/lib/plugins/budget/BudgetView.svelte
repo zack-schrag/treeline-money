@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { executeQuery, registry } from "../../sdk";
+  import { executeQuery, registry, modKey } from "../../sdk";
   import { Modal, RowMenu, type RowMenuItem } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, Transaction, Transfer } from "./types";
   import * as budgetDb from "./db";
@@ -1220,7 +1220,7 @@
     <span class="shortcut"><kbd>d</kbd> delete</span>
     <span class="shortcut"><kbd>h</kbd><kbd>l</kbd> month</span>
     <span class="shortcut"><kbd>t</kbd> this month</span>
-    <span class="shortcut"><kbd>⌘↑</kbd><kbd>⌘↓</kbd> reorder</span>
+    <span class="shortcut"><kbd>{modKey()}↑</kbd><kbd>{modKey()}↓</kbd> reorder</span>
   </div>
 
   <Modal

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { executeQuery, type QueryResult } from "../../sdk";
+  import { executeQuery, type QueryResult, modKey } from "../../sdk";
   import { onMount } from "svelte";
   import { EditorView, keymap, placeholder } from "@codemirror/view";
   import { EditorState } from "@codemirror/state";
@@ -583,7 +583,7 @@
         </button>
         <button class="run-button" onclick={runQuery} disabled={isLoading} aria-label="Run query (Command+Enter)">
           {isLoading ? "Running..." : "Run Query"}
-          <span class="shortcut" aria-hidden="true">⌘↵</span>
+          <span class="shortcut" aria-hidden="true">{modKey()}↵</span>
         </button>
       </div>
     </div>
@@ -632,9 +632,9 @@
         </div>
       </div>
       <div class="shortcuts" aria-label="Keyboard shortcuts">
-        <span class="shortcut-item"><kbd>⌘</kbd><kbd>↵</kbd> Run</span>
-        <span class="shortcut-item"><kbd>⌘</kbd><kbd>L</kbd> Clear</span>
-        <span class="shortcut-item"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>F</kbd> Format</span>
+        <span class="shortcut-item"><kbd>{modKey()}</kbd><kbd>↵</kbd> Run</span>
+        <span class="shortcut-item"><kbd>{modKey()}</kbd><kbd>L</kbd> Clear</span>
+        <span class="shortcut-item"><kbd>{modKey()}</kbd><kbd>⇧</kbd><kbd>F</kbd> Format</span>
       </div>
     </div>
   </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { subscribeToToasts, dismissToast, type Toast } from "../sdk/toast.svelte";
+  import { formatShortcut } from "../sdk";
 
   let toasts = $state<Toast[]>([]);
   let unsubscribe: (() => void) | null = null;
@@ -61,16 +62,6 @@
         }
       }
     }
-  }
-
-  function formatShortcut(shortcut: string): string {
-    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-    return shortcut
-      .replace(/cmd\+/i, isMac ? "⌘" : "Ctrl+")
-      .replace(/ctrl\+/i, "Ctrl+")
-      .replace(/alt\+/i, isMac ? "⌥" : "Alt+")
-      .replace(/shift\+/i, "⇧")
-      .toUpperCase();
   }
 
   function getIcon(type: Toast["type"]): string {

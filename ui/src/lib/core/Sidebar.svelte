@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { registry, getAppSetting, setAppSetting } from "../sdk";
+  import { registry, getAppSetting, setAppSetting, modKey } from "../sdk";
   import { Icon, getIconName } from "../shared";
 
   // Collapsed state
@@ -98,7 +98,7 @@
       </span>
       {#if !isCollapsed}
         <span class="item-label">Settings</span>
-        <span class="item-shortcut">⌘,</span>
+        <span class="item-shortcut">{modKey()},</span>
       {/if}
     </button>
     <button class="sidebar-item" onclick={() => registry.executeCommand("core:command-palette")} title={isCollapsed ? "Commands" : undefined}>
@@ -107,7 +107,7 @@
       </span>
       {#if !isCollapsed}
         <span class="item-label">Commands</span>
-        <span class="item-shortcut">⌘P</span>
+        <span class="item-shortcut">{modKey()}P</span>
       {/if}
     </button>
   </div>

@@ -49,7 +49,7 @@
       id: "core:command-palette",
       name: "Open Command Palette",
       category: "Core",
-      shortcut: "⌘P",
+      shortcut: "cmd+P",
       execute: () => {
         commandPaletteOpen = true;
       },
@@ -59,7 +59,7 @@
       id: "core:settings",
       name: "Open Settings",
       category: "Core",
-      shortcut: "⌘,",
+      shortcut: "cmd+,",
       execute: () => {
         settingsModalOpen = true;
       },

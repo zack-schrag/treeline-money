@@ -82,3 +82,6 @@ export type { Toast, ToastOptions, ToastType } from "./toast.svelte";
 // Activity tracking (for status bar)
 export { activityStore, withActivity } from "./activity.svelte";
 export type { Activity } from "./activity.svelte";
+
+// Platform utilities
+export { isMac, modKey, formatShortcut } from "./platform";
