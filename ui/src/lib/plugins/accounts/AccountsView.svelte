@@ -128,6 +128,16 @@
   let setBalanceCurrentBalance = $state<number | null>(null);
   let setBalanceCurrentDate = $state<string | null>(null);
 
+  // Expanded row for balance history
+  let expandedAccountId = $state<string | null>(null);
+  let expandedSnapshots = $state<{
+    snapshot_id: string;
+    balance: number;
+    snapshot_time: string;
+    source: string;
+  }[]>([]);
+  let expandedSnapshotsLoading = $state(false);
+
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
   let liabilityAccounts = $derived(accounts.filter((a) => a.classification === "liability"));
@@ -782,6 +792,62 @@
     }
   }
 
+  async function toggleRowExpansion(account: AccountWithStats) {
+    if (expandedAccountId === account.account_id) {
+      // Collapse
+      expandedAccountId = null;
+      expandedSnapshots = [];
+    } else {
+      // Expand and load snapshots
+      expandedAccountId = account.account_id;
+      expandedSnapshotsLoading = true;
+      expandedSnapshots = [];
+
+      try {
+        const result = await executeQuery(`
+          SELECT
+            snapshot_id,
+            balance,
+            snapshot_time,
+            source
+          FROM sys_balance_snapshots
+          WHERE account_id = '${account.account_id}'
+          ORDER BY snapshot_time DESC
+          LIMIT 50
+        `);
+
+        expandedSnapshots = result.rows.map((row) => ({
+          snapshot_id: row[0] as string,
+          balance: row[1] as number,
+          snapshot_time: row[2] as string,
+          source: row[3] as string,
+        }));
+      } catch (e) {
+        console.error("Failed to load snapshots:", e);
+        expandedSnapshots = [];
+      } finally {
+        expandedSnapshotsLoading = false;
+      }
+    }
+  }
+
+  async function deleteSnapshot(snapshotId: string) {
+    try {
+      await executeQuery(
+        `DELETE FROM sys_balance_snapshots WHERE snapshot_id = '${snapshotId}'`,
+        { readonly: false }
+      );
+      // Remove from local state
+      expandedSnapshots = expandedSnapshots.filter((s) => s.snapshot_id !== snapshotId);
+      // Reload accounts to update balance display
+      await loadAccounts();
+      showToast({ type: "success", title: "Snapshot deleted" });
+    } catch (e) {
+      console.error("Failed to delete snapshot:", e);
+      showToast({ type: "error", title: "Failed to delete snapshot" });
+    }
+  }
+
   async function showPreview(account: AccountWithStats) {
     previewAccount = account;
     previewLoading = true;
@@ -1304,38 +1370,87 @@ LIMIT 100`;
             </div>
             {#each assetAccounts as account, i}
               {@const globalIndex = i}
-              <div
-                class="row"
-                class:cursor={cursorIndex === globalIndex}
-                class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
-                data-index={globalIndex}
-                onclick={() => handleRowClick(globalIndex)}
-                ondblclick={() => handleRowDoubleClick(globalIndex)}
-                role="button"
-                tabindex="-1"
-              >
-                <div class="row-name">
-                  <span class="account-name">{getDisplayName(account)}</span>
-                  {#if getSubtitle(account)}
-                    <span class="account-subtitle">{getSubtitle(account)}</span>
-                  {/if}
+              {@const isExpanded = expandedAccountId === account.account_id}
+              <div class="row-container" class:expanded={isExpanded}>
+                <div
+                  class="row"
+                  class:cursor={cursorIndex === globalIndex}
+                  class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
+                  data-index={globalIndex}
+                  onclick={() => handleRowClick(globalIndex)}
+                  ondblclick={() => handleRowDoubleClick(globalIndex)}
+                  role="button"
+                  tabindex="-1"
+                >
+                  <button
+                    class="expand-btn"
+                    onclick={(e) => { e.stopPropagation(); toggleRowExpansion(account); }}
+                    title={isExpanded ? "Hide balance history" : "Show balance history"}
+                  >
+                    {isExpanded ? "▼" : "▶"}
+                  </button>
+                  <div class="row-name">
+                    <span class="account-name">{getDisplayName(account)}</span>
+                    {#if getSubtitle(account)}
+                      <span class="account-subtitle">{getSubtitle(account)}</span>
+                    {/if}
+                  </div>
+                  <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
+                  <div class="row-type">{account.account_type || "—"}</div>
+                  <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
+                  <div class="row-last">{formatDate(account.last_transaction)}</div>
+                  <RowMenu
+                    items={[
+                      { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                      { label: "Set Balance", action: () => openSetBalanceModal(account) },
+                      { label: "Import CSV", action: () => openImportModal(account) },
+                      { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
+                    ]}
+                    isOpen={menuOpenForAccount === account.account_id}
+                    onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                    onClose={closeAccountMenu}
+                    title="Account actions"
+                  />
                 </div>
-                <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
-                <div class="row-type">{account.account_type || "—"}</div>
-                <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
-                <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <RowMenu
-                  items={[
-                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
-                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
-                    { label: "Import CSV", action: () => openImportModal(account) },
-                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
-                  ]}
-                  isOpen={menuOpenForAccount === account.account_id}
-                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
-                  onClose={closeAccountMenu}
-                  title="Account actions"
-                />
+                {#if isExpanded}
+                  <div class="snapshot-history">
+                    {#if expandedSnapshotsLoading}
+                      <div class="snapshot-loading">Loading snapshots...</div>
+                    {:else if expandedSnapshots.length === 0}
+                      <div class="snapshot-empty">
+                        <span>No balance snapshots</span>
+                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add one</button>
+                      </div>
+                    {:else}
+                      <div class="snapshot-list">
+                        <div class="snapshot-header">
+                          <span class="snapshot-col-date">Date</span>
+                          <span class="snapshot-col-balance">Balance</span>
+                          <span class="snapshot-col-source">Source</span>
+                          <span class="snapshot-col-actions"></span>
+                        </div>
+                        {#each expandedSnapshots as snapshot}
+                          <div class="snapshot-row">
+                            <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
+                            <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
+                            <span class="snapshot-col-source">{snapshot.source || "—"}</span>
+                            <span class="snapshot-col-actions">
+                              <button
+                                class="snapshot-delete-btn"
+                                onclick={() => deleteSnapshot(snapshot.snapshot_id)}
+                                title="Delete snapshot"
+                              >×</button>
+                            </span>
+                          </div>
+                        {/each}
+                      </div>
+                      <div class="snapshot-footer">
+                        <span class="snapshot-count">{expandedSnapshots.length} snapshot{expandedSnapshots.length !== 1 ? "s" : ""}</span>
+                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add new</button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             {/each}
           </div>
@@ -1350,38 +1465,87 @@ LIMIT 100`;
             </div>
             {#each liabilityAccounts as account, i}
               {@const globalIndex = assetAccounts.length + i}
-              <div
-                class="row"
-                class:cursor={cursorIndex === globalIndex}
-                class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
-                data-index={globalIndex}
-                onclick={() => handleRowClick(globalIndex)}
-                ondblclick={() => handleRowDoubleClick(globalIndex)}
-                role="button"
-                tabindex="-1"
-              >
-                <div class="row-name">
-                  <span class="account-name">{getDisplayName(account)}</span>
-                  {#if getSubtitle(account)}
-                    <span class="account-subtitle">{getSubtitle(account)}</span>
-                  {/if}
+              {@const isExpanded = expandedAccountId === account.account_id}
+              <div class="row-container" class:expanded={isExpanded}>
+                <div
+                  class="row"
+                  class:cursor={cursorIndex === globalIndex}
+                  class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
+                  data-index={globalIndex}
+                  onclick={() => handleRowClick(globalIndex)}
+                  ondblclick={() => handleRowDoubleClick(globalIndex)}
+                  role="button"
+                  tabindex="-1"
+                >
+                  <button
+                    class="expand-btn"
+                    onclick={(e) => { e.stopPropagation(); toggleRowExpansion(account); }}
+                    title={isExpanded ? "Hide balance history" : "Show balance history"}
+                  >
+                    {isExpanded ? "▼" : "▶"}
+                  </button>
+                  <div class="row-name">
+                    <span class="account-name">{getDisplayName(account)}</span>
+                    {#if getSubtitle(account)}
+                      <span class="account-subtitle">{getSubtitle(account)}</span>
+                    {/if}
+                  </div>
+                  <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
+                  <div class="row-type">{account.account_type || "—"}</div>
+                  <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
+                  <div class="row-last">{formatDate(account.last_transaction)}</div>
+                  <RowMenu
+                    items={[
+                      { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                      { label: "Set Balance", action: () => openSetBalanceModal(account) },
+                      { label: "Import CSV", action: () => openImportModal(account) },
+                      { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
+                    ]}
+                    isOpen={menuOpenForAccount === account.account_id}
+                    onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                    onClose={closeAccountMenu}
+                    title="Account actions"
+                  />
                 </div>
-                <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
-                <div class="row-type">{account.account_type || "—"}</div>
-                <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
-                <div class="row-last">{formatDate(account.last_transaction)}</div>
-                <RowMenu
-                  items={[
-                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
-                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
-                    { label: "Import CSV", action: () => openImportModal(account) },
-                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
-                  ]}
-                  isOpen={menuOpenForAccount === account.account_id}
-                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
-                  onClose={closeAccountMenu}
-                  title="Account actions"
-                />
+                {#if isExpanded}
+                  <div class="snapshot-history">
+                    {#if expandedSnapshotsLoading}
+                      <div class="snapshot-loading">Loading snapshots...</div>
+                    {:else if expandedSnapshots.length === 0}
+                      <div class="snapshot-empty">
+                        <span>No balance snapshots</span>
+                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add one</button>
+                      </div>
+                    {:else}
+                      <div class="snapshot-list">
+                        <div class="snapshot-header">
+                          <span class="snapshot-col-date">Date</span>
+                          <span class="snapshot-col-balance">Balance</span>
+                          <span class="snapshot-col-source">Source</span>
+                          <span class="snapshot-col-actions"></span>
+                        </div>
+                        {#each expandedSnapshots as snapshot}
+                          <div class="snapshot-row">
+                            <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
+                            <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
+                            <span class="snapshot-col-source">{snapshot.source || "—"}</span>
+                            <span class="snapshot-col-actions">
+                              <button
+                                class="snapshot-delete-btn"
+                                onclick={() => deleteSnapshot(snapshot.snapshot_id)}
+                                title="Delete snapshot"
+                              >×</button>
+                            </span>
+                          </div>
+                        {/each}
+                      </div>
+                      <div class="snapshot-footer">
+                        <span class="snapshot-count">{expandedSnapshots.length} snapshot{expandedSnapshots.length !== 1 ? "s" : ""}</span>
+                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add new</button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             {/each}
           </div>
@@ -2454,5 +2618,160 @@ LIMIT 100`;
     font-size: 10px;
     color: var(--text-secondary);
     margin-right: 2px;
+  }
+
+  /* Expandable row container */
+  .row-container {
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .row-container .row {
+    border-bottom: none;
+  }
+
+  .row-container.expanded {
+    background: var(--bg-secondary);
+  }
+
+  .expand-btn {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+    border-radius: 3px;
+    transition: background-color 0.15s, color 0.15s;
+  }
+
+  .expand-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  /* Snapshot history panel */
+  .snapshot-history {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    padding-left: calc(var(--spacing-lg) + 28px);
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-primary);
+  }
+
+  .snapshot-loading,
+  .snapshot-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: var(--spacing-sm) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+
+  .snapshot-list {
+    font-size: 12px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .snapshot-header {
+    display: grid;
+    grid-template-columns: 100px 120px 80px 40px;
+    gap: var(--spacing-md);
+    padding: var(--spacing-xs) 0;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-primary);
+    position: sticky;
+    top: 0;
+    background: var(--bg-tertiary);
+    z-index: 1;
+  }
+
+  .snapshot-row {
+    display: grid;
+    grid-template-columns: 100px 120px 80px 40px;
+    gap: var(--spacing-md);
+    padding: var(--spacing-xs) 0;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .snapshot-row:last-child {
+    border-bottom: none;
+  }
+
+  .snapshot-col-date {
+    font-family: var(--font-mono);
+  }
+
+  .snapshot-col-balance {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .snapshot-col-source {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .snapshot-col-actions {
+    text-align: right;
+  }
+
+  .snapshot-delete-btn {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+  }
+
+  .snapshot-delete-btn:hover {
+    opacity: 1;
+    color: var(--accent-danger);
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .snapshot-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+    border-top: 1px solid var(--border-primary);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .snapshot-count {
+    font-family: var(--font-mono);
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .btn-link:hover {
+    text-decoration: underline;
   }
 </style>

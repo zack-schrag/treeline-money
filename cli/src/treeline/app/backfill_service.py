@@ -150,6 +150,7 @@ class BackfillService:
                         ).replace(tzinfo=timezone.utc),
                         created_at=datetime.now(timezone.utc),
                         updated_at=datetime.now(timezone.utc),
+                        source="backfill",
                     )
                     snapshots_to_create.append(snapshot)
                     existing_dates.add(tx_date)  # Mark as processed

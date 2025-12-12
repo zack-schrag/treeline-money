@@ -114,6 +114,7 @@ class SyncService:
                     account_id=account.id,
                     balance=account.balance,
                     snapshot_date=None,  # Defaults to today
+                    source="sync",
                 )
 
         return Result(

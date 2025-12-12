@@ -120,8 +120,8 @@
       const now = new Date().toISOString();
 
       await executeQuery(
-        `INSERT INTO sys_balance_snapshots (snapshot_id, account_id, balance, snapshot_time, created_at, updated_at)
-         VALUES ('${snapshotId}', '${accountId}', ${balance}, '${snapshotTime}', '${now}', '${now}')`,
+        `INSERT INTO sys_balance_snapshots (snapshot_id, account_id, balance, snapshot_time, created_at, updated_at, source)
+         VALUES ('${snapshotId}', '${accountId}', ${balance}, '${snapshotTime}', '${now}', '${now}', 'manual')`,
         { readonly: false }
       );
 

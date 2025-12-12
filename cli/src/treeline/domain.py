@@ -251,6 +251,7 @@ class BalanceSnapshot(BaseModel):
     snapshot_time: datetime  # Naive datetime (local time)
     created_at: datetime  # Timezone-aware (UTC)
     updated_at: datetime  # Timezone-aware (UTC)
+    source: str | None = None  # 'sync', 'manual', 'backfill', or None for legacy
 
     @field_validator("created_at")
     @classmethod

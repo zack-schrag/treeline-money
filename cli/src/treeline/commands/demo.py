@@ -111,20 +111,34 @@ def _enable_demo(get_container: callable, ensure_initialized: callable) -> None:
     else:
         console.print(f"[{theme.warning}]Note: {result.error}[/{theme.warning}]")
 
-    # Backfill balance history (6 months of data)
-    backfill_service = container.backfill_service()
-    with console.status(f"[{theme.status_loading}]Generating balance history..."):
-        backfill_result = asyncio.run(backfill_service.backfill_balances(days=180))
+    # Get db_service for balance history and budget seeding
+    db_service = container.db_service()
 
-    if backfill_result.success:
-        data = backfill_result.data
-        total = sum(s["created"] for s in data.get("accounts", []))
-        if total > 0:
-            console.print(f"[{theme.success}]Created {total} balance snapshots[/{theme.success}]")
+    # Generate interesting balance history for demo accounts
+    # First, get account IDs mapping (demo external ID -> actual UUID)
+    account_service = container.account_service()
+    accounts_result = asyncio.run(account_service.get_accounts())
+
+    if accounts_result.success and accounts_result.data:
+        # Build mapping of demo external ID to account UUID
+        account_id_map = {}
+        for account in accounts_result.data:
+            demo_id = account.external_ids.get("demo")
+            if demo_id:
+                account_id_map[demo_id] = str(account.id)
+
+        if account_id_map:
+            with console.status(f"[{theme.status_loading}]Generating balance history..."):
+                balance_sql = demo_provider.generate_demo_balance_history_sql(account_id_map)
+                balance_result = asyncio.run(db_service.execute_write_query(balance_sql))
+
+            if balance_result.success:
+                console.print(f"[{theme.success}]Created balance history for {len(account_id_map)} accounts[/{theme.success}]")
+            else:
+                console.print(f"[{theme.warning}]Note: {balance_result.error}[/{theme.warning}]")
 
     # Seed demo budget categories
     with console.status(f"[{theme.status_loading}]Setting up demo budget..."):
-        db_service = container.db_service()
         budget_sql = demo_provider.generate_demo_budget_sql()
         budget_result = asyncio.run(db_service.execute_write_query(budget_sql))
 

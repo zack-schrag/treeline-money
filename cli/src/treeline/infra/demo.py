@@ -542,3 +542,167 @@ class DemoDataProvider(DataAggregationProvider, IntegrationProvider):
             """)
 
         return "\n".join(sql_statements)
+
+    def generate_demo_balance_history_sql(self, account_id_map: dict[str, str]) -> str:
+        """Generate SQL to create interesting historical balance snapshots.
+
+        Creates realistic balance history with:
+        - Investment accounts: Market fluctuations with overall upward trend
+        - Checking/Savings: Gradual savings growth with some variation
+        - Credit cards: Monthly cycles (spending up, payment down)
+
+        Args:
+            account_id_map: Dict mapping demo external IDs to actual UUIDs
+                           e.g. {"demo-checking-001": "uuid-string", ...}
+
+        Returns:
+            SQL statements to insert balance snapshots
+        """
+        import math
+        import random
+
+        # Use a fixed seed for reproducibility in demo
+        random.seed(42)
+
+        now = datetime.now(timezone.utc)
+        sql_statements = []
+
+        # First, clear existing snapshots for demo accounts
+        for demo_id, account_uuid in account_id_map.items():
+            sql_statements.append(
+                f"DELETE FROM sys_balance_snapshots WHERE account_id = '{account_uuid}';"
+            )
+
+        # Generate 180 days of history (6 months)
+        days_of_history = 180
+
+        # Account configurations: (demo_id, current_balance, growth_type, volatility)
+        # growth_type: "market" (investment), "savings" (gradual growth), "credit" (monthly cycle)
+        account_configs = {
+            "demo-checking-001": (Decimal("4823.47"), "checking", 0.02),
+            "demo-savings-001": (Decimal("18750.00"), "savings", 0.01),
+            "demo-credit-001": (Decimal("-2847.63"), "credit", 0.15),
+            "demo-credit-002": (Decimal("-1245.89"), "credit", 0.12),
+            "demo-investment-001": (Decimal("47823.15"), "market", 0.08),
+            "demo-401k-001": (Decimal("89432.67"), "market", 0.06),
+        }
+
+        for demo_id, account_uuid in account_id_map.items():
+            if demo_id not in account_configs:
+                continue
+
+            current_balance, growth_type, volatility = account_configs[demo_id]
+
+            # Generate daily balances going backward
+            balances = []
+            balance = float(current_balance)
+
+            for day in range(days_of_history):
+                # Calculate date for this snapshot
+                snapshot_date = (now - timedelta(days=day)).date()
+
+                if growth_type == "market":
+                    # Investment: Market fluctuations with upward trend
+                    # Working backward: today's balance = yesterday's * growth
+                    # So yesterday's = today's / growth
+                    # We want overall ~8-12% annual growth + daily noise
+
+                    # Daily average growth (reverse): slightly less in the past
+                    daily_growth = 1.0 + (0.10 / 365)  # ~10% annual
+
+                    # Add market volatility (sine wave for cycles + random noise)
+                    cycle = math.sin(day * 2 * math.pi / 60) * 0.02  # 60-day cycles
+                    noise = (random.random() - 0.5) * volatility * 0.3
+
+                    # Apply variation (working backward)
+                    daily_factor = daily_growth + cycle + noise
+                    balance = balance / daily_factor
+
+                    # Add occasional larger moves (earnings, market events)
+                    if random.random() < 0.03:  # 3% chance of big move
+                        balance *= 1 + (random.random() - 0.5) * 0.05
+
+                elif growth_type == "savings":
+                    # Savings: Gradual growth with monthly deposits + interest
+                    # Working backward, so subtract growth
+
+                    # Monthly contribution pattern (higher earlier in past = balance was lower)
+                    day_of_month = snapshot_date.day
+                    if day_of_month == 16:  # Transfer day
+                        balance = balance - 750  # Remove the transfer going backward
+
+                    # Interest (roughly 4% APY)
+                    if day_of_month == 28:
+                        # Remove ~1 month of interest going backward
+                        monthly_interest = balance * (0.04 / 12)
+                        balance = balance - monthly_interest
+
+                    # Small random variation
+                    balance *= 1 + (random.random() - 0.5) * 0.002
+
+                elif growth_type == "credit":
+                    # Credit card: Monthly cycle - builds up, then gets paid
+                    day_of_month = snapshot_date.day
+
+                    if demo_id == "demo-credit-001":
+                        # Chase Sapphire: paid on 25th, builds up rest of month
+                        if day_of_month == 25:
+                            # After payment, balance is low
+                            balance = float(current_balance) * 0.15
+                        elif day_of_month < 25:
+                            # Building up spending
+                            days_since_payment = (day_of_month - 25) % 30
+                            progress = days_since_payment / 25
+                            balance = float(current_balance) * (0.15 + 0.85 * progress)
+                        else:
+                            # Days after payment, building back up
+                            progress = (day_of_month - 25) / 5
+                            balance = float(current_balance) * (0.15 + 0.3 * progress)
+                    else:
+                        # Citi: paid on 20th
+                        if day_of_month == 20:
+                            balance = float(current_balance) * 0.10
+                        elif day_of_month < 20:
+                            progress = day_of_month / 20
+                            balance = float(current_balance) * (0.10 + 0.90 * progress)
+                        else:
+                            progress = (day_of_month - 20) / 10
+                            balance = float(current_balance) * (0.10 + 0.35 * progress)
+
+                    # Add random spending variation
+                    balance *= 1 + (random.random() - 0.5) * volatility
+
+                elif growth_type == "checking":
+                    # Checking: Paycheck cycles + bill payments
+                    day_of_month = snapshot_date.day
+
+                    # Paycheck on 1st and 15th brings balance up
+                    # Bills throughout month bring it down
+                    if day_of_month in [1, 15]:
+                        balance = float(current_balance) * 1.8  # After paycheck
+                    elif day_of_month in [2, 16]:
+                        balance = float(current_balance) * 1.6  # Day after paycheck
+                    elif day_of_month == 5:
+                        balance = float(current_balance) * 0.7  # After rent
+                    else:
+                        # Random variation based on spending
+                        base_ratio = 0.8 + (random.random() * 0.6)
+                        balance = float(current_balance) * base_ratio
+
+                # Store the balance for this day
+                balances.append((snapshot_date, Decimal(str(round(balance, 2)))))
+
+            # Generate SQL for all snapshots
+            for snapshot_date, bal in balances:
+                snapshot_id = str(uuid4())
+                snapshot_time = f"{snapshot_date}T23:59:59"
+                created_at = now.isoformat()
+
+                sql_statements.append(f"""
+                    INSERT INTO sys_balance_snapshots
+                        (snapshot_id, account_id, balance, snapshot_time, created_at, source)
+                    VALUES
+                        ('{snapshot_id}', '{account_uuid}', {bal}, '{snapshot_time}', '{created_at}', 'sync');
+                """)
+
+        return "\n".join(sql_statements)

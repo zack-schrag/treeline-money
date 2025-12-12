@@ -100,6 +100,7 @@ class AccountService:
         account_id: UUID,
         balance: Decimal,
         snapshot_date: date | None = None,
+        source: str | None = None,
     ) -> Result[BalanceSnapshot]:
         """Add a balance snapshot for an account.
 
@@ -107,6 +108,7 @@ class AccountService:
             account_id: UUID of account
             balance: Account balance
             snapshot_date: Date for the snapshot (defaults to today)
+            source: Source of the snapshot ('sync', 'manual', 'backfill')
 
         Returns:
             Result containing the created BalanceSnapshot or error if duplicate
@@ -157,6 +159,7 @@ class AccountService:
             snapshot_time=snapshot_time,
             created_at=now,
             updated_at=now,
+            source=source,
         )
 
         # Add to repository

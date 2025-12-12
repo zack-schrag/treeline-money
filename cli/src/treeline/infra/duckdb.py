@@ -178,8 +178,8 @@ class DuckDBRepository(Repository):
             conn.execute(
                 """
                 INSERT INTO sys_balance_snapshots (
-                    snapshot_id, account_id, balance, snapshot_time, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    snapshot_id, account_id, balance, snapshot_time, created_at, source
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     str(balance.id),
@@ -187,6 +187,7 @@ class DuckDBRepository(Repository):
                     float(balance.balance),
                     balance.snapshot_time,
                     balance.created_at,
+                    balance.source,
                 ],
             )
 
@@ -298,8 +299,8 @@ class DuckDBRepository(Repository):
                 conn.execute(
                     """
                     INSERT INTO sys_balance_snapshots (
-                        snapshot_id, account_id, balance, snapshot_time, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
+                        snapshot_id, account_id, balance, snapshot_time, created_at, source
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         str(balance.id),
@@ -307,6 +308,7 @@ class DuckDBRepository(Repository):
                         float(balance.balance),
                         balance.snapshot_time,
                         balance.created_at,
+                        balance.source,
                     ],
                 )
 
@@ -503,6 +505,7 @@ class DuckDBRepository(Repository):
                     snapshot_time=self._ensure_timezone(row_dict["snapshot_time"]),
                     created_at=self._ensure_timezone(row_dict["created_at"]),
                     updated_at=self._ensure_timezone(row_dict["updated_at"]),
+                    source=row_dict.get("source"),
                 )
                 balances.append(balance)
 
