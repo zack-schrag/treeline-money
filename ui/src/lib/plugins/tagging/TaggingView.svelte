@@ -67,6 +67,7 @@
   // Custom tag input mode (for typing a new tag)
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
+  let autocompleteIndex = $state(-1); // -1 = no selection, 0+ = selected suggestion
 
   // Pinned quick tags (user-specified, always shown first)
   interface TaggingPluginSettings {
@@ -324,23 +325,50 @@
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
 
-  // Autocomplete for custom tag input
-  let tagAutocomplete = $derived.by(() => {
-    if (!customTagInput || allTags.length === 0) return "";
+  // Autocomplete suggestions for custom tag input
+  let tagAutocompleteSuggestions = $derived.by(() => {
+    if (!customTagInput || allTags.length === 0) return [];
 
     // Get the partial tag being typed (after last comma)
     const parts = customTagInput.split(",");
     const partial = parts[parts.length - 1].trim().toLowerCase();
-    if (!partial) return "";
+    if (!partial || partial.length < 1) return [];
 
-    // Find first matching tag from all known tags
-    for (const tag of allTags) {
-      if (tag.toLowerCase().startsWith(partial) && tag.toLowerCase() !== partial) {
-        return tag.slice(partial.length);
-      }
+    // Find matching tags (contains match, not just prefix)
+    return allTags
+      .filter(tag => tag.toLowerCase().includes(partial) && tag.toLowerCase() !== partial)
+      .slice(0, 5);
+  });
+
+  // For Tab completion, get the first suggestion's remaining text
+  let tagAutocomplete = $derived.by(() => {
+    if (tagAutocompleteSuggestions.length === 0) return "";
+    const parts = customTagInput.split(",");
+    const partial = parts[parts.length - 1].trim().toLowerCase();
+    const firstMatch = tagAutocompleteSuggestions[0];
+    if (firstMatch.toLowerCase().startsWith(partial)) {
+      return firstMatch.slice(partial.length);
     }
     return "";
   });
+
+  // Reset autocomplete selection when input changes
+  let lastAutocompleteInput = "";
+  $effect(() => {
+    if (customTagInput !== lastAutocompleteInput) {
+      lastAutocompleteInput = customTagInput;
+      autocompleteIndex = -1;
+    }
+  });
+
+  function selectAutocompleteTag(tag: string) {
+    // Replace the partial tag being typed with the selected tag
+    const parts = customTagInput.split(",");
+    parts[parts.length - 1] = tag;
+    customTagInput = parts.join(", ");
+    autocompleteIndex = -1;
+    customTagInputEl?.focus();
+  }
 
   function buildQuery(offset: number = 0): string {
     let query = `
@@ -642,7 +670,13 @@
     if (e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      applyCustomTag();
+      // If an autocomplete item is selected, use it
+      if (autocompleteIndex >= 0 && autocompleteIndex < tagAutocompleteSuggestions.length) {
+        selectAutocompleteTag(tagAutocompleteSuggestions[autocompleteIndex]);
+        autocompleteIndex = -1;
+      } else {
+        applyCustomTag();
+      }
       return;
     }
 
@@ -651,6 +685,25 @@
       // Apply autocomplete suggestion
       if (tagAutocomplete) {
         customTagInput += tagAutocomplete;
+        autocompleteIndex = -1;
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (tagAutocompleteSuggestions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        autocompleteIndex = Math.min(autocompleteIndex + 1, tagAutocompleteSuggestions.length - 1);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      if (tagAutocompleteSuggestions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        autocompleteIndex = Math.max(autocompleteIndex - 1, -1);
       }
       return;
     }
@@ -1897,35 +1950,9 @@
           <p class="selection-hint">Apply tags to all selected transactions</p>
         </div>
 
+        <!-- Add Tag section -->
         <div class="sidebar-section">
-          <div class="sidebar-title">
-            Quick Tags
-            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
-          </div>
-          {#if currentSuggestions.length === 0}
-            {#if !hasAnyTags && pinnedQuickTags.length === 0}
-              <div class="sidebar-empty-state">
-                <p>No tags yet!</p>
-                <p class="empty-hint">Create your first tag below</p>
-              </div>
-            {:else}
-              <div class="sidebar-empty">No suggestions for selection</div>
-            {/if}
-          {:else}
-            <div class="tag-suggestions">
-              {#each currentSuggestions as suggestion, i}
-                <button
-                  class="tag-suggestion"
-                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
-                >
-                  <span class="tag-shortcut">{i + 1}</span>
-                  <span class="tag-name">{suggestion.tag}</span>
-                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
-                </button>
-              {/each}
-            </div>
-          {/if}
-          <!-- Custom tag input (inline in sidebar) -->
+          <div class="sidebar-title">Add Tag</div>
           {#if isCustomTagging}
             <div class="inline-tag-input">
               <input
@@ -1943,8 +1970,21 @@
                   <Icon name="x" size={14} />
                 </button>
               </div>
+              {#if tagAutocompleteSuggestions.length > 0}
+                <div class="autocomplete-dropdown">
+                  {#each tagAutocompleteSuggestions as suggestion, i}
+                    <button
+                      class="autocomplete-item"
+                      class:selected={i === autocompleteIndex}
+                      onclick={() => selectAutocompleteTag(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
               {#if tagAutocomplete}
-                <span class="inline-autocomplete-hint">{tagAutocomplete}</span>
+                <span class="ghost-completion">{customTagInput}<span class="ghost-text">{tagAutocomplete}</span></span>
               {/if}
             </div>
           {:else}
@@ -1952,6 +1992,37 @@
               <span class="tag-shortcut custom">t</span>
               <span class="tag-name">Type a tag...</span>
             </button>
+          {/if}
+        </div>
+
+        <!-- Suggestions section -->
+        <div class="sidebar-section">
+          <div class="sidebar-title">
+            Suggestions
+            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+          </div>
+          {#if currentSuggestions.length === 0}
+            {#if !hasAnyTags && pinnedQuickTags.length === 0}
+              <div class="sidebar-empty-state">
+                <p>No suggestions yet</p>
+                <p class="empty-hint">Tags you use will appear here</p>
+              </div>
+            {:else}
+              <div class="sidebar-empty">No suggestions for selection</div>
+            {/if}
+          {:else}
+            <div class="tag-suggestions">
+              {#each currentSuggestions as suggestion, i}
+                <button
+                  class="tag-suggestion"
+                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
+                >
+                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-name">{suggestion.tag}</span>
+                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
+                </button>
+              {/each}
+            </div>
           {/if}
         </div>
 
@@ -1987,36 +2058,9 @@
         </div>
       {:else}
         <!-- Normal Mode Sidebar -->
-        <!-- Quick Tags (actionable) -->
+        <!-- Add Tag section -->
         <div class="sidebar-section">
-          <div class="sidebar-title">
-            Quick Tags
-            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
-          </div>
-          {#if currentSuggestions.length === 0}
-            {#if !hasAnyTags && pinnedQuickTags.length === 0}
-              <div class="sidebar-empty-state">
-                <p>No tags yet!</p>
-                <p class="empty-hint">Create your first tag below</p>
-              </div>
-            {:else}
-              <div class="sidebar-empty">No suggestions</div>
-            {/if}
-          {:else}
-            <div class="tag-suggestions">
-              {#each currentSuggestions as suggestion, i}
-                <button
-                  class="tag-suggestion"
-                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
-                >
-                  <span class="tag-shortcut">{i + 1}</span>
-                  <span class="tag-name">{suggestion.tag}</span>
-                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
-                </button>
-              {/each}
-            </div>
-          {/if}
-          <!-- Custom tag input (inline in sidebar) -->
+          <div class="sidebar-title">Add Tag</div>
           {#if isCustomTagging}
             <div class="inline-tag-input">
               <input
@@ -2034,8 +2078,21 @@
                   <Icon name="x" size={14} />
                 </button>
               </div>
+              {#if tagAutocompleteSuggestions.length > 0}
+                <div class="autocomplete-dropdown">
+                  {#each tagAutocompleteSuggestions as suggestion, i}
+                    <button
+                      class="autocomplete-item"
+                      class:selected={i === autocompleteIndex}
+                      onclick={() => selectAutocompleteTag(suggestion)}
+                    >
+                      {suggestion}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
               {#if tagAutocomplete}
-                <span class="inline-autocomplete-hint">{tagAutocomplete}</span>
+                <span class="ghost-completion">{customTagInput}<span class="ghost-text">{tagAutocomplete}</span></span>
               {/if}
             </div>
           {:else}
@@ -2043,6 +2100,37 @@
               <span class="tag-shortcut custom">t</span>
               <span class="tag-name">Type a tag...</span>
             </button>
+          {/if}
+        </div>
+
+        <!-- Suggestions section -->
+        <div class="sidebar-section">
+          <div class="sidebar-title">
+            Suggestions
+            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+          </div>
+          {#if currentSuggestions.length === 0}
+            {#if !hasAnyTags && pinnedQuickTags.length === 0}
+              <div class="sidebar-empty-state">
+                <p>No suggestions yet</p>
+                <p class="empty-hint">Tags you use will appear here</p>
+              </div>
+            {:else}
+              <div class="sidebar-empty">No suggestions</div>
+            {/if}
+          {:else}
+            <div class="tag-suggestions">
+              {#each currentSuggestions as suggestion, i}
+                <button
+                  class="tag-suggestion"
+                  onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
+                >
+                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-name">{suggestion.tag}</span>
+                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
+                </button>
+              {/each}
+            </div>
           {/if}
         </div>
 
@@ -2978,14 +3066,54 @@
     color: white;
   }
 
-  .inline-autocomplete-hint {
+  .autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    z-index: 10;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  .autocomplete-item {
+    display: block;
+    width: 100%;
+    padding: 6px 8px;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .autocomplete-item:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .autocomplete-item.selected {
+    background: var(--accent-primary);
+    color: white;
+  }
+
+  .ghost-completion {
     position: absolute;
     left: 8px;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--text-muted);
     font-size: 12px;
+    color: transparent;
     pointer-events: none;
+    white-space: pre;
+  }
+
+  .ghost-text {
+    color: var(--text-muted);
     opacity: 0.5;
   }
 
