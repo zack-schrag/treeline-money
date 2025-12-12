@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
-  import { executeQuery, showToast, registry, modKey } from "../../sdk";
-  import { RowMenu, type RowMenuItem } from "../../shared";
+  import { executeQuery, showToast, registry, modKey, getPluginSettings, updatePluginSettings } from "../../sdk";
+  import { RowMenu, type RowMenuItem, Icon } from "../../shared";
   import { FrequencyBasedSuggester } from "./suggestions";
   import type { Transaction, TagSuggestion, SplitAmount, AccountInfo } from "./types";
   import DeleteConfirmModal from "./DeleteConfirmModal.svelte";
@@ -11,6 +11,7 @@
   import EditTransactionModal from "./EditTransactionModal.svelte";
   import SaveAsRuleModal from "./SaveAsRuleModal.svelte";
   import RulesManagementModal from "./RulesManagementModal.svelte";
+  import PinnedTagsModal from "./PinnedTagsModal.svelte";
 
   // Initialize suggester
   const suggester = new FrequencyBasedSuggester();
@@ -67,6 +68,15 @@
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
 
+  // Pinned quick tags (user-specified, always shown first)
+  interface TaggingPluginSettings {
+    pinnedQuickTags: string[];
+  }
+  const DEFAULT_TAGGING_SETTINGS: TaggingPluginSettings = { pinnedQuickTags: [] };
+  let pinnedQuickTags = $state<string[]>([]);
+  let hasAnyTags = $state(false); // True if user has tagged any transactions
+  let showPinnedTagsModal = $state(false);
+
   // Undo stack for tag operations
   interface UndoEntry {
     transactionId: string;
@@ -119,13 +129,24 @@
   let containerEl: HTMLDivElement | null = null;
 
   // Suggestions for current/selected transactions
-  // When transactions are selected, aggregate suggestions from all selected
+  // Merges: 1) Pinned tags (user-specified), 2) Frequency-based suggestions
   let currentSuggestions = $derived.by(() => {
+    const result: { tag: string; score: number; count: number; isPinned?: boolean }[] = [];
+    const usedTags = new Set<string>();
+
+    // 1. Add pinned tags first (always in slots 1-N)
+    for (const tag of pinnedQuickTags) {
+      if (result.length >= 9) break;
+      result.push({ tag, score: Infinity, count: 0, isPinned: true });
+      usedTags.add(tag);
+    }
+
+    // 2. Get computed suggestions from frequency-based suggester
     const indices = selectedIndices.size > 0
       ? Array.from(selectedIndices)
       : [cursorIndex];
 
-    if (indices.length === 0) return [];
+    if (indices.length === 0) return result;
 
     // Aggregate suggestions from all relevant transactions
     const tagScores = new Map<string, { tag: string; score: number; count: number }>();
@@ -135,6 +156,9 @@
       if (!txn) continue;
       const txnSuggestions = suggestions.get(txn.transaction_id) || [];
       for (const s of txnSuggestions) {
+        // Skip tags already pinned
+        if (usedTags.has(s.tag)) continue;
+
         const existing = tagScores.get(s.tag);
         if (existing) {
           existing.score += s.score;
@@ -145,10 +169,16 @@
       }
     }
 
-    // Sort by count (more transactions suggest it = higher priority), then by score
-    return Array.from(tagScores.values())
-      .sort((a, b) => b.count - a.count || b.score - a.score)
-      .slice(0, 9); // Limit to 9 (keys 1-9)
+    // Sort computed suggestions and fill remaining slots
+    const computed = Array.from(tagScores.values())
+      .sort((a, b) => b.count - a.count || b.score - a.score);
+
+    for (const suggestion of computed) {
+      if (result.length >= 9) break;
+      result.push(suggestion);
+    }
+
+    return result;
   });
 
   // Selection stats (Excel-style summary)
@@ -961,6 +991,12 @@
     showRulesModal = false;
   }
 
+  async function handleSavePinnedTags(tags: string[]) {
+    pinnedQuickTags = tags;
+    await updatePluginSettings("tagging", { pinnedQuickTags: tags });
+    showToast({ type: "success", title: "Pinned tags saved" });
+  }
+
   async function persistTagChanges(txns: Transaction[], tagAdded: boolean = true) {
     if (txns.length === 0) return;
 
@@ -987,6 +1023,11 @@
 
       // Refresh global stats after persisting
       await loadGlobalStats();
+
+      // Update hasAnyTags flag if we just added tags
+      if (tagAdded && txns.some(t => t.tags.length > 0)) {
+        hasAnyTags = true;
+      }
     } catch (e) {
       console.error("Failed to persist tags:", e);
       // Could show a toast/notification here
@@ -1547,9 +1588,14 @@
     // Load persisted account filter
     selectedAccounts = loadPersistedAccounts();
 
+    // Load plugin settings (pinned tags)
+    const settings = await getPluginSettings<TaggingPluginSettings>("tagging", DEFAULT_TAGGING_SETTINGS);
+    pinnedQuickTags = settings.pinnedQuickTags || [];
+
     // Preload tag data and accounts in parallel with loading transactions
     await suggester.loadTagData();
     allTags = suggester.getAllTags();
+    hasAnyTags = allTags.length > 0;
     await Promise.all([loadGlobalStats(), loadAvailableAccounts()]);
 
     // Filter out any persisted accounts that no longer exist
@@ -1845,9 +1891,19 @@
         </div>
 
         <div class="sidebar-section">
-          <div class="sidebar-title">Quick Tags</div>
+          <div class="sidebar-title">
+            Quick Tags
+            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+          </div>
           {#if currentSuggestions.length === 0}
-            <div class="sidebar-empty">No suggestions for selection</div>
+            {#if !hasAnyTags && pinnedQuickTags.length === 0}
+              <div class="sidebar-empty-state">
+                <p>No tags yet!</p>
+                <p class="empty-hint">Press <kbd>T</kbd> to type a tag name</p>
+              </div>
+            {:else}
+              <div class="sidebar-empty">No suggestions for selection</div>
+            {/if}
           {:else}
             <div class="tag-suggestions">
               {#each currentSuggestions as suggestion, i}
@@ -1857,6 +1913,7 @@
                 >
                   <span class="tag-shortcut">{i + 1}</span>
                   <span class="tag-name">{suggestion.tag}</span>
+                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
                 </button>
               {/each}
             </div>
@@ -1897,9 +1954,19 @@
         <!-- Normal Mode Sidebar -->
         <!-- Quick Tags (actionable) -->
         <div class="sidebar-section">
-          <div class="sidebar-title">Quick Tags</div>
+          <div class="sidebar-title">
+            Quick Tags
+            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+          </div>
           {#if currentSuggestions.length === 0}
-            <div class="sidebar-empty">No suggestions</div>
+            {#if !hasAnyTags && pinnedQuickTags.length === 0}
+              <div class="sidebar-empty-state">
+                <p>No tags yet!</p>
+                <p class="empty-hint">Press <kbd>T</kbd> to type a tag name</p>
+              </div>
+            {:else}
+              <div class="sidebar-empty">No suggestions</div>
+            {/if}
           {:else}
             <div class="tag-suggestions">
               {#each currentSuggestions as suggestion, i}
@@ -1909,6 +1976,7 @@
                 >
                   <span class="tag-shortcut">{i + 1}</span>
                   <span class="tag-name">{suggestion.tag}</span>
+                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
                 </button>
               {/each}
             </div>
@@ -2064,6 +2132,14 @@
 <RulesManagementModal
   open={showRulesModal}
   onclose={closeRulesModal}
+/>
+
+<PinnedTagsModal
+  open={showPinnedTagsModal}
+  pinnedTags={pinnedQuickTags}
+  {allTags}
+  onclose={() => showPinnedTagsModal = false}
+  onsave={handleSavePinnedTags}
 />
 
 <style>
@@ -2487,6 +2563,9 @@
   }
 
   .sidebar-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-muted);
@@ -2495,10 +2574,57 @@
     margin-bottom: var(--spacing-sm);
   }
 
+  .sidebar-edit-btn {
+    padding: 2px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 500;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .sidebar-edit-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+  }
+
   .sidebar-empty {
     font-size: 12px;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .sidebar-empty-state {
+    padding: var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    text-align: center;
+  }
+
+  .sidebar-empty-state p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .sidebar-empty-state .empty-hint {
+    margin-top: var(--spacing-xs);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .sidebar-empty-state kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 11px;
   }
 
   /* Selection section in sidebar */
@@ -2684,6 +2810,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+  }
+
+  .pinned-icon {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .split-info {
