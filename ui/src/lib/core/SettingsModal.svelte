@@ -846,10 +846,6 @@
                       <span class="path-label">Plugins:</span>
                       <span class="path-value">~/.treeline/plugins/</span>
                     </div>
-                    <div class="path-row">
-                      <span class="path-label">Taggers:</span>
-                      <span class="path-value">~/.treeline/taggers/</span>
-                    </div>
                   </div>
 
                   <div class="about-links">
