@@ -64,7 +64,13 @@
     }
   }
 
-  // Custom tag input mode (for typing a new tag)
+  // Inline tag editing mode (on the transaction row)
+  let inlineEditingIndex = $state<number | null>(null); // Which row is being edited, null = none
+  let inlineTagInput = $state("");
+  let inlineAutocompleteIndex = $state(-1); // -1 = no selection, 0+ = selected suggestion
+  let inlineInputEl = $state<HTMLInputElement | null>(null);
+
+  // Legacy custom tag input mode (kept for sidebar, but will be removed)
   let isCustomTagging = $state(false);
   let customTagInput = $state("");
   let autocompleteIndex = $state(-1); // -1 = no selection, 0+ = selected suggestion
@@ -129,20 +135,22 @@
   let searchInputEl = $state<HTMLInputElement | null>(null);
   let containerEl = $state<HTMLDivElement | null>(null);
 
-  // Suggestions for current/selected transactions
-  // Merges: 1) Pinned tags (user-specified), 2) Frequency-based suggestions
-  let currentSuggestions = $derived.by(() => {
-    const result: { tag: string; score: number; count: number; isPinned?: boolean }[] = [];
-    const usedTags = new Set<string>();
+  // Pinned tags for display (stable, user-controlled favorites)
+  let pinnedTagsDisplay = $derived.by(() => {
+    return pinnedQuickTags.slice(0, 9).map((tag, i) => ({
+      tag,
+      shortcutNumber: i + 1,
+      isPinned: true
+    }));
+  });
 
-    // 1. Add pinned tags first (always in slots 1-N)
-    for (const tag of pinnedQuickTags) {
-      if (result.length >= 9) break;
-      result.push({ tag, score: Infinity, count: 0, isPinned: true });
-      usedTags.add(tag);
-    }
+  // Computed suggestions for current/selected transactions (dynamic, changes per transaction)
+  let computedSuggestionsDisplay = $derived.by(() => {
+    const result: { tag: string; score: number; count: number; shortcutNumber: number }[] = [];
+    const pinnedSet = new Set(pinnedQuickTags);
+    const startNumber = pinnedQuickTags.length + 1;
 
-    // 2. Get computed suggestions from frequency-based suggester
+    // Get computed suggestions from frequency-based suggester
     const indices = selectedIndices.size > 0
       ? Array.from(selectedIndices)
       : [cursorIndex];
@@ -158,7 +166,7 @@
       const txnSuggestions = suggestions.get(txn.transaction_id) || [];
       for (const s of txnSuggestions) {
         // Skip tags already pinned
-        if (usedTags.has(s.tag)) continue;
+        if (pinnedSet.has(s.tag)) continue;
 
         const existing = tagScores.get(s.tag);
         if (existing) {
@@ -170,13 +178,34 @@
       }
     }
 
-    // Sort computed suggestions and fill remaining slots
+    // Sort computed suggestions and fill remaining slots (up to 9 total)
     const computed = Array.from(tagScores.values())
       .sort((a, b) => b.count - a.count || b.score - a.score);
 
+    let shortcutNum = startNumber;
     for (const suggestion of computed) {
+      if (shortcutNum > 9) break;
+      result.push({ ...suggestion, shortcutNumber: shortcutNum });
+      shortcutNum++;
+    }
+
+    return result;
+  });
+
+  // Combined list for keyboard shortcuts (1-9 mapping)
+  let currentSuggestions = $derived.by(() => {
+    const result: { tag: string; score: number; count: number; isPinned?: boolean }[] = [];
+
+    // Add pinned tags first
+    for (const tag of pinnedQuickTags) {
       if (result.length >= 9) break;
-      result.push(suggestion);
+      result.push({ tag, score: Infinity, count: 0, isPinned: true });
+    }
+
+    // Add computed suggestions
+    for (const s of computedSuggestionsDisplay) {
+      if (result.length >= 9) break;
+      result.push({ tag: s.tag, score: s.score, count: s.count });
     }
 
     return result;
@@ -325,7 +354,35 @@
   // All known tags for autocomplete
   let allTags = $state<string[]>([]);
 
-  // Autocomplete suggestions for custom tag input
+  // Autocomplete suggestions for inline tag input
+  let inlineAutocompleteSuggestions = $derived.by(() => {
+    if (!inlineTagInput || allTags.length === 0) return [];
+
+    // Get the partial tag being typed (after last comma)
+    const parts = inlineTagInput.split(",");
+    const partial = parts[parts.length - 1].trim().toLowerCase();
+    if (!partial || partial.length < 1) return [];
+
+    // Find matching tags (contains match, not just prefix)
+    // Show exact matches too so user can confirm/select from dropdown
+    return allTags
+      .filter(tag => tag.toLowerCase().includes(partial))
+      .slice(0, 8);
+  });
+
+  // For Tab completion in inline editor
+  let inlineTagAutocomplete = $derived.by(() => {
+    if (inlineAutocompleteSuggestions.length === 0) return "";
+    const parts = inlineTagInput.split(",");
+    const partial = parts[parts.length - 1].trim().toLowerCase();
+    const firstMatch = inlineAutocompleteSuggestions[0];
+    if (firstMatch.toLowerCase().startsWith(partial)) {
+      return firstMatch.slice(partial.length);
+    }
+    return "";
+  });
+
+  // Autocomplete suggestions for custom tag input (legacy, sidebar)
   let tagAutocompleteSuggestions = $derived.by(() => {
     if (!customTagInput || allTags.length === 0) return [];
 
@@ -528,7 +585,12 @@
       return;
     }
 
-    // Custom tag input mode
+    // Inline tag editing mode - handled by the input itself
+    if (inlineEditingIndex !== null) {
+      return;
+    }
+
+    // Custom tag input mode (legacy sidebar)
     if (isCustomTagging) {
       handleCustomTagKeyDown(e);
       return;
@@ -595,7 +657,7 @@
         break;
       case "t":
         e.preventDefault();
-        startCustomTagging();
+        startInlineEditing();
         break;
       case "Enter":
       case "e":
@@ -1208,6 +1270,147 @@
     // Prompt to save as rule if enough transactions were tagged
     if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
       promptSaveAsRule(taggedTransactions, tags);
+    }
+  }
+
+  // Inline tag editing functions
+  function startInlineEditing(index?: number) {
+    const targetIndex = index ?? cursorIndex;
+    if (transactions.length === 0 || targetIndex < 0 || targetIndex >= transactions.length) return;
+
+    inlineEditingIndex = targetIndex;
+    const txn = transactions[targetIndex];
+    // Pre-populate with existing tags
+    if (txn && txn.tags.length > 0) {
+      inlineTagInput = txn.tags.join(", ");
+    } else {
+      inlineTagInput = "";
+    }
+    inlineAutocompleteIndex = -1;
+    setTimeout(() => inlineInputEl?.focus(), 10);
+  }
+
+  function cancelInlineEditing() {
+    inlineEditingIndex = null;
+    inlineTagInput = "";
+    inlineAutocompleteIndex = -1;
+    containerEl?.focus();
+  }
+
+  function selectInlineAutocompleteTag(tag: string) {
+    // Replace the partial tag being typed with the selected tag
+    const parts = inlineTagInput.split(",");
+    parts[parts.length - 1] = tag;
+    inlineTagInput = parts.join(", ");
+    inlineAutocompleteIndex = -1;
+    inlineInputEl?.focus();
+  }
+
+  async function applyInlineTag() {
+    if (inlineEditingIndex === null) return;
+
+    const tags = inlineTagInput.split(",").map(t => t.trim()).filter(t => t);
+    const txn = transactions[inlineEditingIndex];
+    if (!txn) {
+      cancelInlineEditing();
+      return;
+    }
+
+    // Get indices to apply to (current row + any selected)
+    const indices = selectedIndices.size > 0 && selectedIndices.has(inlineEditingIndex)
+      ? Array.from(selectedIndices)
+      : [inlineEditingIndex];
+
+    // Record undo entries before making changes
+    const undoEntries: UndoEntry[] = [];
+    const taggedTransactions: Transaction[] = [];
+
+    // Optimistic update - REPLACE tags (not merge) since user typed the full list
+    for (const idx of indices) {
+      const t = transactions[idx];
+      if (!t) continue;
+
+      const currentTags = t.tags || [];
+      const newTags = tags; // Replace entirely
+
+      // Only count as changed if tags are different
+      const tagsChanged = JSON.stringify(currentTags.sort()) !== JSON.stringify(newTags.sort());
+
+      if (tagsChanged) {
+        undoEntries.push({
+          transactionId: t.transaction_id,
+          previousTags: [...currentTags],
+          newTags: newTags
+        });
+
+        transactions[idx] = { ...t, tags: newTags };
+        taggedTransactions.push(transactions[idx]);
+      }
+    }
+
+    // Push to undo stack
+    if (undoEntries.length > 0) {
+      pushUndo(undoEntries);
+      transactions = [...transactions];
+      await persistTagChanges(indices.map(i => transactions[i]));
+
+      // Prompt to save as rule if enough transactions were tagged
+      if (taggedTransactions.length >= RULE_PROMPT_THRESHOLD) {
+        promptSaveAsRule(taggedTransactions, tags);
+      }
+    }
+
+    cancelInlineEditing();
+  }
+
+  function handleInlineKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelInlineEditing();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      // If an autocomplete item is selected, use it
+      if (inlineAutocompleteIndex >= 0 && inlineAutocompleteIndex < inlineAutocompleteSuggestions.length) {
+        selectInlineAutocompleteTag(inlineAutocompleteSuggestions[inlineAutocompleteIndex]);
+        inlineAutocompleteIndex = -1;
+      } else {
+        applyInlineTag();
+      }
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      // Apply autocomplete suggestion
+      if (inlineTagAutocomplete) {
+        inlineTagInput += inlineTagAutocomplete;
+        inlineAutocompleteIndex = -1;
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (inlineAutocompleteSuggestions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        inlineAutocompleteIndex = Math.min(inlineAutocompleteIndex + 1, inlineAutocompleteSuggestions.length - 1);
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      if (inlineAutocompleteSuggestions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        inlineAutocompleteIndex = Math.max(inlineAutocompleteIndex - 1, -1);
+      }
+      return;
     }
   }
 
@@ -1913,9 +2116,43 @@
             <div class="row-amount" class:negative={txn.amount < 0} class:positive={txn.amount >= 0}>
               {txn.amount < 0 ? '-' : ''}${formatAmount(txn.amount)}
             </div>
-            <div class="row-tags">
-              {#if txn.tags.length === 0}
-                <span class="no-tags">--</span>
+            <div
+              class="row-tags"
+              class:editing={inlineEditingIndex === index}
+              ondblclick={(e) => { e.stopPropagation(); startInlineEditing(index); }}
+            >
+              {#if inlineEditingIndex === index}
+                <!-- Inline tag editor -->
+                <div class="inline-row-editor">
+                  <input
+                    bind:this={inlineInputEl}
+                    type="text"
+                    class="inline-tag-input-field"
+                    bind:value={inlineTagInput}
+                    onkeydown={handleInlineKeyDown}
+                    onclick={(e) => e.stopPropagation()}
+                    placeholder="Type tags..."
+                  />
+                  {#if inlineAutocompleteSuggestions.length > 0}
+                    <div class="inline-autocomplete-dropdown">
+                      {#each inlineAutocompleteSuggestions as suggestion, i}
+                        <button
+                          class="autocomplete-item"
+                          class:selected={i === inlineAutocompleteIndex}
+                          onclick={(e) => { e.stopPropagation(); selectInlineAutocompleteTag(suggestion); }}
+                        >
+                          {suggestion}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {:else if txn.tags.length === 0}
+                <button
+                  class="add-tag-placeholder"
+                  onclick={(e) => { e.stopPropagation(); startInlineEditing(index); }}
+                  title="Click or press t to add tags"
+                >+ tag</button>
               {:else}
                 {#each txn.tags.slice(0, 3) as tag}
                   <span class="tag">{tag}</span>
@@ -1923,6 +2160,11 @@
                 {#if txn.tags.length > 3}
                   <span class="tag-more">+{txn.tags.length - 3}</span>
                 {/if}
+                <button
+                  class="add-tag-btn"
+                  onclick={(e) => { e.stopPropagation(); startInlineEditing(index); }}
+                  title="Add more tags"
+                >+</button>
               {/if}
             </div>
             <RowMenu
@@ -1954,79 +2196,56 @@
             <span class="selection-badge">{selectionStats.count}</span>
             Selected
           </div>
-          <p class="selection-hint">Apply tags to all selected transactions</p>
+          <p class="selection-hint">Press <kbd>t</kbd> to tag, or use number keys</p>
         </div>
 
-        <!-- Add Tag section -->
-        <div class="sidebar-section">
-          <div class="sidebar-title">Add Tag</div>
-          {#if isCustomTagging}
-            <div class="inline-tag-input">
-              <input
-                bind:this={customTagInputEl}
-                type="text"
-                bind:value={customTagInput}
-                onkeydown={handleCustomTagKeyDown}
-                placeholder="Enter tags, comma-separated"
-              />
-              <div class="inline-tag-actions">
-                <button class="inline-btn apply" onclick={applyCustomTag} title="Apply (Enter)">
-                  <Icon name="check" size={14} />
-                </button>
-                <button class="inline-btn cancel" onclick={cancelCustomTagging} title="Cancel (Esc)">
-                  <Icon name="x" size={14} />
-                </button>
-              </div>
-              {#if tagAutocompleteSuggestions.length > 0}
-                <div class="autocomplete-dropdown">
-                  {#each tagAutocompleteSuggestions as suggestion, i}
-                    <button
-                      class="autocomplete-item"
-                      class:selected={i === autocompleteIndex}
-                      onclick={() => selectAutocompleteTag(suggestion)}
-                    >
-                      {suggestion}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-              {#if tagAutocomplete}
-                <span class="ghost-completion">{customTagInput}<span class="ghost-text">{tagAutocomplete}</span></span>
-              {/if}
+        <!-- Your Favorites section (pinned tags - stable) -->
+        {#if pinnedTagsDisplay.length > 0}
+          <div class="sidebar-section">
+            <div class="sidebar-title">
+              Your Favorites
+              <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit favorites">Edit</button>
             </div>
-          {:else}
-            <button class="custom-tag-btn" onclick={startCustomTagging}>
-              <span class="tag-shortcut custom">t</span>
-              <span class="tag-name">Type a tag...</span>
-            </button>
-          {/if}
-        </div>
+            <div class="tag-suggestions">
+              {#each pinnedTagsDisplay as item}
+                <button
+                  class="tag-suggestion pinned"
+                  onclick={() => applyTagToCurrentOrSelected(item.tag)}
+                >
+                  <span class="tag-shortcut">{item.shortcutNumber}</span>
+                  <span class="tag-name">{item.tag}</span>
+                  <span class="pinned-icon" title="Pinned favorite"><Icon name="pin" size={12} /></span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <div class="sidebar-section">
+            <div class="sidebar-title">
+              Your Favorites
+              <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Add favorites">Add</button>
+            </div>
+            <div class="sidebar-empty-hint">Pin your most-used tags for quick access</div>
+          </div>
+        {/if}
 
-        <!-- Suggestions section -->
+        <!-- Suggestions section (dynamic, changes per transaction) -->
         <div class="sidebar-section">
           <div class="sidebar-title">
             Suggestions
-            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+            <span class="sidebar-subtitle">for selection</span>
           </div>
-          {#if currentSuggestions.length === 0}
-            {#if !hasAnyTags && pinnedQuickTags.length === 0}
-              <div class="sidebar-empty-state">
-                <p>No suggestions yet</p>
-                <p class="empty-hint">Tags you use will appear here</p>
-              </div>
-            {:else}
-              <div class="sidebar-empty">No suggestions for selection</div>
-            {/if}
+          {#if computedSuggestionsDisplay.length === 0}
+            <div class="sidebar-empty">No suggestions</div>
           {:else}
             <div class="tag-suggestions">
-              {#each currentSuggestions as suggestion, i}
+              {#each computedSuggestionsDisplay as suggestion}
                 <button
-                  class="tag-suggestion"
+                  class="tag-suggestion computed"
                   onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
                 >
-                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-shortcut">{suggestion.shortcutNumber}</span>
                   <span class="tag-name">{suggestion.tag}</span>
-                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
                 </button>
               {/each}
             </div>
@@ -2065,76 +2284,63 @@
         </div>
       {:else}
         <!-- Normal Mode Sidebar -->
-        <!-- Add Tag section -->
-        <div class="sidebar-section">
-          <div class="sidebar-title">Add Tag</div>
-          {#if isCustomTagging}
-            <div class="inline-tag-input">
-              <input
-                bind:this={customTagInputEl}
-                type="text"
-                bind:value={customTagInput}
-                onkeydown={handleCustomTagKeyDown}
-                placeholder="Enter tags, comma-separated"
-              />
-              <div class="inline-tag-actions">
-                <button class="inline-btn apply" onclick={applyCustomTag} title="Apply (Enter)">
-                  <Icon name="check" size={14} />
-                </button>
-                <button class="inline-btn cancel" onclick={cancelCustomTagging} title="Cancel (Esc)">
-                  <Icon name="x" size={14} />
-                </button>
-              </div>
-              {#if tagAutocompleteSuggestions.length > 0}
-                <div class="autocomplete-dropdown">
-                  {#each tagAutocompleteSuggestions as suggestion, i}
-                    <button
-                      class="autocomplete-item"
-                      class:selected={i === autocompleteIndex}
-                      onclick={() => selectAutocompleteTag(suggestion)}
-                    >
-                      {suggestion}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-              {#if tagAutocomplete}
-                <span class="ghost-completion">{customTagInput}<span class="ghost-text">{tagAutocomplete}</span></span>
-              {/if}
-            </div>
-          {:else}
-            <button class="custom-tag-btn" onclick={startCustomTagging}>
-              <span class="tag-shortcut custom">t</span>
-              <span class="tag-name">Type a tag...</span>
-            </button>
-          {/if}
-        </div>
 
-        <!-- Suggestions section -->
+        <!-- Your Favorites section (pinned tags - stable, never change) -->
+        {#if pinnedTagsDisplay.length > 0}
+          <div class="sidebar-section">
+            <div class="sidebar-title">
+              Your Favorites
+              <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit favorites">Edit</button>
+            </div>
+            <div class="tag-suggestions">
+              {#each pinnedTagsDisplay as item}
+                <button
+                  class="tag-suggestion pinned"
+                  onclick={() => applyTagToCurrentOrSelected(item.tag)}
+                >
+                  <span class="tag-shortcut">{item.shortcutNumber}</span>
+                  <span class="tag-name">{item.tag}</span>
+                  <span class="pinned-icon" title="Pinned favorite"><Icon name="pin" size={12} /></span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {:else}
+          <div class="sidebar-section">
+            <div class="sidebar-title">
+              Your Favorites
+              <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Add favorites">Add</button>
+            </div>
+            <div class="sidebar-empty-hint">Pin your most-used tags for quick access</div>
+          </div>
+        {/if}
+
+        <!-- Suggestions section (dynamic, changes per transaction) -->
         <div class="sidebar-section">
           <div class="sidebar-title">
             Suggestions
-            <button class="sidebar-edit-btn" onclick={() => showPinnedTagsModal = true} title="Edit pinned tags">Edit</button>
+            {#if currentTxn}
+              <span class="sidebar-subtitle">for this transaction</span>
+            {/if}
           </div>
-          {#if currentSuggestions.length === 0}
-            {#if !hasAnyTags && pinnedQuickTags.length === 0}
+          {#if computedSuggestionsDisplay.length === 0}
+            {#if !hasAnyTags}
               <div class="sidebar-empty-state">
                 <p>No suggestions yet</p>
-                <p class="empty-hint">Tags you use will appear here</p>
+                <p class="empty-hint">Press <kbd>t</kbd> to type a tag</p>
               </div>
             {:else}
-              <div class="sidebar-empty">No suggestions</div>
+              <div class="sidebar-empty">No suggestions for this transaction</div>
             {/if}
           {:else}
             <div class="tag-suggestions">
-              {#each currentSuggestions as suggestion, i}
+              {#each computedSuggestionsDisplay as suggestion}
                 <button
-                  class="tag-suggestion"
+                  class="tag-suggestion computed"
                   onclick={() => applyTagToCurrentOrSelected(suggestion.tag)}
                 >
-                  <span class="tag-shortcut">{i + 1}</span>
+                  <span class="tag-shortcut">{suggestion.shortcutNumber}</span>
                   <span class="tag-name">{suggestion.tag}</span>
-                  {#if suggestion.isPinned}<span class="pinned-icon" title="Pinned"><Icon name="pin" size={12} /></span>{/if}
                 </button>
               {/each}
             </div>
@@ -2217,7 +2423,7 @@
     <div class="shortcuts-row">
       <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
       <span class="shortcut"><kbd>1-9</kbd> quick tag</span>
-      <span class="shortcut"><kbd>t</kbd> custom tag</span>
+      <span class="shortcut"><kbd>t</kbd> type tag</span>
       <span class="shortcut"><kbd>c</kbd> clear tags</span>
       <span class="shortcut"><kbd>a</kbd> toggle all</span>
       <span class="shortcut"><kbd>space</kbd> select</span>
@@ -2946,168 +3152,6 @@
     color: var(--text-muted);
   }
 
-  /* Custom tag button - styled similarly to quick tags but distinct */
-  .custom-tag-btn {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    width: 100%;
-    padding: 4px 8px;
-    margin-top: var(--spacing-sm);
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 4px;
-    cursor: pointer;
-    text-align: left;
-    font-size: 12px;
-  }
-
-  .custom-tag-btn:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
-  }
-
-  .custom-tag-btn .tag-shortcut.custom {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: var(--font-mono);
-    flex-shrink: 0;
-    border: 1px solid var(--border-primary);
-  }
-
-  .custom-tag-btn:hover .tag-shortcut.custom {
-    background: var(--accent-primary);
-    color: white;
-    border-color: var(--accent-primary);
-  }
-
-  .custom-tag-btn .tag-name {
-    color: var(--text-muted);
-  }
-
-  .custom-tag-btn:hover .tag-name {
-    color: var(--text-primary);
-  }
-
-  /* Inline tag input in sidebar */
-  .inline-tag-input {
-    position: relative;
-    margin-top: var(--spacing-sm);
-  }
-
-  .inline-tag-input input {
-    width: 100%;
-    padding: 6px 70px 6px 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--accent-primary);
-    border-radius: 4px;
-    color: var(--text-primary);
-    font-size: 12px;
-  }
-
-  .inline-tag-input input:focus {
-    outline: none;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-  }
-
-  .inline-tag-actions {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    gap: 2px;
-  }
-
-  .inline-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-
-  .inline-btn.apply {
-    background: var(--accent-success, #22c55e);
-    color: white;
-  }
-
-  .inline-btn.apply:hover {
-    opacity: 0.9;
-  }
-
-  .inline-btn.cancel {
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-  }
-
-  .inline-btn.cancel:hover {
-    background: var(--accent-danger);
-    color: white;
-  }
-
-  .autocomplete-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-    z-index: 10;
-    max-height: 150px;
-    overflow-y: auto;
-  }
-
-  .autocomplete-item {
-    display: block;
-    width: 100%;
-    padding: 6px 8px;
-    text-align: left;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .autocomplete-item:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .autocomplete-item.selected {
-    background: var(--accent-primary);
-    color: white;
-  }
-
-  .ghost-completion {
-    position: absolute;
-    left: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 12px;
-    color: transparent;
-    pointer-events: none;
-    white-space: pre;
-  }
-
-  .ghost-text {
-    color: var(--text-muted);
-    opacity: 0.5;
-  }
-
   .split-info {
     border-top: 1px solid var(--border-primary);
     padding-top: var(--spacing-md);
@@ -3326,15 +3370,60 @@
   }
 
   .row-tags {
-    width: 150px;
+    width: 180px;
     flex-shrink: 0;
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    align-items: center;
   }
 
-  .no-tags {
+  /* Add tag placeholder for empty rows */
+  .add-tag-placeholder {
+    padding: 1px 8px;
+    background: transparent;
+    border: 1px dashed var(--border-primary);
+    border-radius: 3px;
     color: var(--text-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .add-tag-placeholder:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.05);
+  }
+
+  /* Add tag button for rows with existing tags */
+  .add-tag-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: transparent;
+    border: 1px dashed var(--border-primary);
+    border-radius: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: all 0.15s;
+  }
+
+  .row:hover .add-tag-btn {
+    opacity: 1;
+  }
+
+  .add-tag-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+    background: rgba(99, 102, 241, 0.1);
+    opacity: 1;
   }
 
   .tag {
@@ -3352,6 +3441,112 @@
     color: var(--text-muted);
     border-radius: 3px;
     font-size: 10px;
+  }
+
+  /* Inline row tag editor */
+  .inline-row-editor {
+    position: relative;
+    width: 100%;
+  }
+
+  .inline-tag-input-field {
+    width: 100%;
+    padding: 4px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--accent-primary);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  }
+
+  .inline-tag-input-field::placeholder {
+    color: var(--text-muted);
+  }
+
+  .inline-autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .inline-autocomplete-dropdown .autocomplete-item {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .inline-autocomplete-dropdown .autocomplete-item:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .inline-autocomplete-dropdown .autocomplete-item.selected {
+    background: var(--accent-primary);
+    color: white;
+  }
+
+  /* Sidebar subtitle */
+  .sidebar-subtitle {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--text-muted);
+    text-transform: none;
+    letter-spacing: normal;
+    margin-left: 4px;
+  }
+
+  /* Sidebar empty hint */
+  .sidebar-empty-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: var(--spacing-sm);
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    line-height: 1.4;
+  }
+
+  /* Pinned vs computed tag styles */
+  .tag-suggestion.pinned {
+    border-left: 2px solid var(--accent-primary);
+  }
+
+  .tag-suggestion.computed {
+    border-left: 2px solid transparent;
+    opacity: 0.9;
+  }
+
+  .tag-suggestion.computed:hover {
+    opacity: 1;
+  }
+
+  /* Kbd styling in sidebar hints */
+  .selection-hint kbd,
+  .empty-hint kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
   }
 
   /* Split transaction styles - subtle box grouping */
