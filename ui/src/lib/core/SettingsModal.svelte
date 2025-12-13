@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { getVersion } from "@tauri-apps/api/app";
   import { Icon } from "../shared";
   import {
     getSettings,
@@ -35,6 +36,7 @@
   let settings = $state<Settings | null>(null);
   let isLoading = $state(true);
   let isSyncing = $state(false);
+  let appVersion = $state<string>("...");
 
   // Integration state
   interface Integration {
@@ -426,6 +428,7 @@
           loadSimplefinAccounts();
         }
       });
+      getVersion().then((v) => (appVersion = v));
     }
   });
 </script>
@@ -788,7 +791,7 @@
                   <div class="about-info">
                     <div class="info-row">
                       <span class="info-label">Version:</span>
-                      <span class="info-value">0.2.0</span>
+                      <span class="info-value">{appVersion}</span>
                     </div>
                   </div>
 

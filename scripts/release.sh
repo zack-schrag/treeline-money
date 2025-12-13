@@ -126,9 +126,16 @@ uv lock
 cd ..
 echo -e "${GREEN}✓ Updated uv.lock${NC}"
 
+# Update Cargo.lock to match new version
+echo -e "${YELLOW}Updating Cargo.lock...${NC}"
+cd ui/src-tauri
+cargo update -p treeline --offline 2>/dev/null || cargo update -p treeline
+cd ../..
+echo -e "${GREEN}✓ Updated Cargo.lock${NC}"
+
 # Commit version bump
 echo -e "${YELLOW}Committing version bump...${NC}"
-git add cli/pyproject.toml cli/uv.lock ui/src-tauri/tauri.conf.json ui/src-tauri/Cargo.toml ui/package.json
+git add cli/pyproject.toml cli/uv.lock ui/src-tauri/tauri.conf.json ui/src-tauri/Cargo.toml ui/src-tauri/Cargo.lock ui/package.json
 git commit -m "Bump version to ${VERSION}"
 echo -e "${GREEN}✓ Committed version bump${NC}"
 
