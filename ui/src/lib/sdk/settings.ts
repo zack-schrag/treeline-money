@@ -18,6 +18,8 @@ export interface AppSettings {
   theme: "light" | "dark" | "system";
   lastSyncDate: string | null;
   autoSyncOnStartup: boolean;
+  autoUpdate: boolean;
+  lastUpdateCheck?: string | null;
   hasCompletedOnboarding?: boolean;
   sidebarCollapsed?: boolean;
   hideDemoBanner?: boolean;
@@ -40,6 +42,8 @@ const DEFAULT_SETTINGS: Settings = {
     theme: "dark",
     lastSyncDate: null,
     autoSyncOnStartup: true,
+    autoUpdate: false,
+    lastUpdateCheck: null,
   },
   plugins: {},
 };

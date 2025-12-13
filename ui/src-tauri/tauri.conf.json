@@ -43,6 +43,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/tl"]
+    "externalBin": ["binaries/tl"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVERUMwNjBBOERFRjcwRDYKUldUV2NPK05DZ2JzWFk4ekxvOFBsb0tNVkg0N3V4ank3Q3FLdHp0Qk9FTjltREZCTk1zTzN3THcK",
+      "endpoints": [
+        "https://github.com/zack-schrag/treeline-money/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

@@ -181,6 +181,9 @@ jobs:
 
       - name: Build Tauri app
         working-directory: ui
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run build && npx tauri build
 
       - name: Upload Tauri artifacts (macOS)
@@ -190,7 +193,10 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: |
             ui/src-tauri/target/release/bundle/dmg/*.dmg
+            ui/src-tauri/target/release/bundle/dmg/*.dmg.sig
             ui/src-tauri/target/release/bundle/macos/*.app
+            ui/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            ui/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
 
       - name: Upload Tauri artifacts (Linux)
         if: runner.os == 'Linux'
@@ -200,6 +206,7 @@ jobs:
           path: |
             ui/src-tauri/target/release/bundle/deb/*.deb
             ui/src-tauri/target/release/bundle/appimage/*.AppImage
+            ui/src-tauri/target/release/bundle/appimage/*.AppImage.sig
 
       - name: Upload Tauri artifacts (Windows)
         if: runner.os == 'Windows'
@@ -209,6 +216,7 @@ jobs:
           path: |
             ui/src-tauri/target/release/bundle/msi/*.msi
             ui/src-tauri/target/release/bundle/nsis/*.exe
+            ui/src-tauri/target/release/bundle/nsis/*.exe.sig
 
   # Upload all release assets
   upload-release-assets:
@@ -257,13 +265,19 @@ jobs:
           asset_content_type: application/octet-stream
 
       # Tauri apps - using gh cli for flexibility with multiple files
-      - name: Upload Tauri apps
+      - name: Upload Tauri apps and signatures
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Find and upload all Tauri build artifacts
+          # Find and upload all Tauri build artifacts and signatures
           # macOS
           for f in artifacts/treeline-macos-*/dmg/*.dmg; do
+            [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
+          done
+          for f in artifacts/treeline-macos-*/macos/*.app.tar.gz; do
+            [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
+          done
+          for f in artifacts/treeline-macos-*/macos/*.app.tar.gz.sig; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
 
@@ -274,6 +288,9 @@ jobs:
           for f in artifacts/treeline-linux-*/appimage/*.AppImage; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
+          for f in artifacts/treeline-linux-*/appimage/*.AppImage.sig; do
+            [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
+          done
 
           # Windows
           for f in artifacts/treeline-windows-*/msi/*.msi; do
@@ -282,3 +299,82 @@ jobs:
           for f in artifacts/treeline-windows-*/nsis/*.exe; do
             [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
           done
+          for f in artifacts/treeline-windows-*/nsis/*.exe.sig; do
+            [ -f "$f" ] && gh release upload "${{ github.event.release.tag_name }}" "$f" --repo "${{ github.repository }}" || true
+          done
+
+      - name: Generate and upload latest.json for auto-updater
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          # Remove 'v' prefix if present
+          VERSION_NUM="${VERSION#v}"
+          REPO="${{ github.repository }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          NOTES="${{ github.event.release.body }}"
+          # Escape notes for JSON
+          NOTES_ESCAPED=$(echo "$NOTES" | jq -Rs '.')
+
+          # Read signatures
+          LINUX_SIG=""
+          MACOS_SIG=""
+          WINDOWS_SIG=""
+
+          # Find and read Linux AppImage signature
+          for f in artifacts/treeline-linux-*/appimage/*.AppImage.sig; do
+            [ -f "$f" ] && LINUX_SIG=$(cat "$f") && break
+          done
+
+          # Find and read macOS .app.tar.gz signature
+          for f in artifacts/treeline-macos-*/macos/*.app.tar.gz.sig; do
+            [ -f "$f" ] && MACOS_SIG=$(cat "$f") && break
+          done
+
+          # Find and read Windows NSIS .exe signature
+          for f in artifacts/treeline-windows-*/nsis/*.exe.sig; do
+            [ -f "$f" ] && WINDOWS_SIG=$(cat "$f") && break
+          done
+
+          # Find artifact filenames
+          LINUX_FILE=""
+          MACOS_FILE=""
+          WINDOWS_FILE=""
+
+          for f in artifacts/treeline-linux-*/appimage/*.AppImage; do
+            [ -f "$f" ] && LINUX_FILE=$(basename "$f") && break
+          done
+
+          for f in artifacts/treeline-macos-*/macos/*.app.tar.gz; do
+            [ -f "$f" ] && MACOS_FILE=$(basename "$f") && break
+          done
+
+          for f in artifacts/treeline-windows-*/nsis/*.exe; do
+            [ -f "$f" ] && WINDOWS_FILE=$(basename "$f") && break
+          done
+
+          # Generate latest.json
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION_NUM}",
+            "notes": ${NOTES_ESCAPED},
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "https://github.com/${REPO}/releases/download/${VERSION}/${LINUX_FILE}"
+              },
+              "darwin-aarch64": {
+                "signature": "${MACOS_SIG}",
+                "url": "https://github.com/${REPO}/releases/download/${VERSION}/${MACOS_FILE}"
+              },
+              "windows-x86_64": {
+                "signature": "${WINDOWS_SIG}",
+                "url": "https://github.com/${REPO}/releases/download/${VERSION}/${WINDOWS_FILE}"
+              }
+            }
+          }
+          EOF
+
+          cat latest.json
+          gh release upload "${{ github.event.release.tag_name }}" latest.json --repo "${{ github.repository }}" --clobber

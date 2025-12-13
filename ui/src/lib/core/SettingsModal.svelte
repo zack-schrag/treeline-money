@@ -351,6 +351,12 @@
     settings.app.autoSyncOnStartup = enabled;
   }
 
+  async function handleAutoUpdateChange(enabled: boolean) {
+    if (!settings) return;
+    await setAppSetting("autoUpdate", enabled);
+    settings.app.autoUpdate = enabled;
+  }
+
   async function handleSync() {
     isSyncing = true;
     const stopActivity = activityStore.start("Syncing accounts...");
@@ -498,6 +504,20 @@
                       Sync Now
                     {/if}
                   </button>
+                </div>
+
+                <div class="setting-group">
+                  <h4 class="group-title">Updates</h4>
+
+                  <label class="checkbox-setting">
+                    <input
+                      type="checkbox"
+                      checked={settings.app.autoUpdate}
+                      onchange={(e) => handleAutoUpdateChange(e.currentTarget.checked)}
+                    />
+                    <span>Automatically check for updates</span>
+                  </label>
+                  <p class="group-desc">When enabled, Treeline will check for updates on startup and every 24 hours. You'll be notified when an update is available.</p>
                 </div>
               </section>
             {:else if activeSection === "plugins"}

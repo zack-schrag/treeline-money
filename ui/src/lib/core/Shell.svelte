@@ -7,8 +7,10 @@
   import CommandPalette from "./CommandPalette.svelte";
   import SettingsModal from "./SettingsModal.svelte";
   import ToastContainer from "./ToastContainer.svelte";
+  import UpdateBanner from "./UpdateBanner.svelte";
   import { Icon } from "../shared";
   import { registry, getDemoMode, disableDemo, toast, getAppSetting } from "../sdk";
+  import { initUpdater } from "../sdk/updater";
 
   let commandPaletteOpen = $state(false);
   let settingsModalOpen = $state(false);
@@ -19,6 +21,7 @@
   // Check demo mode on mount and subscribe to refresh events
   onMount(() => {
     checkDemoMode();
+    initUpdater();
     const unsubscribe = registry.on("data:refresh", checkDemoMode);
     return unsubscribe;
   });
@@ -108,6 +111,7 @@
 
   <div class="main-area">
     <TabBar />
+    <UpdateBanner />
     {#if isDemoMode && !hideDemoBanner}
       <div class="demo-banner">
         <span class="demo-icon"><Icon name="beaker" size={16} /></span>

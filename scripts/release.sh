@@ -108,6 +108,17 @@ else
 fi
 echo -e "${GREEN}✓ Updated package.json version to ${VERSION_NUMBER}${NC}"
 
+# Update version in ui/src-tauri/Cargo.toml
+echo -e "${YELLOW}Updating version in ui/src-tauri/Cargo.toml...${NC}"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS - match the version line in [package] section
+    sed -i '' "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${VERSION_NUMBER}\"/" ui/src-tauri/Cargo.toml
+else
+    # Linux
+    sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${VERSION_NUMBER}\"/" ui/src-tauri/Cargo.toml
+fi
+echo -e "${GREEN}✓ Updated Cargo.toml version to ${VERSION_NUMBER}${NC}"
+
 # Update uv.lock to match new version
 echo -e "${YELLOW}Updating uv.lock...${NC}"
 cd cli
@@ -117,7 +128,7 @@ echo -e "${GREEN}✓ Updated uv.lock${NC}"
 
 # Commit version bump
 echo -e "${YELLOW}Committing version bump...${NC}"
-git add cli/pyproject.toml cli/uv.lock ui/src-tauri/tauri.conf.json ui/package.json
+git add cli/pyproject.toml cli/uv.lock ui/src-tauri/tauri.conf.json ui/src-tauri/Cargo.toml ui/package.json
 git commit -m "Bump version to ${VERSION}"
 echo -e "${GREEN}✓ Committed version bump${NC}"
 

@@ -1,0 +1,219 @@
+/**
+ * Auto-Update Service
+ *
+ * Handles checking for updates, downloading, and installing.
+ * Respects user preferences for automatic updates.
+ */
+
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { getAppSetting, setAppSetting } from "./settings";
+
+// Check interval: 24 hours in milliseconds
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+// Minimum time between checks (to avoid spam on app restarts)
+const MIN_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
+
+// Store the current update if available
+let availableUpdate: Update | null = null;
+let checkIntervalId: ReturnType<typeof setInterval> | null = null;
+let isDownloading = false;
+let downloadProgress = 0;
+
+// Subscribers for update state changes
+type UpdateSubscriber = (state: UpdateState) => void;
+const subscribers: Set<UpdateSubscriber> = new Set();
+
+export interface UpdateState {
+  available: boolean;
+  version: string | null;
+  notes: string | null;
+  isDownloading: boolean;
+  downloadProgress: number;
+  error: string | null;
+}
+
+function getState(): UpdateState {
+  return {
+    available: availableUpdate !== null,
+    version: availableUpdate?.version ?? null,
+    notes: availableUpdate?.body ?? null,
+    isDownloading,
+    downloadProgress,
+    error: null,
+  };
+}
+
+function notifySubscribers(state?: UpdateState): void {
+  const currentState = state ?? getState();
+  subscribers.forEach((callback) => callback(currentState));
+}
+
+/**
+ * Subscribe to update state changes
+ */
+export function subscribeToUpdates(callback: UpdateSubscriber): () => void {
+  subscribers.add(callback);
+  // Immediately notify with current state
+  callback(getState());
+  return () => subscribers.delete(callback);
+}
+
+/**
+ * Check if enough time has passed since last check
+ */
+async function shouldCheck(): Promise<boolean> {
+  const lastCheck = await getAppSetting("lastUpdateCheck");
+  if (!lastCheck) return true;
+
+  const lastCheckTime = new Date(lastCheck).getTime();
+  const now = Date.now();
+  return now - lastCheckTime >= MIN_CHECK_INTERVAL_MS;
+}
+
+/**
+ * Check for updates
+ * Returns the update info if available, null otherwise
+ */
+export async function checkForUpdate(force = false): Promise<Update | null> {
+  // Don't check too frequently unless forced
+  if (!force && !(await shouldCheck())) {
+    return availableUpdate;
+  }
+
+  try {
+    const update = await check();
+    availableUpdate = update;
+
+    // Record the check time
+    await setAppSetting("lastUpdateCheck", new Date().toISOString());
+
+    notifySubscribers();
+    return update;
+  } catch (error) {
+    console.error("Failed to check for updates:", error);
+    notifySubscribers({
+      ...getState(),
+      error: error instanceof Error ? error.message : "Failed to check for updates",
+    });
+    return null;
+  }
+}
+
+/**
+ * Download and install the available update
+ */
+export async function downloadAndInstall(): Promise<void> {
+  if (!availableUpdate) {
+    throw new Error("No update available");
+  }
+
+  if (isDownloading) {
+    throw new Error("Download already in progress");
+  }
+
+  isDownloading = true;
+  downloadProgress = 0;
+  notifySubscribers();
+
+  try {
+    let contentLength = 0;
+    let downloaded = 0;
+
+    await availableUpdate.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          contentLength = event.data.contentLength ?? 0;
+          downloaded = 0;
+          downloadProgress = 0;
+          break;
+        case "Progress":
+          downloaded += event.data.chunkLength;
+          if (contentLength > 0) {
+            downloadProgress = Math.round((downloaded / contentLength) * 100);
+          }
+          break;
+        case "Finished":
+          downloadProgress = 100;
+          break;
+      }
+      notifySubscribers();
+    });
+
+    isDownloading = false;
+    notifySubscribers();
+  } catch (error) {
+    isDownloading = false;
+    downloadProgress = 0;
+    notifySubscribers({
+      ...getState(),
+      error: error instanceof Error ? error.message : "Failed to download update",
+    });
+    throw error;
+  }
+}
+
+/**
+ * Restart the application to apply the update
+ */
+export async function restartApp(): Promise<void> {
+  await relaunch();
+}
+
+/**
+ * Dismiss the current update notification
+ * The update will be shown again on next check
+ */
+export function dismissUpdate(): void {
+  availableUpdate = null;
+  notifySubscribers();
+}
+
+/**
+ * Start periodic update checks (every 24 hours)
+ */
+export function startPeriodicChecks(): void {
+  if (checkIntervalId) return;
+
+  checkIntervalId = setInterval(async () => {
+    const autoUpdate = await getAppSetting("autoUpdate");
+    if (autoUpdate) {
+      await checkForUpdate();
+    }
+  }, CHECK_INTERVAL_MS);
+}
+
+/**
+ * Stop periodic update checks
+ */
+export function stopPeriodicChecks(): void {
+  if (checkIntervalId) {
+    clearInterval(checkIntervalId);
+    checkIntervalId = null;
+  }
+}
+
+/**
+ * Initialize the updater service
+ * Should be called once on app startup
+ */
+export async function initUpdater(): Promise<void> {
+  // Check for updates on startup
+  const autoUpdate = await getAppSetting("autoUpdate");
+
+  // Always check on startup (if auto-update is enabled)
+  if (autoUpdate) {
+    await checkForUpdate();
+  }
+
+  // Start periodic checks
+  startPeriodicChecks();
+}
+
+/**
+ * Get current update state
+ */
+export function getUpdateState(): UpdateState {
+  return getState();
+}
