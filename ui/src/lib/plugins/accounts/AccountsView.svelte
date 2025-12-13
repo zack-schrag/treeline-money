@@ -33,6 +33,10 @@
     excludedFromNetWorth: [],
   });
 
+  // Per-account sparkline and monthly change data
+  let accountSparklines = $state<Map<string, number[]>>(new Map());
+  let accountMonthlyChanges = $state<Map<string, { change: number; percent: number }>>(new Map());
+
   // Navigation
   let cursorIndex = $state(0);
   let containerEl: HTMLDivElement | null = null;
@@ -65,8 +69,11 @@
   let previewTransactions = $state<PreviewTransaction[]>([]);
   let previewLoading = $state(false);
 
-  // Balance trend for selected account (shown in sidebar)
+  // Balance trend for selected account (shown in detail panel)
   let balanceTrend = $state<BalanceTrendPoint[]>([]);
+
+  // All balance snapshots for selected account (for detailed chart)
+  let allBalanceSnapshots = $state<{ date: string; balance: number }[]>([]);
 
   // Net worth trend for MoM calculation (aggregates all accounts)
   let netWorthTrend = $state<{ month: string; netWorth: number }[]>([]);
@@ -87,8 +94,20 @@
     { value: "all", label: "All" },
   ];
 
-  // Net worth section expanded state
-  let netWorthExpanded = $state(false);
+  // Net worth section expanded state (default to expanded for visibility)
+  let netWorthExpanded = $state(true);
+
+  // Detail panel state (always visible in split view when account selected)
+  let showDetailPanel = $state(true);
+
+  // Snapshot history in detail panel
+  let detailSnapshots = $state<{
+    snapshot_id: string;
+    balance: number;
+    snapshot_time: string;
+    source: string;
+  }[]>([]);
+  let detailSnapshotsLoading = $state(false);
 
   // Edit modal
   let isEditing = $state(false);
@@ -127,16 +146,6 @@
   let setBalanceAccountName = $state("");
   let setBalanceCurrentBalance = $state<number | null>(null);
   let setBalanceCurrentDate = $state<string | null>(null);
-
-  // Expanded row for balance history
-  let expandedAccountId = $state<string | null>(null);
-  let expandedSnapshots = $state<{
-    snapshot_id: string;
-    balance: number;
-    snapshot_time: string;
-    source: string;
-  }[]>([]);
-  let expandedSnapshotsLoading = $state(false);
 
   // Derived: split accounts by classification
   let assetAccounts = $derived(accounts.filter((a) => a.classification === "asset"));
@@ -194,6 +203,21 @@
     const percent = first !== 0 ? (change / Math.abs(first)) * 100 : 0;
     const days = dailyNetWorth.length;
     return { change, percent, days };
+  });
+
+  // Balance trend chart data for detail panel (using all snapshots)
+  let balanceTrendChartData = $derived.by(() => {
+    if (allBalanceSnapshots.length === 0) return [] as DataPoint[];
+
+    // Show labels for first, last, and a few points in between
+    const labelInterval = Math.max(1, Math.floor(allBalanceSnapshots.length / 4));
+
+    return allBalanceSnapshots.map((s, i) => ({
+      label: (i === 0 || i === allBalanceSnapshots.length - 1 || i % labelInterval === 0)
+        ? formatDateShort(s.date)
+        : "",
+      value: s.balance,
+    }));
   });
 
   function formatDateShort(dateStr: string): string {
@@ -299,6 +323,14 @@
             MAX(transaction_date) as last_transaction
           FROM transactions
           GROUP BY account_id
+        ),
+        computed_balances AS (
+          SELECT
+            account_id,
+            SUM(amount) as computed_balance
+          FROM transactions
+          WHERE transaction_date <= '${refDateStr.split(' ')[0]}'
+          GROUP BY account_id
         )
         SELECT
           a.account_id,
@@ -306,41 +338,36 @@
           a.nickname,
           a.account_type,
           a.currency,
-          s_ao.balance as balance_as_of_date,
+          sao.balance,
           a.institution_name,
           a.created_at,
           a.updated_at,
           COALESCE(s.transaction_count, 0) as transaction_count,
           s.first_transaction,
           s.last_transaction,
-          s_ao.snapshot_time as balance_as_of,
+          COALESCE(cb.computed_balance, 0) as computed_balance,
+          sao.snapshot_time as balance_as_of,
           a.external_ids
         FROM accounts a
-        LEFT JOIN snapshots_as_of s_ao ON a.account_id = s_ao.account_id AND s_ao.rn = 1
+        LEFT JOIN snapshots_as_of sao ON a.account_id = sao.account_id AND sao.rn = 1
         LEFT JOIN account_stats s ON a.account_id = s.account_id
-        ORDER BY a.name
+        LEFT JOIN computed_balances cb ON a.account_id = cb.account_id
+        ORDER BY
+          CASE WHEN sao.balance IS NOT NULL THEN ABS(sao.balance) ELSE COALESCE(ABS(cb.computed_balance), 0) END DESC,
+          a.name
       `);
 
       accounts = result.rows.map((row) => {
-        const accountId = row[0] as string;
         const accountType = row[3] as string | null;
-        const classification =
-          config.classificationOverrides[accountId] ??
-          getDefaultClassification(accountType);
+        const accountId = row[0] as string;
 
-        // Parse external_ids - empty object means manual account
-        const externalIdsRaw = row[13];
-        let externalIds: Record<string, string> = {};
-        if (externalIdsRaw && typeof externalIdsRaw === 'string') {
-          try {
-            externalIds = JSON.parse(externalIdsRaw);
-          } catch {
-            externalIds = {};
-          }
-        } else if (externalIdsRaw && typeof externalIdsRaw === 'object') {
-          externalIds = externalIdsRaw as Record<string, string>;
-        }
-        const isManual = Object.keys(externalIds).length === 0;
+        // Check for classification override
+        const classificationOverride = config.classificationOverrides[accountId];
+        const classification = classificationOverride ?? getDefaultClassification(accountType);
+
+        // Check if manual account (no external IDs)
+        const externalIds = row[14] as Record<string, string> | null;
+        const isManual = !externalIds || Object.keys(externalIds).length === 0;
 
         return {
           account_id: accountId,
@@ -352,70 +379,153 @@
           institution_name: row[6] as string | null,
           created_at: row[7] as string,
           updated_at: row[8] as string,
-          transaction_count: (row[9] as number) ?? 0,
+          transaction_count: row[9] as number,
           first_transaction: row[10] as string | null,
           last_transaction: row[11] as string | null,
-          computed_balance: 0, // Not used anymore, using snapshot balance
-          balance_as_of: row[12] as string | null,
+          computed_balance: row[12] as number,
+          balance_as_of: row[13] as string | null,
           classification,
-          external_ids: externalIds,
+          external_ids: externalIds ?? {},
           isManual,
         };
       });
 
-      // Reset cursor if needed
-      if (cursorIndex >= allAccounts.length) {
-        cursorIndex = Math.max(0, allAccounts.length - 1);
-      }
+      // Load net worth trends and per-account data
+      await Promise.all([
+        loadNetWorthTrend(),
+        loadDailyNetWorth(),
+        loadAccountSparklines(),
+      ]);
 
-      // Load net worth trend for MoM calculation
-      await loadNetWorthTrend();
-
-      // Load daily net worth for chart
-      await loadDailyNetWorth();
-
-      // Load trend for current account
-      if (currentAccount) {
-        await loadBalanceTrend(currentAccount.account_id);
+      // Ensure cursor is valid
+      if (cursorIndex >= accounts.length) {
+        cursorIndex = Math.max(0, accounts.length - 1);
       }
     } catch (e) {
-      error = e instanceof Error ? e.message : "Failed to load accounts";
       console.error("Failed to load accounts:", e);
+      error = e instanceof Error ? e.message : "Failed to load accounts";
     } finally {
       isLoading = false;
     }
   }
 
+  /**
+   * Load sparkline data and monthly change for all accounts
+   */
+  async function loadAccountSparklines() {
+    const newSparklines = new Map<string, number[]>();
+    const newChanges = new Map<string, { change: number; percent: number }>();
+
+    // Get last 6 months of balance data for each account
+    const day = referenceDay;
+
+    for (const account of accounts) {
+      try {
+        const result = await executeQuery(`
+          SELECT
+            account_id,
+            balance,
+            snapshot_time
+          FROM balance_snapshots
+          WHERE account_id = '${account.account_id}'
+          ORDER BY snapshot_time DESC
+        `);
+
+        if (result.rows.length === 0) {
+          continue;
+        }
+
+        // Group snapshots by month
+        const snapshotsByMonth = new Map<string, { balance: number; day: number }[]>();
+        for (const row of result.rows) {
+          const snapshotTime = new Date(row[2] as string);
+          const monthKey = `${snapshotTime.getFullYear()}-${String(snapshotTime.getMonth() + 1).padStart(2, "0")}`;
+          const snapshotDay = snapshotTime.getDate();
+          if (!snapshotsByMonth.has(monthKey)) {
+            snapshotsByMonth.set(monthKey, []);
+          }
+          snapshotsByMonth.get(monthKey)!.push({ balance: row[1] as number, day: snapshotDay });
+        }
+
+        // Get last 6 months of data
+        const sparklineValues: number[] = [];
+        for (let i = 5; i >= 0; i--) {
+          const targetDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
+          const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
+          const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
+          const targetDay = Math.min(day, daysInMonth);
+
+          const monthSnapshots = snapshotsByMonth.get(monthKey);
+          if (monthSnapshots && monthSnapshots.length > 0) {
+            // Find snapshot closest to target day
+            let closest = monthSnapshots[0];
+            let closestDiff = Math.abs(closest.day - targetDay);
+            for (const snap of monthSnapshots) {
+              const diff = Math.abs(snap.day - targetDay);
+              if (diff < closestDiff) {
+                closest = snap;
+                closestDiff = diff;
+              }
+            }
+            sparklineValues.push(closest.balance);
+          }
+        }
+
+        if (sparklineValues.length > 0) {
+          newSparklines.set(account.account_id, sparklineValues);
+
+          // Calculate monthly change
+          if (sparklineValues.length >= 2) {
+            const current = sparklineValues[sparklineValues.length - 1];
+            const previous = sparklineValues[sparklineValues.length - 2];
+            const change = current - previous;
+            const percent = previous !== 0 ? (change / Math.abs(previous)) * 100 : 0;
+            newChanges.set(account.account_id, { change, percent });
+          }
+        }
+      } catch (e) {
+        console.error(`Failed to load sparkline for ${account.account_id}:`, e);
+      }
+    }
+
+    accountSparklines = newSparklines;
+    accountMonthlyChanges = newChanges;
+  }
+
+  /**
+   * Load balance trend for a specific account (for detail panel)
+   */
   async function loadBalanceTrend(accountId: string) {
     const day = referenceDay;
     const trends: BalanceTrendPoint[] = [];
 
-    // Format reference date for SQL query (end of day)
-    const refDateStr = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, "0")}-${String(referenceDate.getDate()).padStart(2, "0")} 23:59:59`;
-
-    // Get snapshots for this account up to reference date
     const result = await executeQuery(`
       SELECT
-        snapshot_id,
         account_id,
         balance,
         snapshot_time
       FROM balance_snapshots
       WHERE account_id = '${accountId}'
-        AND snapshot_time <= '${refDateStr}'
-      ORDER BY snapshot_time DESC
+      ORDER BY snapshot_time ASC
     `);
 
     if (result.rows.length === 0) {
       balanceTrend = [];
+      allBalanceSnapshots = [];
       return;
     }
 
-    // Group snapshots by month and find the one closest to our reference day
+    // Store all snapshots for the detailed chart
+    allBalanceSnapshots = result.rows.map((row) => ({
+      date: (row[2] as string).split("T")[0].split(" ")[0],
+      balance: row[1] as number,
+    }));
+
+    // Group snapshots by month and find the one closest to our reference day (for MoM calc)
     const snapshotsByMonth = new Map<string, { balance: number; snapshot_time: string; day: number }[]>();
 
     for (const row of result.rows) {
-      const snapshotTime = new Date(row[3] as string);
+      const snapshotTime = new Date(row[2] as string);
       const monthKey = `${snapshotTime.getFullYear()}-${String(snapshotTime.getMonth() + 1).padStart(2, "0")}`;
       const snapshotDay = snapshotTime.getDate();
 
@@ -423,14 +533,14 @@
         snapshotsByMonth.set(monthKey, []);
       }
       snapshotsByMonth.get(monthKey)!.push({
-        balance: row[2] as number,
-        snapshot_time: row[3] as string,
+        balance: row[1] as number,
+        snapshot_time: row[2] as string,
         day: snapshotDay,
       });
     }
 
     // For each of the last 6 months relative to reference date, find the snapshot closest to our reference day
-    for (let i = 0; i < 6; i++) {
+    for (let i = 5; i >= 0; i--) {
       const targetDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
       const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
       const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
@@ -450,7 +560,7 @@
           }
         }
 
-        trends.unshift({
+        trends.push({
           month: monthKey,
           day: closest.day,
           balance: closest.balance,
@@ -468,7 +578,7 @@
 
     // Build the 6 target months (from referenceDate going back)
     const targetMonths: { monthKey: string; targetDay: number; endOfMonth: Date }[] = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 5; i >= 0; i--) {
       const targetDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - i, 1);
       const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}`;
       const daysInMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate();
@@ -527,7 +637,7 @@
         }
       }
 
-      trends.unshift({ month: monthKey, netWorth: monthNetWorth });
+      trends.push({ month: monthKey, netWorth: monthNetWorth });
     }
 
     netWorthTrend = trends;
@@ -587,10 +697,38 @@
       dates.push(dateStr);
     }
 
-    // Get all snapshots within the date range
     const startDate = dates[0];
     const endDate = dates[dates.length - 1] + " 23:59:59";
 
+    // FIRST: Get the most recent snapshot for each account BEFORE the start date
+    // This initializes balances that should carry forward into our date range
+    const initialBalancesResult = await executeQuery(`
+      WITH ranked AS (
+        SELECT
+          bs.account_id,
+          bs.balance,
+          bs.snapshot_time,
+          a.account_type,
+          ROW_NUMBER() OVER (PARTITION BY bs.account_id ORDER BY bs.snapshot_time DESC) as rn
+        FROM balance_snapshots bs
+        JOIN accounts a ON bs.account_id = a.account_id
+        WHERE bs.snapshot_time < '${startDate}'
+      )
+      SELECT account_id, balance, account_type
+      FROM ranked
+      WHERE rn = 1
+    `);
+
+    // Initialize currentBalances with snapshots from before the date range
+    const currentBalances = new Map<string, { balance: number; accountType: string | null }>();
+    for (const row of initialBalancesResult.rows) {
+      const accountId = row[0] as string;
+      const balance = row[1] as number;
+      const accountType = row[2] as string | null;
+      currentBalances.set(accountId, { balance, accountType });
+    }
+
+    // THEN: Get all snapshots within the date range
     const result = await executeQuery(`
       SELECT
         bs.account_id,
@@ -626,7 +764,6 @@
 
     // Build daily net worth by carrying forward balances
     const daily: { date: string; netWorth: number }[] = [];
-    const currentBalances = new Map<string, { balance: number; accountType: string | null }>();
 
     for (const dateStr of dates) {
       // Update balances for this date
@@ -662,10 +799,45 @@
     dailyNetWorth = daily;
   }
 
-  // Effect: load trend when account changes
+  /**
+   * Load snapshot history for detail panel
+   */
+  async function loadDetailSnapshots(accountId: string) {
+    detailSnapshotsLoading = true;
+    detailSnapshots = [];
+
+    try {
+      const result = await executeQuery(`
+        SELECT
+          snapshot_id,
+          balance,
+          snapshot_time,
+          source
+        FROM sys_balance_snapshots
+        WHERE account_id = '${accountId}'
+        ORDER BY snapshot_time DESC
+        LIMIT 50
+      `);
+
+      detailSnapshots = result.rows.map((row) => ({
+        snapshot_id: row[0] as string,
+        balance: row[1] as number,
+        snapshot_time: row[2] as string,
+        source: row[3] as string,
+      }));
+    } catch (e) {
+      console.error("Failed to load snapshots:", e);
+      detailSnapshots = [];
+    } finally {
+      detailSnapshotsLoading = false;
+    }
+  }
+
+  // Effect: load trend and snapshots when account changes
   $effect(() => {
     if (currentAccount && !isLoading) {
       loadBalanceTrend(currentAccount.account_id);
+      loadDetailSnapshots(currentAccount.account_id);
     }
   });
 
@@ -750,6 +922,22 @@
         e.preventDefault();
         if (currentAccount) deleteAccount(currentAccount);
         break;
+      case "s":
+        e.preventDefault();
+        if (currentAccount) openSetBalanceModal(currentAccount);
+        break;
+      case "i":
+        e.preventDefault();
+        if (currentAccount) openImportModal(currentAccount);
+        break;
+      case "Escape":
+        e.preventDefault();
+        showDetailPanel = false;
+        break;
+      case "Tab":
+        e.preventDefault();
+        showDetailPanel = !showDetailPanel;
+        break;
     }
   }
 
@@ -782,6 +970,7 @@
 
   function handleRowClick(index: number) {
     cursorIndex = index;
+    showDetailPanel = true;
     containerEl?.focus();
   }
 
@@ -792,45 +981,6 @@
     }
   }
 
-  async function toggleRowExpansion(account: AccountWithStats) {
-    if (expandedAccountId === account.account_id) {
-      // Collapse
-      expandedAccountId = null;
-      expandedSnapshots = [];
-    } else {
-      // Expand and load snapshots
-      expandedAccountId = account.account_id;
-      expandedSnapshotsLoading = true;
-      expandedSnapshots = [];
-
-      try {
-        const result = await executeQuery(`
-          SELECT
-            snapshot_id,
-            balance,
-            snapshot_time,
-            source
-          FROM sys_balance_snapshots
-          WHERE account_id = '${account.account_id}'
-          ORDER BY snapshot_time DESC
-          LIMIT 50
-        `);
-
-        expandedSnapshots = result.rows.map((row) => ({
-          snapshot_id: row[0] as string,
-          balance: row[1] as number,
-          snapshot_time: row[2] as string,
-          source: row[3] as string,
-        }));
-      } catch (e) {
-        console.error("Failed to load snapshots:", e);
-        expandedSnapshots = [];
-      } finally {
-        expandedSnapshotsLoading = false;
-      }
-    }
-  }
-
   async function deleteSnapshot(snapshotId: string) {
     try {
       await executeQuery(
@@ -838,7 +988,7 @@
         { readonly: false }
       );
       // Remove from local state
-      expandedSnapshots = expandedSnapshots.filter((s) => s.snapshot_id !== snapshotId);
+      detailSnapshots = detailSnapshots.filter((s) => s.snapshot_id !== snapshotId);
       // Reload accounts to update balance display
       await loadAccounts();
       showToast({ type: "success", title: "Snapshot deleted" });
@@ -1184,8 +1334,18 @@ LIMIT 100`;
     });
   }
 
+  function formatCurrencyCompact(amount: number): string {
+    const absAmount = Math.abs(amount);
+    if (absAmount >= 1000000) {
+      return (amount / 1000000).toFixed(1) + "M";
+    } else if (absAmount >= 1000) {
+      return (amount / 1000).toFixed(1) + "K";
+    }
+    return formatCurrency(amount);
+  }
+
   function formatDate(dateStr: string | null): string {
-    if (!dateStr) return "—";
+    if (!dateStr) return "";
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
@@ -1201,13 +1361,13 @@ LIMIT 100`;
   }
 
   function getSubtitle(account: AccountWithStats): string | null {
-    if (account.nickname && account.institution_name) {
+    if (account.institution_name) {
       return account.institution_name;
     }
     if (account.nickname) {
       return account.name;
     }
-    return account.institution_name;
+    return null;
   }
 
   function getBalanceForDisplay(account: AccountWithStats): number {
@@ -1271,8 +1431,10 @@ LIMIT 100`;
   {/if}
 
   <div class="main-content">
-    <!-- Account list -->
-    <div class="list-container">
+    <!-- Split view: list on left, detail on right -->
+    <div class="split-view">
+      <!-- Account list (left) -->
+      <div class="list-container">
       {#if isLoading}
         <div class="empty-state">Loading...</div>
       {:else if allAccounts.length === 0}
@@ -1288,73 +1450,73 @@ LIMIT 100`;
           </div>
         </div>
       {:else}
-        <!-- Net Worth (Collapsible) -->
-        <div class="net-worth-section" class:expanded={netWorthExpanded}>
-          <button
-            class="net-worth-header"
-            onclick={() => (netWorthExpanded = !netWorthExpanded)}
-            aria-expanded={netWorthExpanded}
-          >
-            <span class="expand-icon">{netWorthExpanded ? "▼" : "▶"}</span>
-            <span class="net-worth-label">NET WORTH</span>
-            {#if sparklineData.length >= 2}
-              <Sparkline data={sparklineData} width={60} height={14} />
-            {/if}
-            <span class="net-worth-value" class:negative={netWorth < 0}>
-              {formatCurrency(netWorth)}
-            </span>
-            {#if momChange}
-              <span class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
-                {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)}
-                ({momChange.percent >= 0 ? "+" : ""}{momChange.percent.toFixed(1)}%) MoM
+        <!-- Net Worth Summary (Always visible) -->
+        <div class="net-worth-summary">
+          <div class="net-worth-main">
+            <div class="net-worth-left">
+              <span class="net-worth-label">NET WORTH</span>
+              <span class="net-worth-value" class:negative={netWorth < 0}>
+                {formatCurrency(netWorth)}
               </span>
-            {/if}
-          </button>
+              {#if momChange}
+                <span class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
+                  {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)} this month
+                </span>
+              {/if}
+            </div>
+            <div class="net-worth-right">
+              {#if sparklineData.length >= 2}
+                <Sparkline data={sparklineData} width={80} height={24} />
+              {/if}
+              <button
+                class="expand-toggle"
+                onclick={() => (netWorthExpanded = !netWorthExpanded)}
+                title={netWorthExpanded ? "Collapse chart" : "Expand chart"}
+              >
+                {netWorthExpanded ? "−" : "+"}
+              </button>
+            </div>
+          </div>
+          <div class="net-worth-breakdown-inline">
+            <span class="breakdown-item">
+              <span class="breakdown-dot asset"></span>
+              Assets {formatCurrencyCompact(totalAssets)}
+            </span>
+            <span class="breakdown-item">
+              <span class="breakdown-dot liability"></span>
+              Liabilities {formatCurrencyCompact(totalLiabilities)}
+            </span>
+          </div>
 
-          {#if netWorthExpanded}
-            <div class="net-worth-details">
-              <div class="net-worth-breakdown">
-                <div class="breakdown-row">
-                  <span class="breakdown-label">Assets:</span>
-                  <span class="breakdown-value">{formatCurrency(totalAssets)}</span>
-                </div>
-                <div class="breakdown-row">
-                  <span class="breakdown-label">Liabilities:</span>
-                  <span class="breakdown-value liability">{formatCurrency(totalLiabilities)}</span>
+          {#if netWorthExpanded && netWorthChartData.length >= 2}
+            <div class="net-worth-chart">
+              <div class="chart-header">
+                <div class="time-range-selector">
+                  {#each timeRangeOptions as option}
+                    <button
+                      class="time-range-btn"
+                      class:active={chartTimeRange === option.value}
+                      onclick={() => (chartTimeRange = option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  {/each}
                 </div>
               </div>
-
-              {#if netWorthChartData.length >= 2}
-                <div class="net-worth-chart">
-                  <div class="chart-header">
-                    <div class="time-range-selector">
-                      {#each timeRangeOptions as option}
-                        <button
-                          class="time-range-btn"
-                          class:active={chartTimeRange === option.value}
-                          onclick={() => (chartTimeRange = option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                  <LineAreaChart
-                    data={netWorthChartData}
-                    height={120}
-                    showArea={true}
-                    showLine={true}
-                    showLabels={true}
-                    showZeroLine={true}
-                    formatValue={formatCurrency}
-                  />
-                  {#if periodChange}
-                    <div class="chart-summary" class:positive={periodChange.change >= 0} class:negative={periodChange.change < 0}>
-                      {periodChange.change >= 0 ? "+" : ""}{formatCurrency(periodChange.change)}
-                      ({periodChange.percent >= 0 ? "+" : ""}{periodChange.percent.toFixed(1)}%)
-                      over {periodChange.days} days
-                    </div>
-                  {/if}
+              <LineAreaChart
+                data={netWorthChartData}
+                height={100}
+                showArea={true}
+                showLine={true}
+                showLabels={true}
+                showZeroLine={true}
+                formatValue={formatCurrency}
+              />
+              {#if periodChange}
+                <div class="chart-summary" class:positive={periodChange.change >= 0} class:negative={periodChange.change < 0}>
+                  {periodChange.change >= 0 ? "+" : ""}{formatCurrency(periodChange.change)}
+                  ({periodChange.percent >= 0 ? "+" : ""}{periodChange.percent.toFixed(1)}%)
+                  over {periodChange.days} days
                 </div>
               {/if}
             </div>
@@ -1370,87 +1532,45 @@ LIMIT 100`;
             </div>
             {#each assetAccounts as account, i}
               {@const globalIndex = i}
-              {@const isExpanded = expandedAccountId === account.account_id}
-              <div class="row-container" class:expanded={isExpanded}>
-                <div
-                  class="row"
-                  class:cursor={cursorIndex === globalIndex}
-                  class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
-                  data-index={globalIndex}
-                  onclick={() => handleRowClick(globalIndex)}
-                  ondblclick={() => handleRowDoubleClick(globalIndex)}
-                  role="button"
-                  tabindex="-1"
-                >
-                  <button
-                    class="expand-btn"
-                    onclick={(e) => { e.stopPropagation(); toggleRowExpansion(account); }}
-                    title={isExpanded ? "Hide balance history" : "Show balance history"}
-                  >
-                    {isExpanded ? "▼" : "▶"}
-                  </button>
-                  <div class="row-name">
-                    <span class="account-name">{getDisplayName(account)}</span>
-                    {#if getSubtitle(account)}
-                      <span class="account-subtitle">{getSubtitle(account)}</span>
-                    {/if}
-                  </div>
-                  <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
-                  <div class="row-type">{account.account_type || "—"}</div>
-                  <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
-                  <div class="row-last">{formatDate(account.last_transaction)}</div>
-                  <RowMenu
-                    items={[
-                      { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
-                      { label: "Set Balance", action: () => openSetBalanceModal(account) },
-                      { label: "Import CSV", action: () => openImportModal(account) },
-                      { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
-                    ]}
-                    isOpen={menuOpenForAccount === account.account_id}
-                    onToggle={(e) => toggleAccountMenu(account.account_id, e)}
-                    onClose={closeAccountMenu}
-                    title="Account actions"
-                  />
+              {@const monthChange = accountMonthlyChanges.get(account.account_id)}
+              <div
+                class="row"
+                class:cursor={cursorIndex === globalIndex}
+                class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
+                data-index={globalIndex}
+                onclick={() => handleRowClick(globalIndex)}
+                ondblclick={() => handleRowDoubleClick(globalIndex)}
+                role="button"
+                tabindex="-1"
+              >
+                <div class="row-name">
+                  <span class="account-name">{getDisplayName(account)}</span>
+                  {#if getSubtitle(account)}
+                    <span class="account-subtitle">{getSubtitle(account)}</span>
+                  {/if}
                 </div>
-                {#if isExpanded}
-                  <div class="snapshot-history">
-                    {#if expandedSnapshotsLoading}
-                      <div class="snapshot-loading">Loading snapshots...</div>
-                    {:else if expandedSnapshots.length === 0}
-                      <div class="snapshot-empty">
-                        <span>No balance snapshots</span>
-                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add one</button>
-                      </div>
-                    {:else}
-                      <div class="snapshot-list">
-                        <div class="snapshot-header">
-                          <span class="snapshot-col-date">Date</span>
-                          <span class="snapshot-col-balance">Balance</span>
-                          <span class="snapshot-col-source">Source</span>
-                          <span class="snapshot-col-actions"></span>
-                        </div>
-                        {#each expandedSnapshots as snapshot}
-                          <div class="snapshot-row">
-                            <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
-                            <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
-                            <span class="snapshot-col-source">{snapshot.source || "—"}</span>
-                            <span class="snapshot-col-actions">
-                              <button
-                                class="snapshot-delete-btn"
-                                onclick={() => deleteSnapshot(snapshot.snapshot_id)}
-                                title="Delete snapshot"
-                              >×</button>
-                            </span>
-                          </div>
-                        {/each}
-                      </div>
-                      <div class="snapshot-footer">
-                        <span class="snapshot-count">{expandedSnapshots.length} snapshot{expandedSnapshots.length !== 1 ? "s" : ""}</span>
-                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add new</button>
-                      </div>
-                    {/if}
+                <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
+                {#if monthChange}
+                  {@const isGoodChange = monthChange.change >= 0}
+                  <div class="row-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
+                    <span class="change-value">{monthChange.change >= 0 ? "+" : ""}{formatCurrencyCompact(monthChange.change)}</span>
+                    <span class="change-label">MoM</span>
                   </div>
+                {:else}
+                  <div class="row-change"></div>
                 {/if}
+                <RowMenu
+                  items={[
+                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
+                    { label: "Import CSV", action: () => openImportModal(account) },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
+                  ]}
+                  isOpen={menuOpenForAccount === account.account_id}
+                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  onClose={closeAccountMenu}
+                  title="Account actions"
+                />
               </div>
             {/each}
           </div>
@@ -1465,199 +1585,174 @@ LIMIT 100`;
             </div>
             {#each liabilityAccounts as account, i}
               {@const globalIndex = assetAccounts.length + i}
-              {@const isExpanded = expandedAccountId === account.account_id}
-              <div class="row-container" class:expanded={isExpanded}>
-                <div
-                  class="row"
-                  class:cursor={cursorIndex === globalIndex}
-                  class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
-                  data-index={globalIndex}
-                  onclick={() => handleRowClick(globalIndex)}
-                  ondblclick={() => handleRowDoubleClick(globalIndex)}
-                  role="button"
-                  tabindex="-1"
-                >
-                  <button
-                    class="expand-btn"
-                    onclick={(e) => { e.stopPropagation(); toggleRowExpansion(account); }}
-                    title={isExpanded ? "Hide balance history" : "Show balance history"}
-                  >
-                    {isExpanded ? "▼" : "▶"}
-                  </button>
-                  <div class="row-name">
-                    <span class="account-name">{getDisplayName(account)}</span>
-                    {#if getSubtitle(account)}
-                      <span class="account-subtitle">{getSubtitle(account)}</span>
-                    {/if}
-                  </div>
-                  <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
-                  <div class="row-type">{account.account_type || "—"}</div>
-                  <div class="row-txns">{account.transaction_count.toLocaleString()} txns</div>
-                  <div class="row-last">{formatDate(account.last_transaction)}</div>
-                  <RowMenu
-                    items={[
-                      { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
-                      { label: "Set Balance", action: () => openSetBalanceModal(account) },
-                      { label: "Import CSV", action: () => openImportModal(account) },
-                      { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
-                    ]}
-                    isOpen={menuOpenForAccount === account.account_id}
-                    onToggle={(e) => toggleAccountMenu(account.account_id, e)}
-                    onClose={closeAccountMenu}
-                    title="Account actions"
-                  />
+              {@const monthChange = accountMonthlyChanges.get(account.account_id)}
+              <div
+                class="row"
+                class:cursor={cursorIndex === globalIndex}
+                class:excluded={config.excludedFromNetWorth.includes(account.account_id)}
+                data-index={globalIndex}
+                onclick={() => handleRowClick(globalIndex)}
+                ondblclick={() => handleRowDoubleClick(globalIndex)}
+                role="button"
+                tabindex="-1"
+              >
+                <div class="row-name">
+                  <span class="account-name">{getDisplayName(account)}</span>
+                  {#if getSubtitle(account)}
+                    <span class="account-subtitle">{getSubtitle(account)}</span>
+                  {/if}
                 </div>
-                {#if isExpanded}
-                  <div class="snapshot-history">
-                    {#if expandedSnapshotsLoading}
-                      <div class="snapshot-loading">Loading snapshots...</div>
-                    {:else if expandedSnapshots.length === 0}
-                      <div class="snapshot-empty">
-                        <span>No balance snapshots</span>
-                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add one</button>
-                      </div>
-                    {:else}
-                      <div class="snapshot-list">
-                        <div class="snapshot-header">
-                          <span class="snapshot-col-date">Date</span>
-                          <span class="snapshot-col-balance">Balance</span>
-                          <span class="snapshot-col-source">Source</span>
-                          <span class="snapshot-col-actions"></span>
-                        </div>
-                        {#each expandedSnapshots as snapshot}
-                          <div class="snapshot-row">
-                            <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
-                            <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
-                            <span class="snapshot-col-source">{snapshot.source || "—"}</span>
-                            <span class="snapshot-col-actions">
-                              <button
-                                class="snapshot-delete-btn"
-                                onclick={() => deleteSnapshot(snapshot.snapshot_id)}
-                                title="Delete snapshot"
-                              >×</button>
-                            </span>
-                          </div>
-                        {/each}
-                      </div>
-                      <div class="snapshot-footer">
-                        <span class="snapshot-count">{expandedSnapshots.length} snapshot{expandedSnapshots.length !== 1 ? "s" : ""}</span>
-                        <button class="btn-link" onclick={() => openSetBalanceModal(account)}>Add new</button>
-                      </div>
-                    {/if}
+                <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
+                {#if monthChange}
+                  {@const isGoodChange = monthChange.change <= 0}
+                  <div class="row-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
+                    <span class="change-value">{monthChange.change > 0 ? "+" : ""}{formatCurrencyCompact(monthChange.change)}</span>
+                    <span class="change-label">MoM</span>
                   </div>
+                {:else}
+                  <div class="row-change"></div>
                 {/if}
+                <RowMenu
+                  items={[
+                    { label: "Edit", action: () => { startEdit(account); closeAccountMenu(); } },
+                    { label: "Set Balance", action: () => openSetBalanceModal(account) },
+                    { label: "Import CSV", action: () => openImportModal(account) },
+                    { label: "Delete", action: () => { deleteAccount(account); closeAccountMenu(); }, danger: true, disabled: account.transaction_count > 0, disabledReason: account.transaction_count > 0 ? "has transactions" : undefined },
+                  ]}
+                  isOpen={menuOpenForAccount === account.account_id}
+                  onToggle={(e) => toggleAccountMenu(account.account_id, e)}
+                  onClose={closeAccountMenu}
+                  title="Account actions"
+                />
               </div>
             {/each}
           </div>
         {/if}
       {/if}
-    </div>
+      </div>
 
-    <!-- Sidebar -->
-    <div class="sidebar">
-      {#if currentAccount}
-        <div class="sidebar-section">
-          <div class="sidebar-title">Selected</div>
-          <div class="detail-name">{getDisplayName(currentAccount)}</div>
-          {#if currentAccount.nickname}
-            <div class="detail-subtitle">{currentAccount.name}</div>
-          {/if}
-          {#if currentAccount.institution_name}
-            <div class="detail-institution">{currentAccount.institution_name}</div>
-          {/if}
-        </div>
-
-        <div class="sidebar-section">
-          <div class="sidebar-title">Details</div>
-          <div class="detail-row">
-            <span>Type:</span>
-            <span class="mono">{currentAccount.account_type || "—"}</span>
-          </div>
-          <div class="detail-row">
-            <span>Classification:</span>
-            <span class="mono">{currentAccount.classification}</span>
-          </div>
-          <div class="detail-row">
-            <span>Currency:</span>
-            <span class="mono">{currentAccount.currency}</span>
-          </div>
-        </div>
-
-        <div class="sidebar-section">
-          <div class="sidebar-title">Balance {isToday ? "" : `(as of ${referenceDateStr})`}</div>
-          <div class="detail-row">
-            <span>Amount:</span>
-            <span class="mono">{currentAccount.balance !== null ? formatCurrency(getBalanceForDisplay(currentAccount)) : "—"}</span>
-          </div>
-          {#if balanceTrend.length >= 2}
-            {@const current = balanceTrend[balanceTrend.length - 1]}
-            {@const previous = balanceTrend[balanceTrend.length - 2]}
-            {@const change = current.balance - previous.balance}
-            {@const percent = previous.balance !== 0 ? (change / Math.abs(previous.balance)) * 100 : 0}
-            <div class="detail-row">
-              <span>Prev month:</span>
-              <span class="mono">{formatCurrency(previous.balance)}</span>
+      <!-- Detail Panel (Right side) -->
+      {#if currentAccount && showDetailPanel && !isLoading}
+        <div class="detail-panel">
+          <div class="detail-header">
+            <div class="detail-account-info">
+              <span class="detail-account-name">{getDisplayName(currentAccount)}</span>
+              {#if getSubtitle(currentAccount)}
+                <span class="detail-account-subtitle">{getSubtitle(currentAccount)}</span>
+              {/if}
             </div>
-            <div class="detail-row">
-              <span>Change:</span>
-              <span class="mono" class:positive={change >= 0} class:negative={change < 0}>
-                {change >= 0 ? "+" : ""}{formatCurrency(change)} ({percent >= 0 ? "+" : ""}{percent.toFixed(1)}%)
-              </span>
-            </div>
-          {/if}
-        </div>
+            <button class="detail-close" onclick={() => showDetailPanel = false} title="Close (Esc)">×</button>
+          </div>
 
-        <div class="sidebar-section">
-          <div class="sidebar-title">Transactions</div>
-          <div class="detail-row">
-            <span>Total:</span>
-            <span class="mono">{currentAccount.transaction_count.toLocaleString()}</span>
-          </div>
-          <div class="detail-row">
-            <span>First:</span>
-            <span class="mono">{currentAccount.first_transaction || "—"}</span>
-          </div>
-          <div class="detail-row">
-            <span>Last:</span>
-            <span class="mono">{currentAccount.last_transaction || "—"}</span>
-          </div>
-        </div>
-
-        <div class="sidebar-section">
-          <div class="sidebar-title">Balance on {referenceDay}{referenceDay === 1 ? "st" : referenceDay === 2 ? "nd" : referenceDay === 3 ? "rd" : "th"}</div>
-          {#if balanceTrend.length === 0}
-            <div class="trend-empty">No snapshots</div>
-          {:else}
-            {@const maxBalance = Math.max(...balanceTrend.map((t) => Math.abs(t.balance)), 1)}
-            {@const sixMonthChange = balanceTrend.length >= 2
-              ? balanceTrend[balanceTrend.length - 1].balance - balanceTrend[0].balance
-              : 0}
-            {@const sixMonthPercent = balanceTrend.length >= 2 && balanceTrend[0].balance !== 0
-              ? (sixMonthChange / Math.abs(balanceTrend[0].balance)) * 100
-              : 0}
-            <div class="trend-chart">
-              {#each balanceTrend as point}
-                <div class="trend-row">
-                  <span class="trend-month">{formatMonth(point.month)}</span>
-                  <div class="trend-bar-container">
-                    <div
-                      class="trend-bar"
-                      style="width: {(Math.abs(point.balance) / maxBalance) * 100}%"
-                    ></div>
-                  </div>
-                  <span class="trend-amount">{formatCurrency(point.balance)}</span>
+          <div class="detail-content">
+            <div class="detail-balance-section">
+              <div class="detail-balance-main">
+                <span class="detail-balance-value" class:liability={currentAccount.classification === 'liability'}>
+                  {currentAccount.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(currentAccount))) : "—"}
+                </span>
+              </div>
+              {#if balanceTrend.length >= 2}
+                {@const current = balanceTrend[balanceTrend.length - 1]}
+                {@const previous = balanceTrend[balanceTrend.length - 2]}
+                {@const change = current.balance - previous.balance}
+                {@const percent = previous.balance !== 0 ? (change / Math.abs(previous.balance)) * 100 : 0}
+                {@const isLiability = currentAccount.classification === 'liability'}
+                {@const isGoodChange = isLiability ? change <= 0 : change >= 0}
+                <div class="detail-balance-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
+                  {change >= 0 ? "+" : ""}{formatCurrency(change)} ({percent >= 0 ? "+" : ""}{percent.toFixed(1)}%) vs last month
                 </div>
-              {/each}
+              {/if}
             </div>
-            {#if balanceTrend.length >= 2}
-              <div class="trend-summary" class:positive={sixMonthChange >= 0} class:negative={sixMonthChange < 0}>
-                {sixMonthChange >= 0 ? "+" : ""}{formatCurrency(sixMonthChange)} ({sixMonthPercent >= 0 ? "+" : ""}{sixMonthPercent.toFixed(0)}%) over {balanceTrend.length}mo
+
+            {#if balanceTrendChartData.length >= 2}
+              <div class="detail-chart">
+                <div class="detail-chart-title">Balance History ({allBalanceSnapshots.length} snapshots)</div>
+                <LineAreaChart
+                  data={balanceTrendChartData}
+                  height={100}
+                  showArea={true}
+                  showLine={true}
+                  showLabels={true}
+                  formatValue={formatCurrency}
+                  invertTrend={currentAccount.classification === 'liability'}
+                />
               </div>
             {/if}
-          {/if}
+
+            <div class="detail-meta">
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Type</span>
+                <span class="detail-meta-value">{currentAccount.account_type || "—"}</span>
+              </div>
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Classification</span>
+                <span class="detail-meta-value">{currentAccount.classification}</span>
+              </div>
+              <div class="detail-meta-item">
+                <span class="detail-meta-label">Transactions</span>
+                <span class="detail-meta-value">{currentAccount.transaction_count.toLocaleString()}</span>
+              </div>
+              {#if currentAccount.first_transaction}
+                <div class="detail-meta-item">
+                  <span class="detail-meta-label">First Transaction</span>
+                  <span class="detail-meta-value">{currentAccount.first_transaction}</span>
+                </div>
+              {/if}
+              {#if currentAccount.last_transaction}
+                <div class="detail-meta-item">
+                  <span class="detail-meta-label">Last Transaction</span>
+                  <span class="detail-meta-value">{currentAccount.last_transaction}</span>
+                </div>
+              {/if}
+            </div>
+
+            <div class="detail-actions">
+              <button class="btn secondary" onclick={() => openSetBalanceModal(currentAccount)}>Set Balance</button>
+              <button class="btn secondary" onclick={() => openImportModal(currentAccount)}>Import CSV</button>
+              <button class="btn secondary" onclick={() => showPreview(currentAccount)}>View Txns</button>
+              <button class="btn secondary" onclick={() => startEdit(currentAccount)}>Edit</button>
+            </div>
+
+            <div class="snapshot-section">
+              <div class="snapshot-title">Balance History</div>
+              {#if detailSnapshotsLoading}
+                <div class="snapshot-loading">Loading...</div>
+              {:else if detailSnapshots.length === 0}
+                <div class="snapshot-empty">
+                  <span>No balance snapshots</span>
+                  <button class="btn-link" onclick={() => openSetBalanceModal(currentAccount)}>Add one</button>
+                </div>
+              {:else}
+                <div class="snapshot-list">
+                  <div class="snapshot-header-row">
+                    <span class="snapshot-col-date">Date</span>
+                    <span class="snapshot-col-balance">Balance</span>
+                    <span class="snapshot-col-source">Source</span>
+                    <span class="snapshot-col-actions"></span>
+                  </div>
+                  {#each detailSnapshots as snapshot}
+                    <div class="snapshot-row">
+                      <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
+                      <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
+                      <span class="snapshot-col-source">{snapshot.source || "—"}</span>
+                      <span class="snapshot-col-actions">
+                        <button
+                          class="snapshot-delete-btn"
+                          onclick={() => deleteSnapshot(snapshot.snapshot_id)}
+                          title="Delete snapshot"
+                        >×</button>
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+                <div class="snapshot-footer">
+                  <span class="snapshot-count">{detailSnapshots.length} snapshot{detailSnapshots.length !== 1 ? "s" : ""}</span>
+                  <button class="btn-link" onclick={() => openSetBalanceModal(currentAccount)}>Add new</button>
+                </div>
+              {/if}
+            </div>
+          </div>
         </div>
-      {:else}
-        <div class="sidebar-empty">Select an account</div>
       {/if}
     </div>
   </div>
@@ -1665,13 +1760,11 @@ LIMIT 100`;
   <!-- Keyboard shortcuts footer -->
   <div class="shortcuts-footer">
     <span class="shortcut"><kbd>j</kbd><kbd>k</kbd> nav</span>
-    <span class="shortcut"><kbd>Enter</kbd> view</span>
+    <span class="shortcut"><kbd>Enter</kbd> view txns</span>
+    <span class="shortcut"><kbd>s</kbd> set balance</span>
     <span class="shortcut"><kbd>e</kbd> edit</span>
     <span class="shortcut"><kbd>a</kbd> add</span>
-    <span class="shortcut"><kbd>d</kbd> delete</span>
-    <span class="shortcut"><kbd>h</kbd><kbd>l</kbd> date</span>
-    <span class="shortcut"><kbd>t</kbd> today</span>
-    <span class="shortcut"><kbd>r</kbd> refresh</span>
+    <span class="shortcut"><kbd>Tab</kbd> toggle panel</span>
   </div>
 
   <Modal
@@ -1679,7 +1772,6 @@ LIMIT 100`;
     title={previewAccount?.nickname || previewAccount?.name || ""}
     onclose={closePreview}
     width="500px"
-    class="preview-modal"
   >
     {#if previewLoading}
       <div class="modal-loading">Loading...</div>
@@ -2006,6 +2098,13 @@ LIMIT 100`;
   .main-content {
     flex: 1;
     display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .split-view {
+    flex: 1;
+    display: flex;
     overflow: hidden;
   }
 
@@ -2014,6 +2113,7 @@ LIMIT 100`;
     overflow-y: auto;
     font-family: var(--font-mono);
     font-size: 13px;
+    min-width: 0;
   }
 
   .empty-state {
@@ -2050,171 +2150,38 @@ LIMIT 100`;
     color: var(--text-primary);
   }
 
-  .section {
-    margin-bottom: var(--spacing-sm);
+  /* Net Worth Summary */
+  .net-worth-summary {
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-primary);
   }
 
-  .section-header {
+  .net-worth-main {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px var(--spacing-lg);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-primary);
+    margin-bottom: var(--spacing-sm);
   }
 
-  .section-header.asset-header {
-    border-left: 3px solid var(--accent-success, #22c55e);
-  }
-
-  .section-header.asset-header .section-title {
-    color: var(--accent-success, #22c55e);
-  }
-
-  .section-header.liability-header {
-    border-left: 3px solid var(--accent-danger, #ef4444);
-  }
-
-  .section-header.liability-header .section-title {
-    color: var(--accent-danger, #ef4444);
-  }
-
-  .section-title {
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 0.5px;
-  }
-
-  .section-total {
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .row {
+  .net-worth-left {
     display: flex;
-    align-items: center;
-    padding: 8px var(--spacing-lg);
-    border-bottom: 1px solid var(--border-primary);
+    align-items: baseline;
     gap: var(--spacing-md);
-    cursor: pointer;
-  }
-
-  .row:hover {
-    background: var(--bg-secondary);
-  }
-
-  .row.cursor {
-    background: var(--bg-tertiary);
-    border-left: 3px solid var(--text-muted);
-    padding-left: calc(var(--spacing-lg) - 3px);
-  }
-
-  .row.excluded {
-    opacity: 0.5;
-  }
-
-  .row-name {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .account-name {
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .account-subtitle {
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .row-balance {
-    width: 110px;
-    text-align: right;
-    font-weight: 600;
-    color: var(--text-primary);
-    flex-shrink: 0;
-  }
-
-  .row-balance.liability {
-    color: var(--accent-danger, #ef4444);
-  }
-
-  .row-type {
-    width: 90px;
-    color: var(--text-muted);
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .row-txns {
-    width: 80px;
-    text-align: right;
-    color: var(--text-muted);
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-  .row-last {
-    width: 70px;
-    text-align: right;
-    color: var(--text-muted);
-    font-size: 11px;
-    flex-shrink: 0;
-  }
-
-
-  /* Net Worth Section (Collapsible) */
-  .net-worth-section {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .net-worth-header {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 12px var(--spacing-lg);
-    gap: var(--spacing-md);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    text-align: left;
-    font-family: inherit;
-    transition: background-color 0.15s;
-  }
-
-  .net-worth-header:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .expand-icon {
-    font-size: 10px;
-    color: var(--text-muted);
-    width: 12px;
-    flex-shrink: 0;
+    flex-wrap: wrap;
   }
 
   .net-worth-label {
-    font-weight: 700;
     font-size: 11px;
+    font-weight: 700;
     letter-spacing: 0.5px;
-    color: var(--text-primary);
+    color: var(--text-muted);
   }
 
   .net-worth-value {
-    font-size: 16px;
+    font-size: 24px;
     font-weight: 700;
     color: var(--text-primary);
-    margin-left: auto;
     font-family: var(--font-mono);
   }
 
@@ -2223,9 +2190,10 @@ LIMIT 100`;
   }
 
   .net-worth-change {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 500;
     font-family: var(--font-mono);
+    color: var(--text-muted);
   }
 
   .net-worth-change.positive {
@@ -2236,42 +2204,62 @@ LIMIT 100`;
     color: var(--accent-danger, #ef4444);
   }
 
-  /* Expanded Details */
-  .net-worth-details {
-    padding: 0 var(--spacing-lg) var(--spacing-lg);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .net-worth-breakdown {
+  .net-worth-right {
     display: flex;
-    gap: var(--spacing-xl);
-    padding: var(--spacing-md) 0;
-    padding-left: 24px;
-  }
-
-  .breakdown-row {
-    display: flex;
+    align-items: center;
     gap: var(--spacing-sm);
-    font-size: 12px;
   }
 
-  .breakdown-label {
+  .expand-toggle {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .expand-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-primary);
+  }
+
+  .net-worth-breakdown-inline {
+    display: flex;
+    gap: var(--spacing-lg);
+    font-size: 12px;
     color: var(--text-muted);
   }
 
-  .breakdown-value {
-    font-family: var(--font-mono);
-    color: var(--text-primary);
-    font-weight: 500;
+  .breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
   }
 
-  .breakdown-value.liability {
-    color: var(--accent-danger, #ef4444);
+  .breakdown-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .breakdown-dot.asset {
+    background: var(--accent-success, #22c55e);
+  }
+
+  .breakdown-dot.liability {
+    background: var(--accent-danger, #ef4444);
   }
 
   .net-worth-chart {
-    margin-top: var(--spacing-sm);
-    padding-left: 24px;
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-primary);
   }
 
   .chart-header {
@@ -2325,64 +2313,467 @@ LIMIT 100`;
     color: var(--accent-danger, #ef4444);
   }
 
-  /* Sidebar */
-  .sidebar {
-    width: 220px;
+  /* Sections */
+  .section {
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px var(--spacing-lg);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .section-header.asset-header {
+    border-left: 3px solid var(--accent-success, #22c55e);
+  }
+
+  .section-header.asset-header .section-title {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .section-header.liability-header {
+    border-left: 3px solid var(--accent-danger, #ef4444);
+  }
+
+  .section-header.liability-header .section-title {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .section-title {
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+
+  .section-total {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  /* Account Rows */
+  .row {
+    display: flex;
+    align-items: center;
+    padding: 10px var(--spacing-lg);
+    border-bottom: 1px solid var(--border-primary);
+    gap: var(--spacing-md);
+    cursor: pointer;
+  }
+
+  .row:hover {
+    background: var(--bg-secondary);
+  }
+
+  .row.cursor {
+    background: var(--bg-tertiary);
+    border-left: 3px solid var(--accent-primary);
+    padding-left: calc(var(--spacing-lg) - 3px);
+  }
+
+  .row.excluded {
+    opacity: 0.5;
+  }
+
+  .row-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .account-name {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+  }
+
+  .account-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row-balance {
+    width: 110px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+
+  .row-balance.liability {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .row-change {
+    width: 80px;
+    text-align: right;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+  }
+
+  .row-change .change-value {
+    font-family: var(--font-mono);
+  }
+
+  .row-change .change-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+
+  .row-change.positive .change-value {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .row-change.negative .change-value {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  /* Detail Panel (Right side split view) */
+  .detail-panel {
+    width: 320px;
     flex-shrink: 0;
     border-left: 1px solid var(--border-primary);
     background: var(--bg-secondary);
-    padding: var(--spacing-md);
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
-  .sidebar-section {
-    margin-bottom: var(--spacing-lg);
+  .detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
   }
 
-  .sidebar-title {
-    font-size: 11px;
+  .detail-account-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .detail-account-name {
+    font-size: 14px;
     font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .detail-account-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .detail-close {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .detail-close:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+  }
+
+  .detail-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .detail-balance-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    text-align: center;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .detail-balance-main {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: var(--spacing-md);
+  }
+
+  .detail-balance-value {
+    font-size: 24px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  .detail-balance-value.liability {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .detail-balance-change {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+
+  .detail-balance-change.positive {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .detail-balance-change.negative {
+    color: var(--accent-danger, #ef4444);
+  }
+
+  .detail-chart {
+    flex-shrink: 0;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .detail-chart-title {
+    font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: var(--spacing-sm);
   }
 
-  .sidebar-empty {
-    color: var(--text-muted);
+  .detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
     font-size: 12px;
-    font-style: italic;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
   }
 
-  .detail-name {
-    font-size: 14px;
-    font-weight: 600;
+  .detail-meta-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .detail-meta-label {
+    color: var(--text-muted);
+  }
+
+  .detail-meta-value {
+    font-family: var(--font-mono);
     color: var(--text-primary);
   }
 
-  .detail-subtitle {
-    font-size: 11px;
-    color: var(--text-muted);
+  .detail-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-xs);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-primary);
   }
 
-  .detail-institution {
+  .detail-actions .btn {
     font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 2px;
+    padding: 6px 8px;
   }
 
-  .detail-row {
+  /* Snapshot Section */
+  .snapshot-section {
+    flex: 1;
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .snapshot-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-sm);
+    flex-shrink: 0;
+  }
+
+  .snapshot-loading,
+  .snapshot-empty {
     font-size: 12px;
     color: var(--text-muted);
-    margin-bottom: 4px;
+    padding: var(--spacing-sm) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
   }
 
-  .mono {
+  .snapshot-list {
+    font-size: 11px;
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .snapshot-header-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 50px 24px;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) 0;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-primary);
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+  }
+
+  .snapshot-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 50px 24px;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) 0;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .snapshot-row:last-child {
+    border-bottom: none;
+  }
+
+  .snapshot-col-date {
     font-family: var(--font-mono);
   }
 
+  .snapshot-col-balance {
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .snapshot-col-source {
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+
+  .snapshot-col-actions {
+    text-align: right;
+  }
+
+  .snapshot-delete-btn {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 3px;
+    opacity: 0.5;
+    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
+  }
+
+  .snapshot-delete-btn:hover {
+    opacity: 1;
+    color: var(--accent-danger);
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .snapshot-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+    border-top: 1px solid var(--border-primary);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .snapshot-count {
+    font-family: var(--font-mono);
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .btn-link:hover {
+    text-decoration: underline;
+  }
+
+  /* Shortcuts footer */
+  .shortcuts-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px var(--spacing-lg);
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+  }
+
+  .shortcut {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .shortcut kbd {
+    display: inline-block;
+    padding: 2px 5px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-right: 2px;
+  }
+
+  /* Utility classes */
   .positive {
     color: var(--accent-success, #22c55e) !important;
   }
@@ -2391,60 +2782,38 @@ LIMIT 100`;
     color: var(--accent-danger, #ef4444) !important;
   }
 
-  /* Trend chart */
-  .trend-empty {
-    color: var(--text-muted);
-    font-size: 11px;
-    font-style: italic;
+  .mono {
+    font-family: var(--font-mono);
   }
 
-  .trend-chart {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  /* Button styles */
+  .btn {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
   }
 
-  .trend-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-  }
-
-  .trend-month {
-    width: 28px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .trend-bar-container {
-    flex: 1;
-    height: 8px;
-    background: var(--bg-tertiary);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .trend-bar {
-    height: 100%;
+  .btn.primary {
     background: var(--accent-primary);
-    border-radius: 2px;
-    transition: width 0.2s;
+    border: none;
+    color: white;
   }
 
-  .trend-amount {
-    width: 70px;
-    text-align: right;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    flex-shrink: 0;
+  .btn.primary:hover {
+    opacity: 0.9;
   }
 
-  .trend-summary {
-    margin-top: 8px;
-    font-size: 11px;
-    font-family: var(--font-mono);
-    color: var(--text-muted);
+  .btn.secondary {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+  }
+
+  .btn.secondary:hover {
+    background: var(--bg-primary);
   }
 
   /* Form styles (used in modals) */
@@ -2578,7 +2947,7 @@ LIMIT 100`;
   }
 
   .txn-amount.negative {
-    color: var(--negative);
+    color: var(--accent-danger, #ef4444);
   }
 
   .modal-footer {
@@ -2586,192 +2955,5 @@ LIMIT 100`;
     font-size: 11px;
     color: var(--text-muted);
     background: var(--bg-tertiary);
-  }
-
-  /* Shortcuts footer */
-  .shortcuts-footer {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px var(--spacing-lg);
-    gap: var(--spacing-lg);
-    flex-wrap: wrap;
-    border-top: 1px solid var(--border-primary);
-    background: var(--bg-secondary);
-  }
-
-  .shortcut {
-    font-size: 11px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  .shortcut kbd {
-    display: inline-block;
-    padding: 2px 5px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-secondary);
-    margin-right: 2px;
-  }
-
-  /* Expandable row container */
-  .row-container {
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .row-container .row {
-    border-bottom: none;
-  }
-
-  .row-container.expanded {
-    background: var(--bg-secondary);
-  }
-
-  .expand-btn {
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    font-size: 10px;
-    cursor: pointer;
-    flex-shrink: 0;
-    border-radius: 3px;
-    transition: background-color 0.15s, color 0.15s;
-  }
-
-  .expand-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
-  /* Snapshot history panel */
-  .snapshot-history {
-    padding: var(--spacing-sm) var(--spacing-lg);
-    padding-left: calc(var(--spacing-lg) + 28px);
-    background: var(--bg-tertiary);
-    border-top: 1px solid var(--border-primary);
-  }
-
-  .snapshot-loading,
-  .snapshot-empty {
-    font-size: 12px;
-    color: var(--text-muted);
-    padding: var(--spacing-sm) 0;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-  }
-
-  .snapshot-list {
-    font-size: 12px;
-    max-height: 240px;
-    overflow-y: auto;
-  }
-
-  .snapshot-header {
-    display: grid;
-    grid-template-columns: 100px 120px 80px 40px;
-    gap: var(--spacing-md);
-    padding: var(--spacing-xs) 0;
-    color: var(--text-muted);
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--border-primary);
-    position: sticky;
-    top: 0;
-    background: var(--bg-tertiary);
-    z-index: 1;
-  }
-
-  .snapshot-row {
-    display: grid;
-    grid-template-columns: 100px 120px 80px 40px;
-    gap: var(--spacing-md);
-    padding: var(--spacing-xs) 0;
-    color: var(--text-primary);
-    border-bottom: 1px solid var(--border-primary);
-  }
-
-  .snapshot-row:last-child {
-    border-bottom: none;
-  }
-
-  .snapshot-col-date {
-    font-family: var(--font-mono);
-  }
-
-  .snapshot-col-balance {
-    font-family: var(--font-mono);
-    font-weight: 500;
-  }
-
-  .snapshot-col-source {
-    color: var(--text-muted);
-    font-size: 11px;
-  }
-
-  .snapshot-col-actions {
-    text-align: right;
-  }
-
-  .snapshot-delete-btn {
-    width: 20px;
-    height: 20px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    font-size: 14px;
-    cursor: pointer;
-    border-radius: 3px;
-    opacity: 0.5;
-    transition: opacity 0.15s, color 0.15s, background-color 0.15s;
-  }
-
-  .snapshot-delete-btn:hover {
-    opacity: 1;
-    color: var(--accent-danger);
-    background: rgba(239, 68, 68, 0.1);
-  }
-
-  .snapshot-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: var(--spacing-sm);
-    margin-top: var(--spacing-sm);
-    border-top: 1px solid var(--border-primary);
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-
-  .snapshot-count {
-    font-family: var(--font-mono);
-  }
-
-  .btn-link {
-    background: none;
-    border: none;
-    color: var(--accent-primary);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 0;
-  }
-
-  .btn-link:hover {
-    text-decoration: underline;
   }
 </style>

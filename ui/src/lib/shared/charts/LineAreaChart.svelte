@@ -16,6 +16,7 @@
     negativeColor?: string;
     lineWidth?: number;
     formatValue?: (value: number) => string;
+    invertTrend?: boolean; // For liabilities: decreasing is good
   }
 
   let {
@@ -29,6 +30,7 @@
     negativeColor = "var(--accent-danger, #ef4444)",
     lineWidth = 1.5,
     formatValue = (v: number) => v.toLocaleString(),
+    invertTrend = false,
   }: Props = $props();
 
   // Hover state
@@ -195,24 +197,19 @@
   });
 
   // Determine primary color based on overall trend
+  // For invertTrend (liabilities), decreasing is good (green)
   let primaryColor = $derived.by(() => {
     if (data.length < 2) return positiveColor;
     const first = data[0].value;
     const last = data[data.length - 1].value;
-    return last >= first ? positiveColor : negativeColor;
+    const isIncreasing = last >= first;
+    // For liabilities, invert: decreasing = good
+    const isPositiveTrend = invertTrend ? !isIncreasing : isIncreasing;
+    return isPositiveTrend ? positiveColor : negativeColor;
   });
 
-  let areaFillColor = $derived.by(() => {
-    if (!chartData) return positiveColor;
-
-    if (chartData.hasPositive && !chartData.hasNegative) {
-      return positiveColor;
-    } else if (chartData.hasNegative && !chartData.hasPositive) {
-      return negativeColor;
-    } else {
-      return primaryColor;
-    }
-  });
+  // Area fill uses same color as line (based on trend direction)
+  let areaFillColor = $derived(primaryColor);
 
   // Handle mouse move for hover
   function handleMouseMove(e: MouseEvent) {
@@ -312,7 +309,8 @@
     <div
       class="tooltip"
       style="left: {hoveredPoint.xPercent}%"
-      class:flip-left={hoveredPoint.xPercent > 80}
+      class:flip-left={hoveredPoint.xPercent > 75}
+      class:flip-right={hoveredPoint.xPercent < 25}
     >
       <div class="tooltip-value">{formatValue(hoveredPoint.value)}</div>
       {#if hoveredPoint.label}
@@ -394,6 +392,10 @@
 
   .tooltip.flip-left {
     transform: translateX(-90%);
+  }
+
+  .tooltip.flip-right {
+    transform: translateX(-10%);
   }
 
   .tooltip-value {
