@@ -6,7 +6,7 @@
 
   let searchQuery = $state("");
   let selectedIndex = $state(0);
-  let inputEl: HTMLInputElement;
+  let inputEl = $state<HTMLInputElement | null>(null);
 
   let commands = $state<Command[]>(registry.commands);
 

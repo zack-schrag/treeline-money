@@ -351,10 +351,11 @@
               </p>
               <div class="balance-inputs">
                 <div class="input-group">
-                  <label>Balance</label>
+                  <label for="balance-amount">Balance</label>
                   <div class="input-with-prefix">
                     <span class="input-prefix">$</span>
                     <input
+                      id="balance-amount"
                       type="number"
                       step="0.01"
                       placeholder="0.00"
@@ -363,8 +364,9 @@
                   </div>
                 </div>
                 <div class="input-group">
-                  <label>As of</label>
+                  <label for="balance-date">As of</label>
                   <input
+                    id="balance-date"
                     type="date"
                     bind:value={balanceDateInput}
                   />
@@ -412,8 +414,8 @@
           <div class="mapping-hint">Auto-detected. Adjust if needed.</div>
 
           <div class="mapping-row">
-            <label>Date Column</label>
-            <select bind:value={columnMapping.dateColumn}>
+            <label for="date-column-select">Date Column</label>
+            <select id="date-column-select" bind:value={columnMapping.dateColumn}>
               <option value="">-- Select --</option>
               {#each headers as header}
                 <option value={header}>{header}</option>
@@ -422,8 +424,8 @@
           </div>
 
           <div class="mapping-row">
-            <label>Description Column</label>
-            <select bind:value={columnMapping.descriptionColumn}>
+            <label for="description-column-select">Description Column</label>
+            <select id="description-column-select" bind:value={columnMapping.descriptionColumn}>
               <option value="">-- Select --</option>
               {#each headers as header}
                 <option value={header}>{header}</option>

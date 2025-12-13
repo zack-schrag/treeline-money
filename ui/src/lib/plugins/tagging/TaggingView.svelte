@@ -125,9 +125,9 @@
   }
 
   // Element refs
-  let customTagInputEl: HTMLInputElement | null = null;
-  let searchInputEl: HTMLInputElement | null = null;
-  let containerEl: HTMLDivElement | null = null;
+  let customTagInputEl = $state<HTMLInputElement | null>(null);
+  let searchInputEl = $state<HTMLInputElement | null>(null);
+  let containerEl = $state<HTMLDivElement | null>(null);
 
   // Suggestions for current/selected transactions
   // Merges: 1) Pinned tags (user-specified), 2) Frequency-based suggestions
@@ -1689,11 +1689,15 @@
   let currentTxn = $derived(transactions[cursorIndex]);
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="tagging-view"
   bind:this={containerEl}
   tabindex="0"
   onkeydown={handleKeyDown}
+  role="application"
 >
   <!-- Confetti celebration -->
   {#if showCelebration}
@@ -1706,7 +1710,7 @@
 
   <!-- Context menu backdrop -->
   {#if contextMenuTxn}
-    <button class="context-menu-backdrop" onclick={closeContextMenu}></button>
+    <button class="context-menu-backdrop" onclick={closeContextMenu} aria-label="Close context menu"></button>
   {/if}
 
   <!-- Header -->
@@ -1874,6 +1878,7 @@
         </div>
         {#each transactions as txn, index}
           {@const splitInfo = getSplitGroupInfo(txn, index)}
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <div
             class="row"
             class:cursor={cursorIndex === index}
@@ -1884,8 +1889,10 @@
             data-index={index}
             onclick={() => handleRowClick(index)}
             ondblclick={() => handleRowDoubleClick(index)}
-            role="button"
-            tabindex="-1"
+            onkeydown={(e) => e.key === 'Enter' && handleRowDoubleClick(index)}
+            role="option"
+            aria-selected={cursorIndex === index}
+            tabindex={cursorIndex === index ? 0 : -1}
           >
             <button
               class="row-checkbox"
@@ -2658,12 +2665,6 @@
     opacity: 0.9;
   }
 
-  .stats {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 4px;
-  }
-
   .error-bar {
     padding: var(--spacing-sm) var(--spacing-lg);
     background: var(--accent-danger);
@@ -2750,16 +2751,6 @@
     margin-top: var(--spacing-xs);
     font-size: 12px;
     color: var(--text-muted);
-  }
-
-  .sidebar-empty-state kbd {
-    display: inline-block;
-    padding: 2px 6px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
-    border-radius: 3px;
-    font-family: var(--font-mono);
-    font-size: 11px;
   }
 
   /* Selection section in sidebar */
@@ -3441,85 +3432,6 @@
     min-height: 36px;
   }
 
-  .command-bar.active {
-    background: var(--bg-tertiary);
-  }
-
-  .command-input-row {
-    display: flex;
-    align-items: center;
-    padding: 6px var(--spacing-lg);
-    gap: var(--spacing-sm);
-  }
-
-  .command-prefix {
-    color: var(--accent-primary);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 13px;
-  }
-
-  .command-input {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    outline: none;
-  }
-
-  .command-input::placeholder {
-    color: var(--text-muted);
-  }
-
-  .input-wrapper {
-    flex: 1;
-    position: relative;
-    display: flex;
-    align-items: center;
-  }
-
-  .input-wrapper .command-input {
-    width: 100%;
-    background: transparent;
-    padding: 0;
-    margin: 0;
-    line-height: 1;
-  }
-
-  .autocomplete-hint {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    color: var(--text-muted);
-    opacity: 0.6;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-
-  .command-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .command-hint kbd {
-    display: inline-block;
-    padding: 1px 4px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
-    border-radius: 2px;
-    font-family: var(--font-mono);
-    font-size: 9px;
-  }
-
   /* Shortcuts footer */
   .shortcuts-row {
     display: flex;
@@ -3548,13 +3460,6 @@
     font-size: 10px;
     color: var(--text-secondary);
     margin-right: 2px;
-  }
-
-  /* Selection bar */
-  .no-suggestions {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-style: italic;
   }
 
   .loading-spinner {

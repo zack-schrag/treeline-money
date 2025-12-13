@@ -45,7 +45,7 @@
     actions,
   }: Props = $props();
 
-  let overlayEl: HTMLDivElement | null = null;
+  let overlayEl = $state<HTMLDivElement | null>(null);
 
   function handleOverlayClick(e: MouseEvent) {
     if (e.target === overlayEl) {

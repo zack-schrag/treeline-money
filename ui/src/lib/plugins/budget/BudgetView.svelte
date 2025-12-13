@@ -918,7 +918,10 @@
   });
 </script>
 
-<div class="budget-view" bind:this={containerEl} tabindex="0" onkeydown={handleKeyDown}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="budget-view" bind:this={containerEl} tabindex="0" onkeydown={handleKeyDown} role="application">
   <!-- Header -->
   <div class="header">
     <div class="title-row">
@@ -984,14 +987,17 @@
           </div>
           {#each incomeActuals as actual, i}
             {@const globalIndex = i}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div
               class="row"
               class:cursor={cursorIndex === globalIndex}
               data-index={globalIndex}
               onclick={() => handleRowClick(globalIndex)}
               ondblclick={() => handleRowDoubleClick(globalIndex)}
-              role="listitem"
+              onkeydown={(e) => e.key === 'Enter' && handleRowDoubleClick(globalIndex)}
+              role="option"
+              aria-selected={cursorIndex === globalIndex}
+              tabindex={cursorIndex === globalIndex ? 0 : -1}
             >
               <div class="row-name">{actual.category}</div>
               <div class="row-bar">
@@ -1039,14 +1045,17 @@
             <!-- Effective actual = transaction actual minus incoming rollover (rollover reduces what you've "used") -->
             {@const effectiveActual = roundToCents(actual.actual - incomingRollover)}
             {@const effectivePercent = actual.expected > 0 ? Math.round((effectiveActual / actual.expected) * 100) : 0}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
             <div
               class="row"
               class:cursor={cursorIndex === globalIndex}
               data-index={globalIndex}
               onclick={() => handleRowClick(globalIndex)}
               ondblclick={() => handleRowDoubleClick(globalIndex)}
-              role="listitem"
+              onkeydown={(e) => e.key === 'Enter' && handleRowDoubleClick(globalIndex)}
+              role="option"
+              aria-selected={cursorIndex === globalIndex}
+              tabindex={cursorIndex === globalIndex ? 0 : -1}
             >
               <div class="row-name">{actual.category}</div>
               <div class="row-bar">
@@ -1356,9 +1365,9 @@
     <div class="reset-modal-content">
       {#if monthsWithData.filter(m => m !== selectedMonth).length > 0}
         <div class="reset-form-group">
-          <label class="reset-label">Copy from another month</label>
+          <span class="reset-label">Copy from another month</span>
           <div class="reset-row">
-            <select bind:value={resetSourceMonth}>
+            <select bind:value={resetSourceMonth} aria-label="Source month to copy from">
               {#each monthsWithData.filter(m => m !== selectedMonth) as month}
                 <option value={month}>{formatMonth(month)}</option>
               {/each}
@@ -1373,7 +1382,7 @@
       {/if}
 
       <div class="reset-form-group">
-        <label class="reset-label">Delete budget</label>
+        <span class="reset-label">Delete budget</span>
         <p class="reset-hint">Remove all categories and transfers for this month.</p>
         <button class="reset-delete-btn" onclick={deleteBudget}>Delete Budget</button>
       </div>
@@ -1884,17 +1893,6 @@
     margin-bottom: 4px;
   }
 
-  .detail-row.separator-row {
-    margin-bottom: 2px;
-    margin-top: 2px;
-  }
-
-  .separator-line {
-    flex: 1;
-    border-bottom: 1px solid var(--border-primary);
-    margin-left: 4px;
-  }
-
   .detail-row.detail-remaining {
     font-weight: 600;
     color: var(--text-primary);
@@ -2042,41 +2040,6 @@
     font-size: 10px;
     color: var(--text-secondary);
     margin-right: 2px;
-  }
-
-  /* Transfer badge (row inline) */
-  .transfer-badge {
-    display: inline-block;
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 600;
-  }
-
-  .transfer-badge.incoming {
-    margin-right: 6px;
-  }
-
-  .transfer-badge.positive {
-    background: rgba(34, 197, 94, 0.15);
-    color: var(--accent-success, #22c55e);
-  }
-
-  .transfer-badge.negative {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--accent-danger, #ef4444);
-  }
-
-  /* Make transfer badge look like a button when clickable */
-  button.transfer-badge {
-    cursor: pointer;
-    border: none;
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
-  }
-
-  button.transfer-badge:hover {
-    transform: scale(1.05);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 
   /* Transfer arrow button */

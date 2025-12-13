@@ -1400,7 +1400,10 @@ LIMIT 100`;
   });
 </script>
 
-<div class="accounts-view" bind:this={containerEl} tabindex="0" onkeydown={handleKeyDown}>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="accounts-view" bind:this={containerEl} tabindex="0" onkeydown={handleKeyDown} role="application">
   <!-- Header -->
   <div class="header">
     <div class="title-row">
@@ -1533,6 +1536,7 @@ LIMIT 100`;
             {#each assetAccounts as account, i}
               {@const globalIndex = i}
               {@const monthChange = accountMonthlyChanges.get(account.account_id)}
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="row"
                 class:cursor={cursorIndex === globalIndex}
@@ -1540,8 +1544,10 @@ LIMIT 100`;
                 data-index={globalIndex}
                 onclick={() => handleRowClick(globalIndex)}
                 ondblclick={() => handleRowDoubleClick(globalIndex)}
-                role="button"
-                tabindex="-1"
+                onkeydown={(e) => e.key === 'Enter' && handleRowDoubleClick(globalIndex)}
+                role="option"
+                aria-selected={cursorIndex === globalIndex}
+                tabindex={cursorIndex === globalIndex ? 0 : -1}
               >
                 <div class="row-name">
                   <span class="account-name">{getDisplayName(account)}</span>
@@ -1586,6 +1592,7 @@ LIMIT 100`;
             {#each liabilityAccounts as account, i}
               {@const globalIndex = assetAccounts.length + i}
               {@const monthChange = accountMonthlyChanges.get(account.account_id)}
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="row"
                 class:cursor={cursorIndex === globalIndex}
@@ -1593,8 +1600,10 @@ LIMIT 100`;
                 data-index={globalIndex}
                 onclick={() => handleRowClick(globalIndex)}
                 ondblclick={() => handleRowDoubleClick(globalIndex)}
-                role="button"
-                tabindex="-1"
+                onkeydown={(e) => e.key === 'Enter' && handleRowDoubleClick(globalIndex)}
+                role="option"
+                aria-selected={cursorIndex === globalIndex}
+                tabindex={cursorIndex === globalIndex ? 0 : -1}
               >
                 <div class="row-name">
                   <span class="account-name">{getDisplayName(account)}</span>
@@ -2780,10 +2789,6 @@ LIMIT 100`;
 
   .negative {
     color: var(--accent-danger, #ef4444) !important;
-  }
-
-  .mono {
-    font-family: var(--font-mono);
   }
 
   /* Button styles */

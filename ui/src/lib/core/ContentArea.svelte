@@ -46,7 +46,8 @@
   {#if activeTab && activeView}
     {#if activeView.component}
       <!-- Core plugin with Svelte component -->
-      <svelte:component this={activeView.component} {...activeTab.props} />
+      {@const Component = activeView.component}
+      <Component {...activeTab.props} />
     {:else if activeView.mount}
       <!-- External plugin with mount function -->
       <div bind:this={mountContainer} class="plugin-mount-container"></div>

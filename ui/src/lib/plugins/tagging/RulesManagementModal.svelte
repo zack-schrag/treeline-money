@@ -626,11 +626,8 @@
                 <div class="rule-card-header">
                   <span class="rule-name">{rule.name}</span>
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <label
-                    class="toggle-switch"
-                    onclick={(e) => e.stopPropagation()}
-                  >
+                  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                  <label class="toggle-switch" onclick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={rule.enabled}
@@ -699,12 +696,6 @@
     text-align: center;
     padding: var(--spacing-xl) var(--spacing-lg);
     color: var(--text-muted);
-  }
-
-  .empty-icon {
-    font-size: 32px;
-    margin-bottom: var(--spacing-sm);
-    opacity: 0.5;
   }
 
   .empty-state p {
@@ -1213,15 +1204,6 @@
     color: var(--accent-primary);
   }
 
-  .test-error {
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid var(--accent-danger, #ef4444);
-    border-radius: 4px;
-    color: var(--accent-danger, #ef4444);
-    font-size: 13px;
-  }
-
   .test-results {
     padding: var(--spacing-md);
     background: var(--bg-tertiary);
@@ -1333,12 +1315,4 @@
     border: 1px solid var(--border-primary);
   }
 
-  .btn.text {
-    background: transparent;
-    color: var(--text-muted);
-  }
-
-  .btn.text:hover {
-    color: var(--text-primary);
-  }
 </style>

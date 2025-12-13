@@ -20,7 +20,7 @@
   // Local state for editing
   let editingTags = $state<string[]>([]);
   let newTagInput = $state("");
-  let inputEl: HTMLInputElement | null = null;
+  let inputEl = $state<HTMLInputElement | null>(null);
 
   // Reset when modal opens
   $effect(() => {

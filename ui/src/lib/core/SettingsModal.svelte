@@ -425,7 +425,7 @@
 </script>
 
 {#if isOpen}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_interactive_supports_focus -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="settings-overlay"
     onclick={handleOverlayClick}
@@ -433,6 +433,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="settings-title"
+    tabindex="-1"
   >
     <div class="settings-modal">
       <!-- Header -->
@@ -812,10 +813,9 @@
 
   <!-- SimpleFIN Setup Sub-Modal -->
   {#if showSetupModal}
-    <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
-    <div class="sub-modal-overlay" onclick={closeSetupModal} onkeydown={(e) => e.key === 'Escape' && closeSetupModal()} role="dialog" aria-modal="true">
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="sub-modal" onclick={(e) => e.stopPropagation()} role="document">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="sub-modal-overlay" onclick={closeSetupModal} onkeydown={(e) => e.key === 'Escape' && closeSetupModal()} role="dialog" aria-modal="true" tabindex="-1">
+      <div class="sub-modal" role="document">
         {#if setupSuccess}
           <div class="sub-modal-header">
             <span class="sub-modal-title">SimpleFIN Connected</span>
@@ -906,10 +906,9 @@
 
   <!-- Disconnect Confirmation Sub-Modal -->
   {#if showDisconnectConfirm}
-    <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
-    <div class="sub-modal-overlay" onclick={closeDisconnectConfirm} onkeydown={(e) => e.key === 'Escape' && closeDisconnectConfirm()} role="dialog" aria-modal="true">
-      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-      <div class="sub-modal confirm-modal" onclick={(e) => e.stopPropagation()} role="document">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="sub-modal-overlay" onclick={closeDisconnectConfirm} onkeydown={(e) => e.key === 'Escape' && closeDisconnectConfirm()} role="dialog" aria-modal="true" tabindex="-1">
+      <div class="sub-modal confirm-modal" role="document">
         <div class="sub-modal-header">
           <span class="sub-modal-title">Disconnect Integration?</span>
           <button class="close-btn" onclick={closeDisconnectConfirm}>
