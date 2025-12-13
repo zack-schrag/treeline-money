@@ -24,6 +24,7 @@
     type AppSettings,
   } from "../sdk";
   import { getCorePluginManifests } from "../plugins";
+  import { checkForUpdate } from "../sdk/updater";
 
   interface Props {
     isOpen: boolean;
@@ -86,6 +87,10 @@
   // Demo mode state
   let isDemoMode = $state(false);
   let isExitingDemo = $state(false);
+
+  // Update check state
+  let isCheckingForUpdate = $state(false);
+  let lastUpdateCheckResult = $state<string | null>(null);
 
   // Active section
   type Section = "data" | "plugins" | "integrations" | "appearance" | "about";
@@ -359,6 +364,26 @@
     settings.app.autoUpdate = enabled;
   }
 
+  async function handleCheckForUpdate() {
+    isCheckingForUpdate = true;
+    lastUpdateCheckResult = null;
+    try {
+      const update = await checkForUpdate(true);
+      if (update) {
+        lastUpdateCheckResult = `Update available: v${update.version}`;
+        toast.success("Update available", `Version ${update.version} is ready to download`);
+      } else {
+        lastUpdateCheckResult = "You're up to date!";
+        toast.info("No updates", "You're running the latest version");
+      }
+    } catch (e) {
+      lastUpdateCheckResult = "Failed to check for updates";
+      toast.error("Update check failed", e instanceof Error ? e.message : String(e));
+    } finally {
+      isCheckingForUpdate = false;
+    }
+  }
+
   async function handleSync() {
     isSyncing = true;
     const stopActivity = activityStore.start("Syncing accounts...");
@@ -521,6 +546,23 @@
                     <span>Automatically check for updates</span>
                   </label>
                   <p class="group-desc">When enabled, Treeline will check for updates on startup and every 24 hours. You'll be notified when an update is available.</p>
+
+                  <button
+                    class="btn secondary"
+                    onclick={handleCheckForUpdate}
+                    disabled={isCheckingForUpdate}
+                  >
+                    {#if isCheckingForUpdate}
+                      <Icon name="refresh" size={14} class="spinning" />
+                      Checking...
+                    {:else}
+                      <Icon name="refresh" size={14} />
+                      Check for Updates
+                    {/if}
+                  </button>
+                  {#if lastUpdateCheckResult}
+                    <p class="update-result">{lastUpdateCheckResult}</p>
+                  {/if}
                 </div>
               </section>
             {:else if activeSection === "plugins"}
@@ -1899,6 +1941,12 @@
     color: var(--text-muted);
     margin: 0 0 var(--spacing-md) 0;
     line-height: 1.4;
+  }
+
+  .update-result {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: var(--spacing-sm) 0 0 0;
   }
 
   .plugin-list {
