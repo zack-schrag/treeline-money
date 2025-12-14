@@ -81,16 +81,23 @@ def register(app: typer.Typer, get_container: callable) -> None:
     @plugin_app.command(name="install")
     def plugin_install_command(
         source: str = typer.Argument(..., help="Local directory path or GitHub URL"),
+        version: str = typer.Option(
+            None, "--version", "-v", help="Version to install (e.g., v1.0.0). Defaults to latest release."
+        ),
         json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
         force_build: bool = typer.Option(
-            False, "--rebuild", help="Force rebuild even if dist/index.js exists"
+            False, "--rebuild", help="Force rebuild even if dist/index.js exists (local installs only)"
         ),
     ) -> None:
-        """Install a plugin from local directory or GitHub.
+        """Install a plugin from local directory or GitHub release.
+
+        For GitHub URLs, downloads pre-built release assets (manifest.json and index.js).
+        For local directories, builds from source if needed.
 
         Examples:
           tl plugin install ~/my-plugin
           tl plugin install https://github.com/user/my-plugin
+          tl plugin install https://github.com/user/my-plugin --version v1.0.0
           tl plugin install ~/my-plugin --rebuild
         """
         container = get_container()
@@ -98,9 +105,9 @@ def register(app: typer.Typer, get_container: callable) -> None:
 
         if not json_output:
             with console.status(f"[{theme.status_loading}]Installing plugin from {source}..."):
-                result = plugin_service.install_plugin(source, force_build=force_build)
+                result = plugin_service.install_plugin(source, version=version, force_build=force_build)
         else:
-            result = plugin_service.install_plugin(source, force_build=force_build)
+            result = plugin_service.install_plugin(source, version=version, force_build=force_build)
 
         if not result.success:
             if json_output:
@@ -118,6 +125,8 @@ def register(app: typer.Typer, get_container: callable) -> None:
             console.print(f"  Plugin ID: {result.data['plugin_id']}")
             console.print(f"  Version: {result.data['version']}")
             console.print(f"  Location: {result.data['install_dir']}")
+            if result.data.get("source"):
+                console.print(f"  Source: {result.data['source']}")
             if result.data.get("built"):
                 console.print(f"  [{theme.muted}](Built from source)[/{theme.muted}]")
             console.print(

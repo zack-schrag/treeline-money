@@ -1,5 +1,13 @@
 {
   "$schema": "./community-plugins.schema.json",
   "description": "Community plugins for Treeline. Submit a PR to add your plugin!",
-  "plugins": []
+  "plugins": [
+    {
+      "id": "subscriptions",
+      "name": "Subscriptions",
+      "description": "Detect recurring charges and track subscription costs",
+      "author": "Treeline",
+      "repo": "https://github.com/zack-schrag/treeline-subscriptions"
+    }
+  ]
 }

@@ -1,9 +1,11 @@
 """Plugin management service."""
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Dict, Any
 from urllib.parse import urlparse
@@ -126,13 +128,14 @@ class PluginService:
         )
 
     def install_plugin(
-        self, source: str, force_build: bool = False
+        self, source: str, version: str | None = None, force_build: bool = False
     ) -> Result[Dict[str, Any]]:
         """Install a plugin from a local directory or GitHub URL.
 
         Args:
             source: Local directory path or GitHub URL
-            force_build: Force rebuild even if dist/index.js exists
+            version: Version to install (for GitHub, e.g., "v1.0.0"). None = latest release.
+            force_build: Force rebuild even if dist/index.js exists (only for local installs)
 
         Returns:
             Result with installation details
@@ -141,7 +144,7 @@ class PluginService:
         is_github = source.startswith(("http://", "https://", "git@"))
 
         if is_github:
-            return self._install_from_github(source, force_build)
+            return self._install_from_github_release(source, version)
         else:
             return self._install_from_directory(Path(source).expanduser(), force_build)
 
@@ -222,43 +225,137 @@ class PluginService:
             },
         )
 
-    def _install_from_github(
-        self, url: str, force_build: bool
+    def _parse_github_url(self, url: str) -> tuple[str, str] | None:
+        """Parse GitHub URL to extract owner and repo.
+
+        Args:
+            url: GitHub URL (https://github.com/owner/repo or git@github.com:owner/repo)
+
+        Returns:
+            Tuple of (owner, repo) or None if invalid
+        """
+        # Handle HTTPS URLs: https://github.com/owner/repo
+        https_match = re.match(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+        if https_match:
+            return https_match.group(1), https_match.group(2)
+
+        # Handle SSH URLs: git@github.com:owner/repo.git
+        ssh_match = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", url)
+        if ssh_match:
+            return ssh_match.group(1), ssh_match.group(2)
+
+        return None
+
+    def _install_from_github_release(
+        self, url: str, version: str | None
     ) -> Result[Dict[str, Any]]:
-        """Install plugin from GitHub URL.
+        """Install plugin from GitHub release.
+
+        Downloads pre-built manifest.json and index.js from release assets.
 
         Args:
             url: GitHub repository URL
-            force_build: Force rebuild
+            version: Version tag to install (e.g., "v1.0.0"). None = latest release.
 
         Returns:
             Result with installation details
         """
-        # Create temp directory
+        # Parse GitHub URL
+        parsed = self._parse_github_url(url)
+        if not parsed:
+            return Result(
+                success=False,
+                error=f"Invalid GitHub URL: {url}. Expected https://github.com/owner/repo",
+            )
+
+        owner, repo = parsed
+
+        # Get release info from GitHub API
+        if version:
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
+        else:
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+
+        try:
+            req = urllib.request.Request(
+                api_url,
+                headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "Treeline-CLI"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as response:
+                release_data = json.loads(response.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                if version:
+                    return Result(success=False, error=f"Release {version} not found for {owner}/{repo}")
+                else:
+                    return Result(success=False, error=f"No releases found for {owner}/{repo}. The plugin author needs to create a release.")
+            return Result(success=False, error=f"GitHub API error: {e}")
+        except urllib.error.URLError as e:
+            return Result(success=False, error=f"Network error: {e}")
+
+        # Find manifest.json and index.js in release assets
+        assets = {asset["name"]: asset["browser_download_url"] for asset in release_data.get("assets", [])}
+
+        if "manifest.json" not in assets:
+            return Result(
+                success=False,
+                error=f"Release {release_data.get('tag_name', 'unknown')} is missing manifest.json asset. "
+                      f"Available assets: {list(assets.keys()) or 'none'}",
+            )
+
+        if "index.js" not in assets:
+            return Result(
+                success=False,
+                error=f"Release {release_data.get('tag_name', 'unknown')} is missing index.js asset. "
+                      f"Available assets: {list(assets.keys()) or 'none'}",
+            )
+
+        # Download files to temp directory
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
-            # Clone repository
             try:
-                subprocess.run(
-                    ["git", "clone", "--depth", "1", url, str(temp_path / "repo")],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except subprocess.CalledProcessError as e:
-                return Result(
-                    success=False, error=f"Failed to clone repository: {e.stderr}"
-                )
-            except FileNotFoundError:
-                return Result(
-                    success=False, error="git command not found. Please install git."
-                )
+                # Download manifest.json
+                manifest_path = temp_path / "manifest.json"
+                urllib.request.urlretrieve(assets["manifest.json"], manifest_path)
 
-            repo_path = temp_path / "repo"
+                # Download index.js
+                index_path = temp_path / "index.js"
+                urllib.request.urlretrieve(assets["index.js"], index_path)
+            except Exception as e:
+                return Result(success=False, error=f"Failed to download release assets: {e}")
 
-            # Install from the cloned directory
-            return self._install_from_directory(repo_path, force_build)
+            # Read manifest to get plugin ID
+            try:
+                with open(manifest_path, "r") as f:
+                    manifest = json.load(f)
+            except Exception as e:
+                return Result(success=False, error=f"Failed to parse manifest.json: {e}")
+
+            plugin_id = manifest.get("id")
+            if not plugin_id:
+                return Result(success=False, error="manifest.json missing 'id' field")
+
+            # Install to plugins directory
+            install_dir = self.plugins_dir / plugin_id
+            install_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                shutil.copy2(manifest_path, install_dir / "manifest.json")
+                shutil.copy2(index_path, install_dir / "index.js")
+            except Exception as e:
+                return Result(success=False, error=f"Failed to copy plugin files: {e}")
+
+            return Result(
+                success=True,
+                data={
+                    "plugin_id": plugin_id,
+                    "plugin_name": manifest.get("name", plugin_id),
+                    "version": release_data.get("tag_name", manifest.get("version", "unknown")),
+                    "install_dir": str(install_dir),
+                    "source": f"github:{owner}/{repo}",
+                },
+            )
 
     def _build_plugin(self, plugin_dir: Path) -> Result[None]:
         """Build a plugin using npm.

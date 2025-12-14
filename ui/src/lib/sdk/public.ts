@@ -142,7 +142,7 @@ export function createPluginSDK(pluginId: string, allowedTables: string[]): Plug
 
     // Theme
     theme: {
-      current: () => themeManager.getCurrentTheme() as "light" | "dark",
+      current: () => themeManager.current as "light" | "dark",
       subscribe: (callback: (theme: string) => void) => themeManager.subscribe(callback),
     },
 
@@ -173,42 +173,53 @@ function validateWriteQuery(sql: string, pluginId: string, allowedTables: string
   const normalizedSql = sql.toLowerCase().trim();
 
   // Extract target table from common write operations
+  // Use early returns to avoid "DO UPDATE SET" being parsed as UPDATE to table "set"
   let targetTable: string | null = null;
 
-  // INSERT INTO table_name
-  const insertMatch = normalizedSql.match(/insert\s+into\s+(\w+)/);
+  // INSERT INTO table_name (check first, handles ON CONFLICT ... DO UPDATE)
+  const insertMatch = normalizedSql.match(/^insert\s+into\s+(\w+)/);
   if (insertMatch) {
     targetTable = insertMatch[1];
   }
 
-  // UPDATE table_name
-  const updateMatch = normalizedSql.match(/update\s+(\w+)/);
-  if (updateMatch) {
-    targetTable = updateMatch[1];
+  // UPDATE table_name (only if not already matched as INSERT)
+  if (!targetTable) {
+    const updateMatch = normalizedSql.match(/^update\s+(\w+)/);
+    if (updateMatch) {
+      targetTable = updateMatch[1];
+    }
   }
 
   // DELETE FROM table_name
-  const deleteMatch = normalizedSql.match(/delete\s+from\s+(\w+)/);
-  if (deleteMatch) {
-    targetTable = deleteMatch[1];
+  if (!targetTable) {
+    const deleteMatch = normalizedSql.match(/^delete\s+from\s+(\w+)/);
+    if (deleteMatch) {
+      targetTable = deleteMatch[1];
+    }
   }
 
   // CREATE TABLE table_name
-  const createMatch = normalizedSql.match(/create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)/);
-  if (createMatch) {
-    targetTable = createMatch[1];
+  if (!targetTable) {
+    const createMatch = normalizedSql.match(/^create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)/);
+    if (createMatch) {
+      targetTable = createMatch[1];
+    }
   }
 
   // DROP TABLE table_name
-  const dropMatch = normalizedSql.match(/drop\s+table\s+(?:if\s+exists\s+)?(\w+)/);
-  if (dropMatch) {
-    targetTable = dropMatch[1];
+  if (!targetTable) {
+    const dropMatch = normalizedSql.match(/^drop\s+table\s+(?:if\s+exists\s+)?(\w+)/);
+    if (dropMatch) {
+      targetTable = dropMatch[1];
+    }
   }
 
   // ALTER TABLE table_name
-  const alterMatch = normalizedSql.match(/alter\s+table\s+(\w+)/);
-  if (alterMatch) {
-    targetTable = alterMatch[1];
+  if (!targetTable) {
+    const alterMatch = normalizedSql.match(/^alter\s+table\s+(\w+)/);
+    if (alterMatch) {
+      targetTable = alterMatch[1];
+    }
   }
 
   if (!targetTable) {

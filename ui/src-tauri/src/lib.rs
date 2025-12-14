@@ -564,6 +564,61 @@ async fn disable_demo(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Install a plugin from GitHub URL via CLI
+#[tauri::command]
+async fn install_plugin(app: AppHandle, url: String, version: Option<String>) -> Result<String, String> {
+    let mut args = vec!["plugin", "install", &url, "--json"];
+
+    // Add version if specified
+    let version_arg;
+    if let Some(v) = &version {
+        version_arg = v.clone();
+        args.push("--version");
+        args.push(&version_arg);
+    }
+
+    let output = run_cli(&app, &args).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Try to parse JSON error from stdout first
+        if let Ok(json) = serde_json::from_str::<JsonValue>(&stdout) {
+            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                return Err(error.to_string());
+            }
+        }
+        let error_msg = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(format!("Failed to install plugin: {}", error_msg));
+    }
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse install output: {}", e))
+}
+
+/// Uninstall a plugin via CLI
+#[tauri::command]
+async fn uninstall_plugin(app: AppHandle, plugin_id: String) -> Result<String, String> {
+    let args = vec!["plugin", "uninstall", &plugin_id, "--json"];
+
+    let output = run_cli(&app, &args).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Ok(json) = serde_json::from_str::<JsonValue>(&stdout) {
+            if let Some(error) = json.get("error").and_then(|e| e.as_str()) {
+                return Err(error.to_string());
+            }
+        }
+        let error_msg = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(format!("Failed to uninstall plugin: {}", error_msg));
+    }
+
+    String::from_utf8(output.stdout)
+        .map_err(|e| format!("Failed to parse uninstall output: {}", e))
+}
+
 /// Preview CSV import via CLI
 /// Returns JSON with detected columns and preview transactions
 #[tauri::command]
@@ -898,6 +953,8 @@ pub fn run() {
             set_demo_mode,
             enable_demo,
             disable_demo,
+            install_plugin,
+            uninstall_plugin,
             import_csv_preview,
             import_csv_execute,
             pick_csv_file,

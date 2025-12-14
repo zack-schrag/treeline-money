@@ -519,3 +519,39 @@ export async function updateIntegrationAccountSetting(
     readonly: false,
   });
 }
+
+// ============================================================================
+// Community Plugin Installation
+// ============================================================================
+
+export interface PluginInstallResult {
+  success: boolean;
+  plugin_id: string;
+  plugin_name: string;
+  version: string;
+  install_dir: string;
+  source?: string;
+  error?: string;
+}
+
+/**
+ * Install a plugin from a GitHub URL
+ * Downloads pre-built release assets (manifest.json and index.js)
+ *
+ * @param url - GitHub repository URL (e.g., https://github.com/user/repo)
+ * @param version - Optional version tag (e.g., "v1.0.0"). Defaults to latest release.
+ */
+export async function installPlugin(url: string, version?: string): Promise<PluginInstallResult> {
+  const jsonString = await invoke<string>("install_plugin", { url, version: version || null });
+  return JSON.parse(jsonString) as PluginInstallResult;
+}
+
+/**
+ * Uninstall a plugin by ID
+ *
+ * @param pluginId - The plugin ID to uninstall
+ */
+export async function uninstallPlugin(pluginId: string): Promise<{ success: boolean; plugin_id: string; plugin_name: string }> {
+  const jsonString = await invoke<string>("uninstall_plugin", { pluginId });
+  return JSON.parse(jsonString);
+}

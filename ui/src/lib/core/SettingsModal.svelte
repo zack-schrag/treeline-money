@@ -16,6 +16,8 @@
     disablePlugin,
     getDemoMode,
     disableDemo,
+    installPlugin,
+    uninstallPlugin,
     registry,
     toast,
     themeManager,
@@ -23,6 +25,7 @@
     type Settings,
     type AppSettings,
   } from "../sdk";
+  import { invoke } from "@tauri-apps/api/core";
   import { getCorePluginManifests } from "../plugins";
   import { checkForUpdate } from "../sdk/updater";
 
@@ -83,6 +86,27 @@
   }
   let plugins = $state<PluginInfo[]>([]);
   let pluginsNeedReload = $state(false);
+
+  // Community plugins state
+  interface CommunityPluginInfo {
+    id: string;
+    name: string;
+    description: string;
+    author: string;
+    repo: string;
+  }
+  interface InstalledPluginInfo {
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+  }
+  let communityPlugins = $state<CommunityPluginInfo[]>([]);
+  let installedCommunityPlugins = $state<InstalledPluginInfo[]>([]);
+  let isLoadingCommunityPlugins = $state(false);
+  let installingPluginId = $state<string | null>(null);
+  let uninstallingPluginId = $state<string | null>(null);
 
   // Demo mode state
   let isDemoMode = $state(false);
@@ -186,6 +210,79 @@
       console.error("Failed to toggle plugin:", e);
       toast.error("Failed to update plugin", e instanceof Error ? e.message : String(e));
     }
+  }
+
+  // Community plugins URL - fetches from main repo
+  const COMMUNITY_PLUGINS_URL = "https://raw.githubusercontent.com/zack-schrag/treeline-money/refs/heads/main/community-plugins.json";
+
+  async function loadCommunityPlugins() {
+    isLoadingCommunityPlugins = true;
+    try {
+      // Fetch registry from GitHub
+      const response = await fetch(COMMUNITY_PLUGINS_URL);
+      if (!response.ok) throw new Error("Failed to fetch community plugins");
+      const data = await response.json();
+      communityPlugins = data.plugins || [];
+
+      // Get installed external plugins
+      const installed = await invoke<Array<{ manifest: InstalledPluginInfo; path: string }>>("discover_plugins");
+      installedCommunityPlugins = installed.map(p => ({
+        id: p.manifest.id,
+        name: p.manifest.name,
+        version: p.manifest.version,
+        description: p.manifest.description,
+        author: p.manifest.author,
+      }));
+    } catch (e) {
+      console.error("Failed to load community plugins:", e);
+      communityPlugins = [];
+      installedCommunityPlugins = [];
+    } finally {
+      isLoadingCommunityPlugins = false;
+    }
+  }
+
+  async function handleInstallPlugin(plugin: CommunityPluginInfo) {
+    installingPluginId = plugin.id;
+    try {
+      const result = await installPlugin(plugin.repo);
+      if (result.success) {
+        toast.success("Plugin installed", `${result.plugin_name} v${result.version} installed`);
+        pluginsNeedReload = true;
+        await loadCommunityPlugins(); // Refresh the list
+      } else {
+        throw new Error(result.error || "Unknown error");
+      }
+    } catch (e) {
+      toast.error("Failed to install plugin", e instanceof Error ? e.message : String(e));
+    } finally {
+      installingPluginId = null;
+    }
+  }
+
+  async function handleUninstallPlugin(plugin: InstalledPluginInfo) {
+    uninstallingPluginId = plugin.id;
+    try {
+      await uninstallPlugin(plugin.id);
+      toast.success("Plugin uninstalled", `${plugin.name} has been removed`);
+      pluginsNeedReload = true;
+      await loadCommunityPlugins(); // Refresh the list
+    } catch (e) {
+      toast.error("Failed to uninstall plugin", e instanceof Error ? e.message : String(e));
+    } finally {
+      uninstallingPluginId = null;
+    }
+  }
+
+  // Check if a community plugin is installed
+  function isPluginInstalled(pluginId: string): boolean {
+    return installedCommunityPlugins.some(p => p.id === pluginId);
+  }
+
+  // Get installed version of a plugin
+  function getInstalledVersion(pluginId: string): string | null {
+    const installed = installedCommunityPlugins.find(p => p.id === pluginId);
+    return installed?.version || null;
   }
 
   let isSimplefinConnected = $derived(
@@ -448,6 +545,7 @@
       pluginsNeedReload = false; // Reset on open
       loadSettings();
       loadPlugins();
+      loadCommunityPlugins();
       loadIntegrations().then(() => {
         if (integrations.some((i) => i.integration_name === "simplefin")) {
           loadSimplefinAccounts();
@@ -598,6 +696,84 @@
                       </div>
                     {/each}
                   </div>
+                </div>
+
+                <div class="setting-group">
+                  <h4 class="group-title">Community Plugins</h4>
+                  <p class="group-desc">Browse and install plugins created by the community.</p>
+
+                  {#if isLoadingCommunityPlugins}
+                    <div class="loading-placeholder">Loading community plugins...</div>
+                  {:else if communityPlugins.length === 0 && installedCommunityPlugins.length === 0}
+                    <div class="empty-state">
+                      <p>No community plugins available yet.</p>
+                    </div>
+                  {:else}
+                    <div class="plugin-list">
+                      {#each communityPlugins as plugin}
+                        {@const installed = isPluginInstalled(plugin.id)}
+                        {@const installedVersion = getInstalledVersion(plugin.id)}
+                        <div class="plugin-item community">
+                          <div class="plugin-info">
+                            <div class="plugin-header">
+                              <span class="plugin-name">{plugin.name}</span>
+                              {#if installed && installedVersion}
+                                <span class="plugin-version">v{installedVersion}</span>
+                              {/if}
+                            </div>
+                            <span class="plugin-desc">{plugin.description}</span>
+                            <span class="plugin-author">by {plugin.author}</span>
+                          </div>
+                          <div class="plugin-actions">
+                            {#if installed}
+                              <button
+                                class="btn secondary small"
+                                onclick={() => {
+                                  const p = installedCommunityPlugins.find(ip => ip.id === plugin.id);
+                                  if (p) handleUninstallPlugin(p);
+                                }}
+                                disabled={uninstallingPluginId === plugin.id}
+                              >
+                                {uninstallingPluginId === plugin.id ? "Removing..." : "Remove"}
+                              </button>
+                            {:else}
+                              <button
+                                class="btn primary small"
+                                onclick={() => handleInstallPlugin(plugin)}
+                                disabled={installingPluginId === plugin.id}
+                              >
+                                {installingPluginId === plugin.id ? "Installing..." : "Install"}
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/each}
+
+                      {#each installedCommunityPlugins.filter(p => !communityPlugins.some(cp => cp.id === p.id)) as plugin}
+                        <div class="plugin-item community installed-only">
+                          <div class="plugin-info">
+                            <div class="plugin-header">
+                              <span class="plugin-name">{plugin.name}</span>
+                              <span class="plugin-version">v{plugin.version}</span>
+                            </div>
+                            <span class="plugin-desc">{plugin.description}</span>
+                            {#if plugin.author}
+                              <span class="plugin-author">by {plugin.author}</span>
+                            {/if}
+                          </div>
+                          <div class="plugin-actions">
+                            <button
+                              class="btn secondary small"
+                              onclick={() => handleUninstallPlugin(plugin)}
+                              disabled={uninstallingPluginId === plugin.id}
+                            >
+                              {uninstallingPluginId === plugin.id ? "Removing..." : "Remove"}
+                            </button>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               </section>
             {:else if activeSection === "integrations"}
@@ -2029,5 +2205,58 @@
   .toggle-switch input:checked + .toggle-slider:before {
     transform: translateX(16px);
     background-color: white;
+  }
+
+  /* Community plugins */
+  .loading-placeholder,
+  .empty-state {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: var(--spacing-md);
+    text-align: center;
+  }
+
+  .empty-state p {
+    margin: 0;
+  }
+
+  .plugin-item.community {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .plugin-item.community .plugin-info {
+    gap: 4px;
+  }
+
+  .plugin-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .plugin-version {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .plugin-author {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .plugin-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+  }
+
+  .plugin-item.installed-only {
+    opacity: 0.8;
+    border-style: dashed;
   }
 </style>

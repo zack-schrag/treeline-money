@@ -72,6 +72,9 @@ export {
   // Integration Account Settings
   getIntegrationSettings,
   updateIntegrationAccountSetting,
+  // Community Plugins
+  installPlugin,
+  uninstallPlugin,
 } from "./settings";
 export type {
   Settings,
@@ -80,6 +83,7 @@ export type {
   ImportColumnMapping,
   ImportPreviewResult,
   ImportExecuteResult,
+  PluginInstallResult,
 } from "./settings";
 
 // Toast notifications
