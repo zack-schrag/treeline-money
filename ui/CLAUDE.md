@@ -191,3 +191,119 @@ gh release create v1.0.0 manifest.json dist/index.js --title "v1.0.0" --notes "R
 - **Internal imports**: Core plugins can import from `sdk/` directly for things like `registry`, `activityStore`, internal operations
 
 When building new features, prefer making them plugins unless they require internal SDK access (sync, CSV import, demo mode, etc.).
+
+### Styling Community Plugins
+Community plugins should match the app's look and feel using CSS variables. Reference `lib/sdk/styles.css` for common patterns.
+
+**Key patterns to follow:**
+
+**Layout:**
+```css
+.view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.header {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+}
+```
+
+**Summary Cards:**
+```css
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+}
+
+.card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.card-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+```
+
+**Data Tables:**
+```css
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border-bottom: 2px solid var(--border-primary);
+}
+
+.table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.table tbody tr:hover {
+  background: var(--bg-secondary);
+}
+```
+
+**Badges:**
+```css
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+```
+
+**Loading/Empty States:**
+```css
+.loading, .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border-primary);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+```
+
+See the subscriptions plugin (`treeline-subscriptions` repo) for a complete example.
