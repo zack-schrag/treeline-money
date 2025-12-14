@@ -9,6 +9,7 @@
 export type {
   Plugin,
   PluginManifest,
+  PluginPermissions,
   PluginContext,
   SidebarSection,
   SidebarItem,
@@ -18,6 +19,10 @@ export type {
   Tab,
   ThemeInterface,
 } from "./types";
+
+// Public SDK (for external plugins)
+export { createPluginSDK } from "./public";
+export type { PluginSDK } from "./public";
 
 // Registry (for core use)
 export { registry } from "./registry";

@@ -8,6 +8,11 @@ export const plugin: Plugin = {
     version: "0.1.0",
     description: "Browse, tag, edit, and split transactions",
     author: "Treeline",
+    permissions: {
+      tables: {
+        write: ["sys_transactions", "sys_plugin_transactions_rules"],
+      },
+    },
   },
 
   activate(context: PluginContext) {

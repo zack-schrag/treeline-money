@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Treeline Community Plugins Registry",
+  "description": "Schema for the community plugins registry",
+  "type": "object",
+  "required": ["plugins"],
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Description of this registry"
+    },
+    "plugins": {
+      "type": "array",
+      "description": "List of community plugins",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description", "author", "repo"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique plugin identifier (must match manifest.json id)",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Short description of what the plugin does"
+          },
+          "author": {
+            "type": "string",
+            "description": "Author name or GitHub username"
+          },
+          "repo": {
+            "type": "string",
+            "description": "GitHub repository URL",
+            "pattern": "^https://github.com/"
+          },
+          "version": {
+            "type": "string",
+            "description": "Latest version (optional, can be fetched from repo)"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags for categorization",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "Whether this plugin has been reviewed by maintainers",
+            "default": false
+          }
+        }
+      }
+    }
+  }
+}

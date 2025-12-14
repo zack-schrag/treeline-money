@@ -9,7 +9,7 @@
   import ToastContainer from "./ToastContainer.svelte";
   import UpdateBanner from "./UpdateBanner.svelte";
   import { Icon } from "../shared";
-  import { registry, getDemoMode, disableDemo, toast, getAppSetting } from "../sdk";
+  import { registry, getDemoMode, enableDemo, disableDemo, runSync, toast, getAppSetting, activityStore } from "../sdk";
   import { initUpdater } from "../sdk/updater";
 
   let commandPaletteOpen = $state(false);
@@ -65,6 +65,69 @@
       shortcut: "cmd+,",
       execute: () => {
         settingsModalOpen = true;
+      },
+    });
+
+    registry.registerCommand({
+      id: "data:sync",
+      name: "Sync All Integrations",
+      category: "Data",
+      execute: async () => {
+        const stopActivity = activityStore.start("Syncing accounts...");
+        try {
+          const result = await runSync();
+          const totalAccounts = result.results.reduce(
+            (sum, r) => sum + (r.accounts_synced || 0),
+            0
+          );
+          const totalTransactions = result.results.reduce(
+            (sum, r) => sum + (r.transaction_stats?.new || r.transactions_synced || 0),
+            0
+          );
+
+          const errors = result.results.filter((r) => r.error);
+          if (errors.length > 0) {
+            toast.warning(
+              "Sync completed with warnings",
+              errors.map((e) => e.error).join(", ")
+            );
+          } else {
+            toast.success(
+              "Sync complete",
+              `${totalAccounts} accounts, ${totalTransactions} new transactions`
+            );
+          }
+        } catch (e) {
+          toast.error("Sync failed", e instanceof Error ? e.message : String(e));
+        } finally {
+          stopActivity();
+        }
+      },
+    });
+
+    registry.registerCommand({
+      id: "data:toggleDemoMode",
+      name: "Toggle Demo Mode",
+      category: "Data",
+      execute: async () => {
+        const current = await getDemoMode();
+        const newMode = !current;
+
+        try {
+          if (newMode) {
+            toast.info("Enabling demo mode...", "Setting up demo data");
+            await enableDemo();
+            toast.success("Demo mode enabled", "Switched to demo data");
+          } else {
+            toast.info("Disabling demo mode...", "Switching to real data");
+            await disableDemo();
+            toast.success("Demo mode disabled", "Switched to real data");
+          }
+
+          registry.emit("data:refresh");
+        } catch (e) {
+          toast.error("Demo mode toggle failed", e instanceof Error ? e.message : String(e));
+        }
       },
     });
   });

@@ -7,8 +7,15 @@ export const plugin: Plugin = {
     id: "hello-world",
     name: "Hello World",
     version: "0.1.0",
-    description: "An example plugin demonstrating the Treeline plugin system",
+    description: "An example plugin demonstrating the Treeline plugin SDK",
     author: "Your Name",
+    // Declare tables this plugin needs write access to.
+    // Community plugins can only write to sys_plugin_{id}_* tables.
+    permissions: {
+      tables: {
+        write: ["sys_plugin_hello_world"],
+      },
+    },
   },
 
   activate(context: PluginContext) {

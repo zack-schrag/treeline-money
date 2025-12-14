@@ -8,6 +8,11 @@ export const plugin: Plugin = {
     version: "0.1.0",
     description: "Track spending against tag-based budget categories",
     author: "Treeline",
+    permissions: {
+      tables: {
+        write: ["sys_plugin_budget_categories", "sys_plugin_budget_rollovers"],
+      },
+    },
   },
 
   activate(context: PluginContext) {

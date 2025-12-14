@@ -1,0 +1,5 @@
+{
+  "$schema": "./community-plugins.schema.json",
+  "description": "Community plugins for Treeline. Submit a PR to add your plugin!",
+  "plugins": []
+}

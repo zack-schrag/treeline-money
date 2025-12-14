@@ -33,7 +33,7 @@ Edit `manifest.json`:
 
 ### 4. Develop your plugin
 
-Edit `src/index.ts` and `src/HelloWorldView.svelte` to implement your plugin's functionality.
+Edit `src/index.ts` and create your Svelte views to implement your plugin's functionality.
 
 ### 5. Build the plugin
 
@@ -85,7 +85,7 @@ my-plugin/
 └── tsconfig.json
 ```
 
-## Plugin API
+## Plugin SDK
 
 ### Plugin manifest
 
@@ -99,6 +99,12 @@ export const plugin: Plugin = {
     version: "0.1.0",
     description: "What this plugin does",
     author: "Your Name",
+    // Declare tables your plugin needs write access to
+    permissions: {
+      tables: {
+        write: ["sys_plugin_my_plugin_data"],
+      },
+    },
   },
 
   activate(context: PluginContext) {
@@ -115,20 +121,20 @@ export const plugin: Plugin = {
 
 The `context` object passed to `activate()` provides these methods:
 
-#### Register a view
-
 ```typescript
+// Register a view with a mount function
 context.registerView({
   id: "my-view",
   name: "My View",
   icon: "🔧",
-  component: MyViewComponent,
+  mount: (target, props) => {
+    // props.sdk contains the Plugin SDK
+    const instance = mount(MyComponent, { target, props });
+    return () => unmount(instance);
+  },
 });
-```
 
-#### Register a sidebar item
-
-```typescript
+// Add to sidebar
 context.registerSidebarItem({
   sectionId: "main",
   id: "my-sidebar-item",
@@ -136,128 +142,183 @@ context.registerSidebarItem({
   icon: "🔧",
   viewId: "my-view",
 });
-```
 
-#### Register a command
-
-```typescript
+// Register a command (appears in Cmd+P palette)
 context.registerCommand({
   id: "my-plugin.do-something",
   name: "Do Something",
-  description: "Description of what this command does",
-  handler: async () => {
+  execute: async () => {
     // Command implementation
   },
 });
 ```
 
-#### Register a sidebar section
+### Plugin SDK (in views)
 
-```typescript
-context.registerSidebarSection({
-  id: "my-section",
-  title: "My Section",
-  order: 10,
-});
-```
-
-#### Register a status bar item
-
-```typescript
-context.registerStatusBarItem({
-  id: "my-status",
-  text: "Status",
-  tooltip: "Hover text",
-  alignment: "right",
-  priority: 10,
-});
-```
-
-## Svelte Components
-
-Plugins can use Svelte 5 components with runes:
+Your view components receive the SDK via `props.sdk`. This is the main API for interacting with Treeline:
 
 ```svelte
 <script lang="ts">
+  import type { PluginSDK } from "./types";
+
+  interface Props {
+    sdk: PluginSDK;
+  }
+  let { sdk }: Props = $props();
+
+  // Query the database
+  const accounts = await sdk.query("SELECT * FROM sys_accounts");
+
+  // Write to your plugin's tables
+  await sdk.execute("INSERT INTO sys_plugin_my_plugin_data VALUES (...)");
+
+  // Show notifications
+  sdk.toast.success("Done!", "Operation completed");
+  sdk.toast.error("Oops", "Something went wrong");
+
+  // Navigate to another view
+  sdk.openView("transactions");
+
+  // React to data changes (after sync/import)
+  sdk.onDataRefresh(() => {
+    // Reload your data
+  });
+
+  // Persist settings
+  await sdk.settings.set({ myOption: true });
+  const settings = await sdk.settings.get();
+
+  // Get current theme
+  const theme = sdk.theme.current(); // "light" or "dark"
+</script>
+```
+
+### Available SDK Methods
+
+| Method | Description |
+|--------|-------------|
+| `sdk.query(sql)` | Execute a read-only SQL query |
+| `sdk.execute(sql)` | Write to your plugin's tables |
+| `sdk.toast.success/error/info/warning(message, description?)` | Show notifications |
+| `sdk.openView(viewId, props?)` | Navigate to a view |
+| `sdk.onDataRefresh(callback)` | Subscribe to data refresh events |
+| `sdk.emitDataRefresh()` | Notify other views that data changed |
+| `sdk.theme.current()` | Get current theme ("light" or "dark") |
+| `sdk.theme.subscribe(callback)` | React to theme changes |
+| `sdk.settings.get()` | Load persisted plugin settings |
+| `sdk.settings.set(data)` | Save plugin settings |
+| `sdk.state.read()` | Load ephemeral plugin state |
+| `sdk.state.write(data)` | Save ephemeral plugin state |
+| `sdk.modKey` | "Cmd" on Mac, "Ctrl" on Windows/Linux |
+| `sdk.formatShortcut(shortcut)` | Format shortcut for display |
+
+### Database Access
+
+Plugins can read any table using `sdk.query()`:
+
+```typescript
+// Read transactions
+const txns = await sdk.query(`
+  SELECT * FROM transactions
+  WHERE tags @> ['groceries']
+  ORDER BY transaction_date DESC
+  LIMIT 100
+`);
+
+// Read accounts
+const accounts = await sdk.query(`
+  SELECT * FROM sys_accounts
+  WHERE is_deleted = false
+`);
+```
+
+To write data, plugins must declare their tables in `permissions.tables.write`. Community plugins can only write to `sys_plugin_{plugin_id}_*` tables:
+
+```typescript
+// In manifest:
+permissions: {
+  tables: {
+    write: ["sys_plugin_my_plugin_config", "sys_plugin_my_plugin_data"],
+  },
+}
+
+// In code:
+await sdk.execute(`
+  INSERT INTO sys_plugin_my_plugin_data (id, value)
+  VALUES ('abc', 42)
+`);
+```
+
+Attempting to write to unauthorized tables will throw an error.
+
+## Svelte Components
+
+Plugins use Svelte 5 with runes:
+
+```svelte
+<script lang="ts">
+  import type { PluginSDK } from "./types";
+
+  interface Props {
+    sdk: PluginSDK;
+  }
+  let { sdk }: Props = $props();
+
   let count = $state(0);
+  let theme = $state(sdk.theme.current());
 
   function increment() {
     count++;
+    sdk.toast.info(`Count is now ${count}`);
   }
 </script>
 
-<div class="p-6">
+<div class:dark={theme === "dark"}>
   <h1>Count: {count}</h1>
   <button onclick={increment}>Increment</button>
 </div>
+
+<style>
+  div {
+    padding: 24px;
+    background: white;
+    color: black;
+  }
+  div.dark {
+    background: #1a1a1a;
+    color: #e5e5e5;
+  }
+</style>
 ```
 
 ### Styling
 
-Use Tailwind CSS classes for styling. The main app includes Tailwind, so all utility classes are available.
+Use scoped `<style>` blocks in your Svelte components. To support both light and dark themes, use the theme from SDK:
 
-## Calling the Treeline CLI
+```svelte
+<script lang="ts">
+  let theme = $state(sdk.theme.current());
+  sdk.theme.subscribe(t => theme = t);
+</script>
 
-Plugins can call the Treeline CLI using Tauri's invoke API:
-
-```typescript
-import { invoke } from "@tauri-apps/api/core";
-
-// Call a Tauri command
-const result = await invoke("status");
-```
-
-For custom CLI commands, you'll need to add them to the Tauri backend.
-
-## Examples
-
-### Simple counter plugin
-
-```typescript
-import type { Plugin, PluginContext } from "./types";
-import CounterView from "./CounterView.svelte";
-
-export const plugin: Plugin = {
-  manifest: {
-    id: "counter",
-    name: "Counter",
-    version: "1.0.0",
-    description: "A simple counter",
-    author: "Me",
-  },
-
-  activate(context: PluginContext) {
-    context.registerView({
-      id: "counter-view",
-      name: "Counter",
-      icon: "🔢",
-      component: CounterView,
-    });
-
-    context.registerSidebarItem({
-      sectionId: "main",
-      id: "counter",
-      label: "Counter",
-      icon: "🔢",
-      viewId: "counter-view",
-    });
-  },
-};
+<div class:dark={theme === "dark"}>
+  <!-- content -->
+</div>
 ```
 
 ## Tips
 
 - **Keep plugins lightweight** - Users should be able to load multiple plugins without performance issues
-- **Handle errors gracefully** - Don't crash the app if something goes wrong
+- **Handle errors gracefully** - Use try/catch and show errors with `sdk.toast.error()`
+- **Support both themes** - Test in light and dark mode
 - **Use TypeScript** - Get better IDE support and catch errors early
-- **Follow Tailwind conventions** - Use the same styling as the main app for consistency
 - **Test thoroughly** - Make sure your plugin works before publishing
 
 ## Troubleshooting
 
 ### Plugin not loading
 
-1. Check the browser console for errors (open DevTools)
+1. Check the browser console for errors (open DevTools with Cmd+Option+I)
 2. Verify `manifest.json` is valid JSON
 3. Ensure `dist/index.js` exists after building
 4. Check that the plugin is in `~/.treeline/plugins/your-plugin-id/`
@@ -268,11 +329,30 @@ export const plugin: Plugin = {
 2. Check that TypeScript types are correct
 3. Make sure Svelte components have valid syntax
 
-### Component not rendering
+### SDK not available
 
-1. Ensure the component is imported in `src/index.ts`
-2. Check that you're registering both the view and sidebar item
-3. Verify the sidebar section exists ("main" is created by default)
+Make sure you're receiving `sdk` via props:
+
+```svelte
+<script lang="ts">
+  interface Props {
+    sdk: PluginSDK;
+  }
+  let { sdk }: Props = $props();
+</script>
+```
+
+### Database permission errors
+
+Check that your manifest declares the tables you're trying to write to:
+
+```typescript
+permissions: {
+  tables: {
+    write: ["sys_plugin_your_plugin_tablename"],
+  },
+}
+```
 
 ## Distribution
 
@@ -280,10 +360,10 @@ Once your plugin is ready, you can distribute it by:
 
 1. **GitHub repository** - Users can clone and build
 2. **Pre-built releases** - Attach `manifest.json` and `dist/index.js` to GitHub releases
-3. **Plugin marketplace** - Coming soon!
+3. **Community registry** - Submit a PR to add your plugin to the Treeline community plugins list
 
 ## Next Steps
 
-- Browse the [Treeline SDK documentation](../ui/src/lib/sdk/) for more API details
-- Check out example plugins in the community
+- Browse the example plugin in this template
+- Check out community plugins for inspiration
 - Share your plugin with other users!

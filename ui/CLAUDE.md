@@ -120,3 +120,53 @@ Surface helpful indicators (e.g., "Remaining: $20") but don't prevent users from
 ### Data Patterns
 - Round currency amounts to cents (`Math.round(amount * 100) / 100`) to avoid floating point display errors
 - Store config as JSON in plugin files via `invoke("write_plugin_config", ...)`
+
+## Plugin Architecture
+
+### Core Principles
+- **Everything is a plugin**: Accounts, Budget, Transactions, Query are all plugins
+- **Core plugins use the same SDK as community plugins** - they just declare different table permissions
+- **Settings is NOT a plugin** - it's core app functionality in `lib/core/`
+
+### Plugin Types
+
+| Type | Location | Table Access | Distribution |
+|------|----------|--------------|--------------|
+| Core plugins | `lib/plugins/` | Can declare any tables in manifest | Bundled with app |
+| Community plugins | `~/.treeline/plugins/` | Only `sys_plugin_{id}_*` tables | Separate repos, listed in `community-plugins.json` |
+
+### Manifest Permissions
+Plugins declare required write tables in their manifest:
+```typescript
+manifest: {
+  id: "budget",
+  permissions: {
+    tables: {
+      write: ["sys_plugin_budget_categories", "sys_plugin_budget_rollovers"],
+    },
+  },
+}
+```
+
+All plugins can READ any table. Write access is enforced at runtime in `sdk/public.ts`.
+
+### Plugin SDK (`lib/sdk/public.ts`)
+External plugins receive an SDK via props when their views are mounted:
+- `sdk.query(sql)` - Read any table
+- `sdk.execute(sql)` - Write to allowed tables only
+- `sdk.toast.*` - Show notifications
+- `sdk.openView()` - Navigate to views
+- `sdk.onDataRefresh()` - React to data changes
+- `sdk.settings.get/set()` - Plugin-scoped settings
+- `sdk.theme.current()` - Theme access
+
+### Adding a Community Plugin
+1. Author creates plugin in their own GitHub repo using `plugin-template/`
+2. Author submits PR adding entry to `community-plugins.json`
+3. Users install by copying to `~/.treeline/plugins/{id}/`
+
+### Core vs Internal SDK
+- **Public SDK** (`sdk/public.ts`): What community plugins can access via props
+- **Internal imports**: Core plugins can import from `sdk/` directly for things like `registry`, `activityStore`, internal operations
+
+When building new features, prefer making them plugins unless they require internal SDK access (sync, CSV import, demo mode, etc.).

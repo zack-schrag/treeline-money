@@ -77,19 +77,45 @@ class PluginService:
         except Exception as e:
             return Result(success=False, error=f"Failed to copy template: {e}")
 
-        # Update manifest.json with plugin name
+        # Update manifest.json with plugin name and permissions
         manifest_path = plugin_dir / "manifest.json"
+        # Convert name to table-safe format (replace hyphens with underscores)
+        table_safe_name = name.replace("-", "_")
+        display_name = name.replace("-", " ").replace("_", " ").title()
         try:
             with open(manifest_path, "r") as f:
                 manifest = json.load(f)
 
             manifest["id"] = name
-            manifest["name"] = name.replace("-", " ").replace("_", " ").title()
+            manifest["name"] = display_name
+            # Update permissions to use the new plugin ID
+            manifest["permissions"] = {
+                "tables": {
+                    "write": [f"sys_plugin_{table_safe_name}"]
+                }
+            }
 
             with open(manifest_path, "w") as f:
                 json.dump(manifest, f, indent=2)
         except Exception as e:
             return Result(success=False, error=f"Failed to update manifest: {e}")
+
+        # Update src/index.ts with plugin ID and permissions
+        index_ts_path = plugin_dir / "src" / "index.ts"
+        if index_ts_path.exists():
+            try:
+                content = index_ts_path.read_text()
+                # Update the manifest in TypeScript to match
+                content = content.replace('id: "hello-world"', f'id: "{name}"')
+                content = content.replace('name: "Hello World"', f'name: "{display_name}"')
+                content = content.replace(
+                    'write: ["sys_plugin_hello_world"]',
+                    f'write: ["sys_plugin_{table_safe_name}"]'
+                )
+                index_ts_path.write_text(content)
+            except Exception as e:
+                # Non-fatal, manifest.json is the source of truth
+                pass
 
         return Result(
             success=True,

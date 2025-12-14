@@ -1,5 +1,6 @@
 <script lang="ts">
   import { registry, modKey } from "../sdk";
+  import { createPluginSDK } from "../sdk/public";
   import type { Tab, ViewDefinition } from "../sdk";
 
   let activeTab = $state<Tab | null>(registry.activeTab);
@@ -28,8 +29,21 @@
     }
 
     // Mount new view if it uses mount API
-    if (activeView?.mount && mountContainer) {
-      cleanup = activeView.mount(mountContainer, activeTab?.props ?? {});
+    if (activeView?.mount && mountContainer && activeTab) {
+      // Get plugin ID and permissions for this view
+      const pluginId = registry.getPluginIdForView(activeTab.viewId);
+      const allowedTables = pluginId ? registry.getPluginWriteTables(pluginId) : [];
+
+      // Create SDK instance for this plugin
+      const sdk = pluginId ? createPluginSDK(pluginId, allowedTables) : null;
+
+      // Pass SDK and original props to the view
+      const props = {
+        ...activeTab.props,
+        sdk,
+      };
+
+      cleanup = activeView.mount(mountContainer, props);
     }
 
     // Cleanup on unmount

@@ -15,11 +15,9 @@ import { plugin as queryPlugin } from "./query";
 import { plugin as taggingPlugin } from "./tagging";
 import { plugin as budgetPlugin } from "./budget";
 import { plugin as accountsPlugin } from "./accounts";
-import { plugin as settingsPlugin } from "./settings";
 
 // List of core plugins (built into the app)
-// Settings plugin loaded last to ensure it appears after other items
-const corePlugins: Plugin[] = [accountsPlugin, budgetPlugin, taggingPlugin, queryPlugin, settingsPlugin];
+const corePlugins: Plugin[] = [accountsPlugin, budgetPlugin, taggingPlugin, queryPlugin];
 
 interface ExternalPluginInfo {
   manifest: {
@@ -109,16 +107,23 @@ export async function initializePlugins(): Promise<void> {
     }
 
     try {
+      const pluginId = plugin.manifest.id;
+
+      // Register plugin permissions
+      const writeTables = plugin.manifest.permissions?.tables?.write ?? [];
+      registry.setPluginPermissions(pluginId, writeTables);
+
       // Create context with plugin API
       const context: PluginContext = {
         registerSidebarSection: registry.registerSidebarSection.bind(registry),
         registerSidebarItem: registry.registerSidebarItem.bind(registry),
-        registerView: registry.registerView.bind(registry),
+        // Pass pluginId to registerView for permission tracking
+        registerView: (view) => registry.registerView(view, pluginId),
         registerCommand: registry.registerCommand.bind(registry),
         registerStatusBarItem: registry.registerStatusBarItem.bind(registry),
         openView: registry.openView.bind(registry),
         executeCommand: registry.executeCommand.bind(registry),
-        db: {} as any, // No database for now
+        db: {} as any, // Database access is provided via SDK props
         theme: themeManager,
       };
 

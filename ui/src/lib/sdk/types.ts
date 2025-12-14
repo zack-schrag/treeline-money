@@ -29,6 +29,20 @@ export interface PluginManifest {
 
   /** Optional icon (emoji or icon name) */
   icon?: string;
+
+  /**
+   * Permissions this plugin requires.
+   * Core plugins can request any tables.
+   * Community plugins can only request sys_plugin_{id}_* tables.
+   */
+  permissions?: PluginPermissions;
+}
+
+export interface PluginPermissions {
+  /** Tables this plugin needs write access to */
+  tables?: {
+    write?: string[];
+  };
 }
 
 // ============================================================================

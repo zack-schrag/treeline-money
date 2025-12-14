@@ -8,6 +8,11 @@ export const plugin: Plugin = {
     version: "0.1.0",
     description: "Execute SQL queries against your financial data",
     author: "Treeline",
+    permissions: {
+      tables: {
+        write: ["sys_plugin_query_history"],
+      },
+    },
   },
 
   activate(context: PluginContext) {

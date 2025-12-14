@@ -8,6 +8,11 @@ export const plugin: Plugin = {
     version: "0.1.0",
     description: "View and manage financial accounts",
     author: "Treeline",
+    permissions: {
+      tables: {
+        write: ["sys_accounts", "sys_balance_snapshots", "sys_plugin_accounts_overrides"],
+      },
+    },
   },
 
   activate(context: PluginContext) {
