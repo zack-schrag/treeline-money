@@ -160,10 +160,31 @@ External plugins receive an SDK via props when their views are mounted:
 - `sdk.settings.get/set()` - Plugin-scoped settings
 - `sdk.theme.current()` - Theme access
 
-### Adding a Community Plugin
-1. Author creates plugin in their own GitHub repo using `plugin-template/`
-2. Author submits PR adding entry to `community-plugins.json`
-3. Users install by copying to `~/.treeline/plugins/{id}/`
+### Creating a Community Plugin
+1. Create plugin: `tl plugin new my-plugin`
+2. Develop in the generated directory
+3. Build: `npm run build`
+4. Create a GitHub release with `manifest.json` and `dist/index.js` as release assets
+5. Submit PR to add entry to `community-plugins.json`
+
+### Installing Community Plugins
+Users can install plugins from:
+- **UI**: Settings → Plugins → Community Plugins (browse and install from registry)
+- **CLI**: `tl plugin install https://github.com/user/repo` (latest release)
+- **CLI with version**: `tl plugin install https://github.com/user/repo --version v1.0.0`
+
+Installation downloads `manifest.json` and `index.js` from GitHub release assets to `~/.treeline/plugins/{id}/`.
+
+### Publishing Plugin Releases
+When creating a GitHub release, attach these files as assets:
+- `manifest.json` - Plugin metadata
+- `index.js` - Built plugin code (from `dist/index.js`)
+
+Example release command:
+```bash
+npm run build
+gh release create v1.0.0 manifest.json dist/index.js --title "v1.0.0" --notes "Release notes"
+```
 
 ### Core vs Internal SDK
 - **Public SDK** (`sdk/public.ts`): What community plugins can access via props
