@@ -74,7 +74,7 @@ async function shouldCheck(): Promise<boolean> {
 
 /**
  * Check for updates
- * Returns the update info if available, null otherwise
+ * Returns the update info if available, null if no update, throws on error
  */
 export async function checkForUpdate(force = false): Promise<Update | null> {
   // Don't check too frequently unless forced
@@ -83,7 +83,9 @@ export async function checkForUpdate(force = false): Promise<Update | null> {
   }
 
   try {
+    console.log("Checking for updates...");
     const update = await check();
+    console.log("Update check result:", update ? `v${update.version} available` : "no update");
     availableUpdate = update;
 
     // Record the check time
@@ -97,7 +99,8 @@ export async function checkForUpdate(force = false): Promise<Update | null> {
       ...getState(),
       error: error instanceof Error ? error.message : "Failed to check for updates",
     });
-    return null;
+    // Re-throw so callers know there was an error (vs no update available)
+    throw error;
   }
 }
 
@@ -204,7 +207,12 @@ export async function initUpdater(): Promise<void> {
 
   // Always check on startup (if auto-update is enabled)
   if (autoUpdate) {
-    await checkForUpdate();
+    try {
+      await checkForUpdate();
+    } catch (error) {
+      // Don't fail app startup on update check error
+      console.error("Update check on startup failed:", error);
+    }
   }
 
   // Start periodic checks
