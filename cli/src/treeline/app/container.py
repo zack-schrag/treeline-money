@@ -13,6 +13,7 @@ from treeline.app.account_service import AccountService
 from treeline.app.backfill_service import BackfillService
 from treeline.app.backup_service import BackupService
 from treeline.app.db_service import DbService
+from treeline.app.doctor_service import DoctorService
 from treeline.app.import_service import ImportService
 from treeline.app.integration_service import IntegrationService
 from treeline.app.plugin_service import PluginService
@@ -115,6 +116,12 @@ class Container:
         if "db_service" not in self._instances:
             self._instances["db_service"] = DbService(self.repository())
         return self._instances["db_service"]
+
+    def doctor_service(self) -> DoctorService:
+        """Get the doctor service instance."""
+        if "doctor_service" not in self._instances:
+            self._instances["doctor_service"] = DoctorService(self.repository())
+        return self._instances["doctor_service"]
 
     def tagging_service(self) -> TaggingService:
         """Get the tagging service instance."""
