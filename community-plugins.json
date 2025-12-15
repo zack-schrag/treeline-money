@@ -8,6 +8,13 @@
       "description": "Detect recurring charges and track subscription costs",
       "author": "Treeline",
       "repo": "https://github.com/zack-schrag/treeline-subscriptions"
+    },
+    {
+      "id": "goals",
+      "name": "Savings Goals",
+      "description": "Track savings goals like emergency funds, house down payments, and more",
+      "author": "Treeline",
+      "repo": "https://github.com/zack-schrag/treeline-goals"
     }
   ]
 }
