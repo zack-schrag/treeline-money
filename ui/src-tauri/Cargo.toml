@@ -25,6 +25,9 @@ dirs = "5"
 duckdb = { version = "1.4", features = ["bundled"] }
 arrow = "56"
 chrono = "0.4"
+argon2 = "0.5"
+base64 = "0.22"
+hex = "0.4"
 
 [profile.release]
 panic = "abort"

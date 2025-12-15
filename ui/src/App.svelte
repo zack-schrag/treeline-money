@@ -2,12 +2,14 @@
   import { onMount } from "svelte";
   import Shell from "./lib/core/Shell.svelte";
   import WelcomeModal from "./lib/core/WelcomeModal.svelte";
+  import UnlockModal from "./lib/core/UnlockModal.svelte";
   import { initializePlugins } from "./lib/plugins";
-  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry, activityStore } from "./lib/sdk";
+  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry, activityStore, tryAutoUnlock, getEncryptionStatus } from "./lib/sdk";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
   let showWelcome = $state(false);
+  let showUnlock = $state(false);
   let openSettingsAfterWelcome = $state(false);
 
   onMount(async () => {
@@ -17,6 +19,27 @@
       const savedTheme = await getAppSetting("theme");
       themeManager.setTheme(savedTheme === "system" ? "dark" : savedTheme);
 
+      // Check encryption status and try auto-unlock
+      loadingStatus = "Checking encryption...";
+      const autoUnlocked = await tryAutoUnlock();
+
+      if (!autoUnlocked) {
+        // Database is encrypted and needs manual unlock
+        isLoading = false;
+        showUnlock = true;
+        return;
+      }
+
+      // Continue with normal initialization
+      await continueInitialization();
+    } catch (error) {
+      console.error("Initialization error:", error);
+      loadingStatus = `Error: ${error}`;
+    }
+  });
+
+  async function continueInitialization() {
+    try {
       // Check if first-time user
       loadingStatus = "Checking setup...";
       const hasCompletedOnboarding = await getAppSetting("hasCompletedOnboarding");
@@ -38,7 +61,14 @@
       console.error("Initialization error:", error);
       loadingStatus = `Error: ${error}`;
     }
-  });
+  }
+
+  async function handleUnlocked() {
+    showUnlock = false;
+    isLoading = true;
+    loadingStatus = "Initializing...";
+    await continueInitialization();
+  }
 
   function handleWelcomeComplete(openSettings: boolean = false) {
     showWelcome = false;
@@ -108,6 +138,11 @@
       <span class="loading-status">{loadingStatus}</span>
     </div>
   </div>
+{:else if showUnlock}
+  <!-- Show unlock modal over a blank background -->
+  <div class="locked-screen">
+    <UnlockModal open={true} onunlock={handleUnlocked} />
+  </div>
 {:else}
   <Shell />
   {#if showWelcome}
@@ -116,6 +151,15 @@
 {/if}
 
 <style>
+  .locked-screen {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+  }
+
   .loading-screen {
     width: 100vw;
     height: 100vh;

@@ -18,12 +18,16 @@
     disableDemo,
     installPlugin,
     uninstallPlugin,
+    getEncryptionStatus,
+    enableEncryption,
+    disableEncryption,
     registry,
     toast,
     themeManager,
     activityStore,
     type Settings,
     type AppSettings,
+    type EncryptionStatus,
   } from "../sdk";
   import { invoke } from "@tauri-apps/api/core";
   import { getCorePluginManifests } from "../plugins";
@@ -117,26 +121,117 @@
   let lastUpdateCheckResult = $state<string | null>(null);
 
   // Active section
-  type Section = "data" | "plugins" | "integrations" | "appearance" | "about";
+  type Section = "data" | "security" | "plugins" | "integrations" | "appearance" | "about";
   let activeSection = $state<Section>("data");
 
   const sections: { id: Section; label: string; icon: string }[] = [
     { id: "data", label: "Data", icon: "database" },
+    { id: "security", label: "Security", icon: "lock" },
     { id: "plugins", label: "Plugins", icon: "zap" },
     { id: "integrations", label: "Integrations", icon: "link" },
     { id: "appearance", label: "Appearance", icon: "palette" },
     { id: "about", label: "About", icon: "info" },
   ];
 
+  // Encryption state
+  let encryptionStatus = $state<EncryptionStatus | null>(null);
+  let isLoadingEncryption = $state(false);
+  let showEncryptModal = $state(false);
+  let showDecryptModal = $state(false);
+  let encryptPassword = $state("");
+  let encryptPasswordConfirm = $state("");
+  let decryptPassword = $state("");
+  let isEncrypting = $state(false);
+  let isDecrypting = $state(false);
+  let encryptError = $state("");
+
   async function loadSettings() {
     isLoading = true;
     try {
       settings = await getSettings();
       isDemoMode = await getDemoMode();
+      // Load encryption status
+      await loadEncryptionStatus();
     } catch (e) {
       console.error("Failed to load settings:", e);
     } finally {
       isLoading = false;
+    }
+  }
+
+  async function loadEncryptionStatus() {
+    isLoadingEncryption = true;
+    try {
+      encryptionStatus = await getEncryptionStatus();
+    } catch (e) {
+      console.error("Failed to load encryption status:", e);
+    } finally {
+      isLoadingEncryption = false;
+    }
+  }
+
+  function openEncryptModal() {
+    encryptPassword = "";
+    encryptPasswordConfirm = "";
+    encryptError = "";
+    showEncryptModal = true;
+  }
+
+  function closeEncryptModal() {
+    showEncryptModal = false;
+    encryptPassword = "";
+    encryptPasswordConfirm = "";
+    encryptError = "";
+  }
+
+  async function handleEnableEncryption() {
+    if (encryptPassword.length < 8) {
+      encryptError = "Password must be at least 8 characters";
+      return;
+    }
+    if (encryptPassword !== encryptPasswordConfirm) {
+      encryptError = "Passwords do not match";
+      return;
+    }
+
+    isEncrypting = true;
+    encryptError = "";
+    try {
+      await enableEncryption(encryptPassword);
+      toast.success("Encryption enabled", "Your database is now encrypted");
+      closeEncryptModal();
+      await loadEncryptionStatus();
+    } catch (e) {
+      encryptError = e instanceof Error ? e.message : String(e);
+    } finally {
+      isEncrypting = false;
+    }
+  }
+
+  function openDecryptModal() {
+    decryptPassword = "";
+    encryptError = "";
+    showDecryptModal = true;
+  }
+
+  function closeDecryptModal() {
+    showDecryptModal = false;
+    decryptPassword = "";
+    encryptError = "";
+  }
+
+  async function handleDisableEncryption() {
+    isDecrypting = true;
+    encryptError = "";
+    try {
+      await disableEncryption(decryptPassword);
+      toast.success("Encryption disabled", "Your database is no longer encrypted");
+      closeDecryptModal();
+      await loadEncryptionStatus();
+    } catch (e) {
+      encryptError = e instanceof Error ? e.message : String(e);
+    } finally {
+      isDecrypting = false;
     }
   }
 
@@ -663,6 +758,74 @@
                   {/if}
                 </div>
               </section>
+            {:else if activeSection === "security"}
+              <section class="section">
+                <h3 class="section-title">Security</h3>
+
+                {#if isDemoMode}
+                  <div class="demo-warning">
+                    <Icon name="alert-triangle" size={16} />
+                    <span>Encryption is not available in demo mode</span>
+                  </div>
+                {:else if isLoadingEncryption}
+                  <div class="loading">Loading encryption status...</div>
+                {:else}
+                  <div class="setting-group">
+                    <h4 class="group-title">Database Encryption</h4>
+
+                    <div class="encryption-status">
+                      <div class="status-row">
+                        <span class="status-label">Status:</span>
+                        <span class="status-value" class:encrypted={encryptionStatus?.encrypted}>
+                          {#if encryptionStatus?.encrypted}
+                            <Icon name="lock" size={14} />
+                            Encrypted
+                          {:else}
+                            <Icon name="unlock" size={14} />
+                            Not encrypted
+                          {/if}
+                        </span>
+                      </div>
+                      {#if encryptionStatus?.encrypted}
+                        <div class="status-row">
+                          <span class="status-label">Algorithm:</span>
+                          <span class="status-value">{encryptionStatus.algorithm || "Unknown"}</span>
+                        </div>
+                      {/if}
+                    </div>
+
+                    <p class="setting-description">
+                      Encrypt your database to protect your financial data at rest.
+                      Uses AES-256-GCM encryption with Argon2id key derivation.
+                    </p>
+
+                    <div class="encryption-actions">
+                      {#if encryptionStatus?.encrypted}
+                        <button class="btn danger" onclick={openDecryptModal}>
+                          <Icon name="unlock" size={14} />
+                          Disable Encryption
+                        </button>
+                      {:else}
+                        <button class="btn primary" onclick={openEncryptModal}>
+                          <Icon name="lock" size={14} />
+                          Enable Encryption
+                        </button>
+                      {/if}
+                    </div>
+
+                    {#if encryptionStatus?.encrypted}
+                      <p class="encryption-hint">
+                        You'll need to enter your password each time you open the app.
+                      </p>
+                    {:else}
+                      <p class="encryption-hint">
+                        After enabling encryption, you'll need to enter your password
+                        each time you open the app.
+                      </p>
+                    {/if}
+                  </div>
+                {/if}
+              </section>
             {:else if activeSection === "plugins"}
               <section class="section">
                 <h3 class="section-title">Plugins</h3>
@@ -1159,6 +1322,112 @@
         <div class="sub-modal-actions">
           <button class="btn secondary" onclick={closeDisconnectConfirm}>Cancel</button>
           <button class="btn danger" onclick={handleDisconnect}>Disconnect</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Enable Encryption Sub-Modal -->
+  {#if showEncryptModal}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="sub-modal-overlay" onclick={closeEncryptModal} onkeydown={(e) => e.key === 'Escape' && closeEncryptModal()} role="dialog" aria-modal="true" tabindex="-1">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="sub-modal" role="document" onclick={(e) => e.stopPropagation()}>
+        <div class="sub-modal-header">
+          <span class="sub-modal-title">Enable Encryption</span>
+          <button class="close-btn" onclick={closeEncryptModal}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <div class="sub-modal-body">
+          <p class="encrypt-warning">
+            Choose a strong password. If you forget it, your data cannot be recovered.
+          </p>
+
+          {#if encryptError}
+            <div class="encrypt-error">{encryptError}</div>
+          {/if}
+
+          <div class="form-group">
+            <label for="encrypt-password">Password</label>
+            <input
+              id="encrypt-password"
+              type="password"
+              bind:value={encryptPassword}
+              placeholder="Enter password (min 8 characters)"
+              disabled={isEncrypting}
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="encrypt-password-confirm">Confirm Password</label>
+            <input
+              id="encrypt-password-confirm"
+              type="password"
+              bind:value={encryptPasswordConfirm}
+              placeholder="Confirm password"
+              disabled={isEncrypting}
+            />
+          </div>
+        </div>
+        <div class="sub-modal-actions">
+          <button class="btn secondary" onclick={closeEncryptModal} disabled={isEncrypting}>Cancel</button>
+          <button class="btn primary" onclick={handleEnableEncryption} disabled={isEncrypting || encryptPassword.length < 8 || encryptPassword !== encryptPasswordConfirm}>
+            {#if isEncrypting}
+              Encrypting...
+            {:else}
+              Enable Encryption
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Disable Encryption Sub-Modal -->
+  {#if showDecryptModal}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="sub-modal-overlay" onclick={closeDecryptModal} onkeydown={(e) => e.key === 'Escape' && closeDecryptModal()} role="dialog" aria-modal="true" tabindex="-1">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="sub-modal" role="document" onclick={(e) => e.stopPropagation()}>
+        <div class="sub-modal-header">
+          <span class="sub-modal-title">Disable Encryption</span>
+          <button class="close-btn" onclick={closeDecryptModal}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <div class="sub-modal-body">
+          <p class="encrypt-warning">
+            Enter your current password to disable encryption.
+            Your data will be stored unencrypted.
+          </p>
+
+          {#if encryptError}
+            <div class="encrypt-error">{encryptError}</div>
+          {/if}
+
+          <div class="form-group">
+            <label for="decrypt-password">Current Password</label>
+            <input
+              id="decrypt-password"
+              type="password"
+              bind:value={decryptPassword}
+              placeholder="Enter current password"
+              disabled={isDecrypting}
+            />
+          </div>
+        </div>
+        <div class="sub-modal-actions">
+          <button class="btn secondary" onclick={closeDecryptModal} disabled={isDecrypting}>Cancel</button>
+          <button class="btn danger" onclick={handleDisableEncryption} disabled={isDecrypting || !decryptPassword}>
+            {#if isDecrypting}
+              Decrypting...
+            {:else}
+              Disable Encryption
+            {/if}
+          </button>
         </div>
       </div>
     </div>
@@ -2258,5 +2527,92 @@
   .plugin-item.installed-only {
     opacity: 0.8;
     border-style: dashed;
+  }
+
+  /* Encryption/Security styles */
+  .encryption-status {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .encryption-status .status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .encryption-status .status-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .encryption-status .status-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    min-width: 80px;
+  }
+
+  .encryption-status .status-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .encryption-status .status-value.encrypted {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .encryption-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .encryption-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .encryption-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .encrypt-warning {
+    color: var(--accent-warning, #f59e0b);
+    font-size: 13px;
+    margin: 0 0 var(--spacing-md) 0;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(245, 158, 11, 0.1);
+    border-radius: 4px;
+  }
+
+  .encrypt-error {
+    color: var(--accent-danger, #ef4444);
+    font-size: 12px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--accent-danger, #ef4444);
+    border-radius: 4px;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .demo-warning {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--accent-warning, #f59e0b);
+    background: rgba(245, 158, 11, 0.1);
+    padding: var(--spacing-md);
+    border-radius: 6px;
   }
 </style>

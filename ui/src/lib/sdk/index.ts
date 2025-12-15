@@ -75,6 +75,12 @@ export {
   // Community Plugins
   installPlugin,
   uninstallPlugin,
+  // Encryption
+  getEncryptionStatus,
+  tryAutoUnlock,
+  unlockDatabase,
+  enableEncryption,
+  disableEncryption,
 } from "./settings";
 export type {
   Settings,
@@ -84,6 +90,7 @@ export type {
   ImportPreviewResult,
   ImportExecuteResult,
   PluginInstallResult,
+  EncryptionStatus,
 } from "./settings";
 
 // Toast notifications

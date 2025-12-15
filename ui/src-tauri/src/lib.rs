@@ -3,17 +3,41 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fs;
 use std::path::PathBuf;
-use tauri::AppHandle;
+use std::sync::Mutex;
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::Output;
 use tauri_plugin_shell::ShellExt;
 
-#[cfg(debug_assertions)]
-use tauri::Manager;
+use argon2::{Algorithm, Argon2, Params, Version};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+
+/// App state holding the encryption key for database access
+pub struct EncryptionState {
+    /// The derived encryption key (hex-encoded), if database is encrypted and unlocked
+    key: Mutex<Option<String>>,
+}
+
+impl Default for EncryptionState {
+    fn default() -> Self {
+        Self {
+            key: Mutex::new(None),
+        }
+    }
+}
 
 /// Run the CLI with the given arguments.
 /// In dev mode (TL_DEV_CLI=1), runs `uv run tl` from the cli directory.
 /// Otherwise uses the bundled sidecar binary.
 async fn run_cli<I, S>(app: &AppHandle, args: I) -> Result<Output, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    run_cli_with_env(app, args, vec![]).await
+}
+
+/// Run the CLI with the given arguments and environment variables.
+async fn run_cli_with_env<I, S>(app: &AppHandle, args: I, env_vars: Vec<(&str, &str)>) -> Result<Output, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -39,21 +63,31 @@ where
                     .to_string()
             });
 
-        app.shell()
+        let mut cmd = app.shell()
             .command("uv")
             .args(["run", "tl"])
             .args(&args)
-            .current_dir(&cli_dir)
-            .output()
+            .current_dir(&cli_dir);
+
+        for (key, value) in env_vars {
+            cmd = cmd.env(key, value);
+        }
+
+        cmd.output()
             .await
             .map_err(|e| format!("Failed to run dev CLI: {}", e))
     } else {
         // Production: use bundled sidecar
-        app.shell()
+        let mut cmd = app.shell()
             .sidecar("tl")
             .map_err(|e| format!("Failed to get sidecar: {}", e))?
-            .args(&args)
-            .output()
+            .args(&args);
+
+        for (key, value) in env_vars {
+            cmd = cmd.env(key, value);
+        }
+
+        cmd.output()
             .await
             .map_err(|e| format!("Failed to run CLI: {}", e))
     }
@@ -82,6 +116,64 @@ struct QueryResult {
     row_count: usize,
 }
 
+/// Encryption metadata stored in encryption.json
+#[derive(Debug, Serialize, Deserialize)]
+struct EncryptionMetadata {
+    encrypted: bool,
+    salt: String,  // Base64-encoded
+    algorithm: String,
+    version: i32,
+    argon2_params: Argon2Params,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Argon2Params {
+    time_cost: u32,
+    memory_cost: u32,
+    parallelism: u32,
+    hash_len: u32,
+}
+
+/// Encryption status for frontend
+#[derive(Debug, Serialize)]
+struct EncryptionStatus {
+    encrypted: bool,
+    locked: bool,  // true if encrypted but no key in memory
+    algorithm: Option<String>,
+    version: Option<i32>,
+}
+
+/// Read encryption metadata from encryption.json
+fn read_encryption_metadata() -> Option<EncryptionMetadata> {
+    let treeline_dir = get_treeline_dir().ok()?;
+    let encryption_path = treeline_dir.join("encryption.json");
+
+    if !encryption_path.exists() {
+        return None;
+    }
+
+    let content = fs::read_to_string(&encryption_path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Derive encryption key from password using Argon2id
+fn derive_key(password: &str, salt: &[u8], params: &Argon2Params) -> Result<Vec<u8>, String> {
+    let argon2_params = Params::new(
+        params.memory_cost,
+        params.time_cost,
+        params.parallelism,
+        Some(params.hash_len as usize),
+    ).map_err(|e| format!("Invalid Argon2 params: {}", e))?;
+
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
+
+    let mut key = vec![0u8; params.hash_len as usize];
+    argon2.hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|e| format!("Key derivation failed: {}", e))?;
+
+    Ok(key)
+}
+
 /// Get the path to the DuckDB database file.
 /// Centralized location for database path logic.
 fn get_db_path() -> Result<PathBuf, String> {
@@ -101,21 +193,55 @@ fn get_db_path() -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-fn execute_query(query: String, readonly: Option<bool>) -> Result<String, String> {
+fn execute_query(
+    query: String,
+    readonly: Option<bool>,
+    encryption_state: State<EncryptionState>,
+) -> Result<String, String> {
     // Get database path
     let db_path = get_db_path()?;
 
+    // Check if database is encrypted
+    let metadata = read_encryption_metadata();
+    let is_encrypted = metadata.as_ref().map(|m| m.encrypted).unwrap_or(false);
+
+    // Get encryption key if needed
+    let encryption_key = if is_encrypted {
+        let key_guard = encryption_state.key.lock()
+            .map_err(|_| "Failed to lock encryption state")?;
+        match key_guard.as_ref() {
+            Some(k) => Some(k.clone()),
+            None => return Err("Database is encrypted but not unlocked. Please unlock first.".to_string()),
+        }
+    } else {
+        None
+    };
+
     // Open connection with appropriate access mode
     let readonly = readonly.unwrap_or(true);
-    let conn = if readonly {
+    let conn = if let Some(key) = &encryption_key {
+        // Encrypted database: use in-memory + ATTACH
+        let conn = Connection::open_in_memory()
+            .map_err(|e| format!("Failed to open in-memory database: {}", e))?;
+
+        let ro_clause = if readonly { ", READ_ONLY" } else { "" };
+        conn.execute(
+            &format!("ATTACH '{}' AS main_db (ENCRYPTION_KEY '{}'{ro_clause})", db_path.display(), key),
+            [],
+        ).map_err(|e| format!("Failed to attach encrypted database: {}", e))?;
+        conn.execute("USE main_db", [])
+            .map_err(|e| format!("Failed to use attached database: {}", e))?;
+        conn
+    } else if readonly {
         let config = duckdb::Config::default()
             .access_mode(duckdb::AccessMode::ReadOnly)
             .map_err(|e| format!("Failed to configure database: {}", e))?;
         Connection::open_with_flags(&db_path, config)
+            .map_err(|e| format!("Failed to open database: {}", e))?
     } else {
         Connection::open(&db_path)
-    }
-    .map_err(|e| format!("Failed to open database: {}", e))?;
+            .map_err(|e| format!("Failed to open database: {}", e))?
+    };
 
     // Check if this is a SELECT-like query or a write query (UPDATE/INSERT/DELETE)
     let trimmed = query.trim().to_uppercase();
@@ -821,6 +947,167 @@ async fn setup_simplefin(app: AppHandle, token: String) -> Result<String, String
     Ok("SimpleFIN integration configured successfully".to_string())
 }
 
+// ============================================================================
+// Encryption Commands
+// ============================================================================
+
+/// Get encryption status - checks if database is encrypted and if we have a key
+#[tauri::command]
+fn get_encryption_status(encryption_state: State<EncryptionState>) -> Result<EncryptionStatus, String> {
+    let metadata = read_encryption_metadata();
+
+    match metadata {
+        Some(m) if m.encrypted => {
+            // Check if we have a key (either in state or keychain)
+            let has_key = {
+                let key_guard = encryption_state.key.lock()
+                    .map_err(|_| "Failed to lock encryption state")?;
+                key_guard.is_some()
+            };
+
+            Ok(EncryptionStatus {
+                encrypted: true,
+                locked: !has_key,
+                algorithm: Some(m.algorithm),
+                version: Some(m.version),
+            })
+        }
+        _ => Ok(EncryptionStatus {
+            encrypted: false,
+            locked: false,
+            algorithm: None,
+            version: None,
+        }),
+    }
+}
+
+/// Try to auto-unlock using keychain key (called on app startup)
+#[tauri::command]
+fn try_auto_unlock(encryption_state: State<EncryptionState>) -> Result<bool, String> {
+    // Check if database is encrypted
+    let _metadata = match read_encryption_metadata() {
+        Some(m) if m.encrypted => m,
+        _ => return Ok(true), // Not encrypted, nothing to unlock
+    };
+
+    // Check if already unlocked (key in memory from this session)
+    let key_guard = encryption_state.key.lock()
+        .map_err(|_| "Failed to lock encryption state")?;
+
+    if key_guard.is_some() {
+        return Ok(true); // Already unlocked
+    }
+
+    // Database is encrypted and no key in memory - need password
+    Ok(false)
+}
+
+/// Unlock database with password
+#[tauri::command]
+fn unlock_database(
+    password: String,
+    encryption_state: State<EncryptionState>,
+) -> Result<(), String> {
+    let metadata = read_encryption_metadata()
+        .ok_or("Database is not encrypted")?;
+
+    if !metadata.encrypted {
+        return Err("Database is not encrypted".to_string());
+    }
+
+    // Decode salt
+    let salt = BASE64.decode(&metadata.salt)
+        .map_err(|e| format!("Failed to decode salt: {}", e))?;
+
+    // Derive key
+    let key_bytes = derive_key(&password, &salt, &metadata.argon2_params)?;
+    let key_hex = hex::encode(&key_bytes);
+
+    // Validate key by trying to open database
+    let db_path = get_db_path()?;
+    let conn = Connection::open_in_memory()
+        .map_err(|e| format!("Failed to open in-memory database: {}", e))?;
+
+    conn.execute(
+        &format!("ATTACH '{}' AS test_db (ENCRYPTION_KEY '{}', READ_ONLY)", db_path.display(), key_hex),
+        [],
+    ).map_err(|_| "Invalid password")?;
+
+    // Verify we can actually read from the database
+    conn.execute("USE test_db", [])
+        .map_err(|_| "Invalid password")?;
+    conn.execute("SELECT table_name FROM information_schema.tables LIMIT 1", [])
+        .map_err(|_| "Invalid password")?;
+
+    // Store key in memory for this session
+    let mut key_guard = encryption_state.key.lock()
+        .map_err(|_| "Failed to lock encryption state")?;
+    *key_guard = Some(key_hex);
+
+    Ok(())
+}
+
+/// Enable encryption via CLI
+#[tauri::command]
+async fn enable_encryption(
+    app: AppHandle,
+    password: String,
+    encryption_state: State<'_, EncryptionState>,
+) -> Result<(), String> {
+    // Pass password as environment variable to CLI subprocess
+    let output = run_cli_with_env(&app, &["encrypt"], vec![("TL_DB_PASSWORD", &password)]).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Encryption failed: {}", error_msg));
+    }
+
+    // After successful encryption, derive key and store in memory
+    // so user doesn't need to re-enter password immediately (this session only)
+    let metadata = read_encryption_metadata()
+        .ok_or("Encryption succeeded but couldn't read metadata")?;
+
+    let salt = BASE64.decode(&metadata.salt)
+        .map_err(|e| format!("Failed to decode salt: {}", e))?;
+
+    let key_bytes = derive_key(&password, &salt, &metadata.argon2_params)?;
+    let key_hex = hex::encode(&key_bytes);
+
+    // Store in memory for this session
+    let mut key_guard = encryption_state.key.lock()
+        .map_err(|_| "Failed to lock encryption state")?;
+    *key_guard = Some(key_hex);
+
+    Ok(())
+}
+
+/// Disable encryption via CLI
+#[tauri::command]
+async fn disable_encryption(
+    app: AppHandle,
+    password: String,
+    encryption_state: State<'_, EncryptionState>,
+) -> Result<(), String> {
+    // Pass password as environment variable to CLI subprocess
+    let output = run_cli_with_env(&app, &["decrypt"], vec![("TL_DB_PASSWORD", &password)]).await?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Decryption failed: {}", error_msg));
+    }
+
+    // Clear encryption key from memory
+    let mut key_guard = encryption_state.key.lock()
+        .map_err(|_| "Failed to lock encryption state")?;
+    *key_guard = None;
+
+    Ok(())
+}
+
 #[tauri::command]
 fn read_plugin_config(plugin_id: String, filename: String) -> Result<String, String> {
     let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -923,6 +1210,7 @@ fn discover_plugins() -> Result<Vec<ExternalPlugin>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(EncryptionState::default())
         .setup(|_app| {
             #[cfg(debug_assertions)] // This line ensures DevTools only opens in debug builds
             {
@@ -960,7 +1248,13 @@ pub fn run() {
             pick_csv_file,
             get_csv_headers,
             setup_simplefin,
-            run_backfill
+            run_backfill,
+            // Encryption commands
+            get_encryption_status,
+            try_auto_unlock,
+            unlock_database,
+            enable_encryption,
+            disable_encryption
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

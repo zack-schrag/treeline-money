@@ -555,3 +555,53 @@ export async function uninstallPlugin(pluginId: string): Promise<{ success: bool
   const jsonString = await invoke<string>("uninstall_plugin", { pluginId });
   return JSON.parse(jsonString);
 }
+
+// ============================================================================
+// Encryption
+// ============================================================================
+
+export interface EncryptionStatus {
+  encrypted: boolean;
+  locked: boolean;
+  algorithm: string | null;
+  version: number | null;
+}
+
+/**
+ * Get current encryption status
+ */
+export async function getEncryptionStatus(): Promise<EncryptionStatus> {
+  return invoke<EncryptionStatus>("get_encryption_status");
+}
+
+/**
+ * Try to auto-unlock using keychain key (called on app startup)
+ * Returns true if unlocked (or not encrypted), false if needs manual unlock
+ */
+export async function tryAutoUnlock(): Promise<boolean> {
+  return invoke<boolean>("try_auto_unlock");
+}
+
+/**
+ * Unlock encrypted database with password
+ * @param password - The encryption password
+ */
+export async function unlockDatabase(password: string): Promise<void> {
+  return invoke<void>("unlock_database", { password });
+}
+
+/**
+ * Enable encryption on the database
+ * @param password - The new encryption password
+ */
+export async function enableEncryption(password: string): Promise<void> {
+  return invoke<void>("enable_encryption", { password });
+}
+
+/**
+ * Disable encryption on the database
+ * @param password - The current encryption password
+ */
+export async function disableEncryption(password: string): Promise<void> {
+  return invoke<void>("disable_encryption", { password });
+}
