@@ -46,6 +46,7 @@ class DoctorService:
             await self._check_duplicate_fingerprints(),
             await self._check_date_sanity(),
             await self._check_untagged_transactions(),
+            await self._check_budget_double_counting(),
             await self._check_integration_connectivity(),
         ]
 
@@ -344,6 +345,142 @@ class DoctorService:
             status="warning",
             message=f"{count} transaction(s) have no tags ({percentage:.0f}% of total)",
             details=[{"untagged_count": count, "total_count": total}],
+        )
+
+    async def _check_budget_double_counting(self) -> HealthCheck:
+        """Check for transactions that match multiple budget categories.
+
+        This can lead to double-counting in budget reports. Only checks
+        the current month's budget if budget data exists.
+        """
+        # Check if budget table exists
+        table_check = await self.repository.execute_query("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'sys_plugin_budget_categories'
+        """)
+
+        if not table_check.success or not table_check.data.get("rows"):
+            return HealthCheck(
+                name="budget_double_counting",
+                status="pass",
+                message="No budget configured",
+            )
+
+        # Get current month
+        current_month = date.today().strftime("%Y-%m")
+
+        # Load categories for the current month
+        categories_result = await self.repository.execute_query(f"""
+            SELECT category_id, name, tags, require_all
+            FROM sys_plugin_budget_categories
+            WHERE month = '{current_month}' AND type = 'expense'
+        """)
+
+        if not categories_result.success:
+            return HealthCheck(
+                name="budget_double_counting",
+                status="error",
+                message=f"Failed to check: {categories_result.error}",
+            )
+
+        categories = categories_result.data.get("rows", [])
+        if not categories:
+            return HealthCheck(
+                name="budget_double_counting",
+                status="pass",
+                message="No budget categories for current month",
+            )
+
+        # Build a query to find transactions matching multiple categories
+        # For each transaction, count how many categories it matches
+        category_conditions = []
+        for cat in categories:
+            cat_id = cat[0]
+            cat_name = cat[1]
+            tags = cat[2] if cat[2] else []
+            require_all = cat[3]
+
+            if not tags:
+                continue
+
+            if require_all:
+                # All tags must be present
+                conditions = " AND ".join(
+                    f"list_contains(tags, '{tag}')" for tag in tags
+                )
+                category_conditions.append(f"CASE WHEN {conditions} THEN 1 ELSE 0 END")
+            else:
+                # Any tag matches
+                tag_list = ", ".join(f"'{tag}'" for tag in tags)
+                category_conditions.append(
+                    f"CASE WHEN list_has_any(tags, [{tag_list}]) THEN 1 ELSE 0 END"
+                )
+
+        if not category_conditions:
+            return HealthCheck(
+                name="budget_double_counting",
+                status="pass",
+                message="No tag-based budget categories",
+            )
+
+        # Query to find transactions with multiple category matches
+        match_sum = " + ".join(category_conditions)
+        query = f"""
+            SELECT
+                transaction_id,
+                transaction_date,
+                description,
+                amount,
+                tags,
+                ({match_sum}) as category_matches
+            FROM sys_transactions
+            WHERE deleted_at IS NULL
+              AND strftime('%Y-%m', transaction_date) = '{current_month}'
+              AND amount < 0
+              AND ({match_sum}) > 1
+            ORDER BY ({match_sum}) DESC, ABS(amount) DESC
+            LIMIT 20
+        """
+
+        result = await self.repository.execute_query(query)
+
+        if not result.success:
+            return HealthCheck(
+                name="budget_double_counting",
+                status="error",
+                message=f"Failed to check: {result.error}",
+            )
+
+        rows = result.data.get("rows", [])
+        count = len(rows)
+
+        if count == 0:
+            return HealthCheck(
+                name="budget_double_counting",
+                status="pass",
+                message="No double-counted transactions found",
+            )
+
+        # Get total amount being double-counted
+        total_amount = sum(abs(float(row[3])) for row in rows if row[3])
+
+        details = [
+            {
+                "transaction_id": row[0],
+                "date": str(row[1]) if row[1] else None,
+                "description": (row[2] or "")[:40],
+                "amount": float(row[3]) if row[3] else None,
+                "tags": row[4] if row[4] else [],
+                "category_matches": row[5],
+            }
+            for row in rows
+        ]
+
+        return HealthCheck(
+            name="budget_double_counting",
+            status="warning",
+            message=f"{count} transaction(s) match multiple budget categories (${total_amount:,.0f} affected)",
+            details=details,
         )
 
     async def _check_integration_connectivity(self) -> HealthCheck:

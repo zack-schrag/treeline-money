@@ -180,6 +180,14 @@ def display_details(check, show_all: bool = True) -> None:
         elif check.name == "untagged_transactions":
             console.print(f"    [{theme.muted}]{detail['untagged_count']} of {detail['total_count']} transactions untagged[/{theme.muted}]")
 
+        elif check.name == "budget_double_counting":
+            amount = detail['amount'] if detail['amount'] is not None else 0
+            desc = (detail['description'] or "")[:30]
+            matches = detail.get('category_matches', 0)
+            tags = detail.get('tags', [])
+            tag_str = ", ".join(tags[:3]) + ("..." if len(tags) > 3 else "") if tags else "no tags"
+            console.print(f"    [{theme.muted}]{detail['date']}  ${abs(amount):,.2f}  {desc}  ({matches} categories, tags: {tag_str})[/{theme.muted}]")
+
         elif check.name == "integration_connectivity":
             integration = detail.get("integration", "unknown")
             message = detail.get("message", "Unknown issue")

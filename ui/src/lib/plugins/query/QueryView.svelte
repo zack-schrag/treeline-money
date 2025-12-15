@@ -971,6 +971,7 @@
   .query-editor {
     width: 100%;
     min-height: 120px;
+    max-height: 300px;
     background: var(--bg-primary);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-md);
@@ -983,10 +984,12 @@
 
   .query-editor :global(.cm-editor) {
     min-height: 120px;
+    max-height: 300px;
   }
 
   .query-editor :global(.cm-scroller) {
     overflow: auto;
+    max-height: 284px; /* 300px - padding */
   }
 
   .query-footer {
