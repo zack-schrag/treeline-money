@@ -145,20 +145,6 @@
     return { expected, actual, percent };
   });
 
-  // Default template with common categories - used when DB has no data for ANY month
-  function getDefaultCategories(): BudgetCategory[] {
-    return [
-      { id: crypto.randomUUID(), type: "income", category: "Salary", expected: 7000, tags: ["income"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Groceries", expected: 600, tags: ["groceries"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Dining", expected: 300, tags: ["dining", "coffee"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Transportation", expected: 400, tags: ["transportation"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Shopping", expected: 400, tags: ["shopping"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Entertainment", expected: 100, tags: ["entertainment"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Utilities", expected: 250, tags: ["utilities"], require_all: false, amount_sign: null },
-      { id: crypto.randomUUID(), type: "expense", category: "Health", expected: 100, tags: ["health"], require_all: false, amount_sign: null },
-    ];
-  }
-
   async function saveCategoriesToDb(cats: BudgetCategory[]): Promise<void> {
     if (!selectedMonth) return;
     await budgetDb.saveAllCategories(selectedMonth, cats);
@@ -212,14 +198,11 @@
   }
 
   async function startFresh(): Promise<void> {
-    // User declined copy from previous - start with defaults for this month
+    // User declined copy from previous - start with empty categories
     if (!selectedMonth) return;
-    const defaults = getDefaultCategories();
-    await budgetDb.saveAllCategories(selectedMonth, defaults);
-    categories = defaults;
+    categories = [];
     showCopyFromPrevious = false;
     copySourceMonth = null;
-    await calculateActuals();
   }
 
   async function openResetModal(): Promise<void> {
@@ -289,10 +272,8 @@
         const otherMonths = monthsWithData.filter(m => m !== selectedMonth);
 
         if (otherMonths.length === 0) {
-          // First time setup - create defaults for this month
-          const defaults = getDefaultCategories();
-          await budgetDb.saveAllCategories(selectedMonth, defaults);
-          categories = defaults;
+          // First time setup - start with empty categories
+          categories = [];
           showCopyFromPrevious = false;
           copySourceMonth = null;
         } else {
