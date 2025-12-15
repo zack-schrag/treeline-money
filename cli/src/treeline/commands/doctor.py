@@ -168,10 +168,14 @@ def display_details(check, show_all: bool = True) -> None:
         elif check.name == "duplicate_fingerprints":
             console.print(f"    [{theme.muted}]Fingerprint {detail['fingerprint']} ({detail['duplicate_count']} copies):[/{theme.muted}]")
             for txn in detail.get("transactions", [])[:3]:
-                console.print(f"      [{theme.muted}]{txn['date']}  ${txn['amount']:,.2f}  {txn['description'][:30]}[/{theme.muted}]")
+                amount = txn['amount'] if txn['amount'] is not None else 0
+                desc = (txn['description'] or "")[:30]
+                console.print(f"      [{theme.muted}]{txn['date']}  ${amount:,.2f}  {desc}[/{theme.muted}]")
 
         elif check.name == "date_sanity":
-            console.print(f"    [{theme.muted}]{detail['date']}  ${detail['amount']:,.2f}  {detail['description'][:30]}[/{theme.muted}]")
+            amount = detail['amount'] if detail['amount'] is not None else 0
+            desc = (detail['description'] or "")[:30]
+            console.print(f"    [{theme.muted}]{detail['date']}  ${amount:,.2f}  {desc}[/{theme.muted}]")
 
         elif check.name == "untagged_transactions":
             console.print(f"    [{theme.muted}]{detail['untagged_count']} of {detail['total_count']} transactions untagged[/{theme.muted}]")
