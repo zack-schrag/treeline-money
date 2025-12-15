@@ -1,7 +1,14 @@
 """Dependency injection container for the application."""
 
+from __future__ import annotations
+
+import json
+import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Callable, Dict
+
+if TYPE_CHECKING:
+    from treeline.app.encryption_service import EncryptionService
 
 from treeline.abstractions import (
     BackupStorageProvider,
@@ -32,27 +39,101 @@ DEFAULT_MAX_BACKUPS = 7
 class Container:
     """Dependency injection container for the application."""
 
-    def __init__(self, treeline_dir: str, db_filename: str = "treeline.duckdb"):
+    def __init__(
+        self,
+        treeline_dir: str,
+        db_filename: str = "treeline.duckdb",
+        password_callback: Callable[[], str] | None = None,
+    ):
         """Initialize container.
 
         Args:
             treeline_dir: Directory where treeline data is stored (e.g., ~/.treeline)
             db_filename: Name of the database file (default: treeline.duckdb, demo mode uses demo.duckdb)
+            password_callback: Optional callback to prompt for password interactively
         """
         self.treeline_dir = treeline_dir
         self.db_file_path = str(Path(treeline_dir) / db_filename)
         self.db_filename = db_filename
         self._instances: Dict[str, Any] = {}
+        self._password_callback = password_callback
+        self._encryption_key: str | None = None
+
+        # Initialize encryption if database is encrypted
+        self._init_encryption()
 
     @property
     def is_demo_mode(self) -> bool:
         """Check if this container is configured for demo mode."""
         return self.db_filename == "demo.duckdb"
 
+    def _init_encryption(self) -> None:
+        """Initialize encryption key if database is encrypted.
+
+        Demo mode databases are never encrypted. For encrypted databases,
+        gets password from TL_DB_PASSWORD env var or password_callback.
+        """
+        # Demo mode is never encrypted
+        if self.is_demo_mode:
+            return
+
+        encryption_json_path = Path(self.treeline_dir) / "encryption.json"
+        if not encryption_json_path.exists():
+            return
+
+        try:
+            with open(encryption_json_path) as f:
+                metadata = json.load(f)
+
+            if not metadata.get("encrypted", False):
+                return
+
+            # Database is encrypted - need password
+            password = self._get_password()
+            if not password:
+                raise RuntimeError(
+                    "Password required for encrypted database. "
+                    "Set TL_DB_PASSWORD environment variable or provide password interactively."
+                )
+
+            # Derive key using encryption service
+            from treeline.app.encryption_service import EncryptionService
+
+            svc = EncryptionService(
+                treeline_dir=Path(self.treeline_dir),
+                db_path=Path(self.db_file_path),
+            )
+            result = svc.derive_key_for_connection(password)
+            if not result.success:
+                raise RuntimeError(f"Failed to derive encryption key: {result.error}")
+            self._encryption_key = result.data
+
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid encryption.json: {e}")
+
+    def _get_password(self) -> str | None:
+        """Get password from environment variable or callback."""
+        # Try environment variable first
+        password = os.environ.get("TL_DB_PASSWORD")
+        if password:
+            return password
+
+        # Try callback
+        if self._password_callback:
+            try:
+                return self._password_callback()
+            except (KeyboardInterrupt, EOFError):
+                return None
+
+        return None
+
     def repository(self) -> Repository:
         """Get the repository instance."""
         if "repository" not in self._instances:
-            self._instances["repository"] = DuckDBRepository(self.db_file_path)
+            self._instances["repository"] = DuckDBRepository(
+                self.db_file_path,
+                encryption_key=self._encryption_key,
+            )
         return self._instances["repository"]
 
     def provider_registry(self) -> Dict[str, DataAggregationProvider]:
@@ -180,3 +261,18 @@ class Container:
             db_path=Path(self.db_file_path),
             max_backups=max_backups,
         )
+
+    def encryption_service(self) -> "EncryptionService":
+        """Get the encryption service instance."""
+        if "encryption_service" not in self._instances:
+            from treeline.app.encryption_service import EncryptionService
+
+            # Don't pass backup_service for demo mode
+            backup_svc = None if self.is_demo_mode else self.backup_service()
+
+            self._instances["encryption_service"] = EncryptionService(
+                treeline_dir=Path(self.treeline_dir),
+                db_path=Path(self.db_file_path),
+                backup_service=backup_svc,
+            )
+        return self._instances["encryption_service"]

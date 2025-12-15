@@ -390,3 +390,35 @@ class BackupMetadata(BaseModel):
     @classmethod
     def _require_timezone(cls, value: datetime) -> datetime:
         return _ensure_tzinfo(value)
+
+
+# Encryption Models
+
+
+class EncryptionMetadata(BaseModel):
+    """Encryption configuration metadata stored in encryption.json."""
+
+    model_config = ConfigDict(frozen=True, str_strip_whitespace=True, extra="forbid")
+
+    encrypted: bool
+    salt: str  # Base64-encoded random salt
+    algorithm: str = "argon2id"
+    version: int = 1
+    argon2_params: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "time_cost": 3,
+            "memory_cost": 65536,  # 64 MiB
+            "parallelism": 4,
+            "hash_len": 32,
+        }
+    )
+
+
+class EncryptionStatus(BaseModel):
+    """Status of database encryption for display."""
+
+    model_config = ConfigDict(frozen=True, str_strip_whitespace=True, extra="forbid")
+
+    encrypted: bool
+    algorithm: str | None = None
+    version: int | None = None

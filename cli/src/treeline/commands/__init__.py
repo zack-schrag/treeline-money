@@ -3,6 +3,7 @@
 from treeline.commands import (
     backfill,
     demo,
+    encrypt,
     import_cmd,
     new,
     plugin,
@@ -17,6 +18,7 @@ from treeline.commands import (
 __all__ = [
     "backfill",
     "demo",
+    "encrypt",
     "import_cmd",
     "new",
     "plugin",

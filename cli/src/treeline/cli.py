@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from treeline.app.container import Container
-from treeline.commands import backfill, backup, compact, demo, doctor, import_cmd, new, plugin, query, remove, setup, status, sync, tag
+from treeline.commands import backfill, backup, compact, demo, doctor, encrypt, import_cmd, new, plugin, query, remove, setup, status, sync, tag
 from treeline.config import is_demo_mode
 from treeline.theme import get_theme
 from treeline.utils import get_treeline_dir
@@ -60,13 +60,23 @@ def main(
 _container: Container | None = None
 
 
+def _password_callback() -> str:
+    """Interactive password prompt for encrypted databases."""
+    from rich.prompt import Prompt
+    return Prompt.ask("Enter database password", password=True)
+
+
 def get_container() -> Container:
     """Get or create the dependency injection container."""
     global _container
     if _container is None:
         treeline_dir = get_treeline_dir()
         db_filename = "demo.duckdb" if is_demo_mode() else "treeline.duckdb"
-        _container = Container(str(treeline_dir), db_filename)
+        _container = Container(
+            str(treeline_dir),
+            db_filename,
+            password_callback=_password_callback,
+        )
     return _container
 
 
@@ -108,6 +118,7 @@ demo.register(app, get_container, ensure_treeline_initialized)
 remove.register(app, get_container, ensure_treeline_initialized)
 import_cmd.register(app, get_container, ensure_treeline_initialized)
 doctor.register(app, get_container, ensure_treeline_initialized)
+encrypt.register(app, get_container, ensure_treeline_initialized)
 
 
 if __name__ == "__main__":

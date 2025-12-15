@@ -18,15 +18,17 @@ from treeline.domain import Account, BalanceSnapshot, Fail, Ok, Result, Transact
 class DuckDBRepository(Repository):
     """DuckDB implementation of Repository."""
 
-    def __init__(self, db_file_path: str):
-        """Initialize with a database file path.
+    def __init__(self, db_file_path: str, encryption_key: str | None = None):
+        """Initialize with a database file path and optional encryption key.
 
         Args:
             db_file_path: Full path to the DuckDB database file
+            encryption_key: Hex-encoded encryption key (if database is encrypted)
         """
         self.db_path = Path(db_file_path)
         self.db_dir = self.db_path.parent
         self.db_dir.mkdir(parents=True, exist_ok=True)
+        self._encryption_key = encryption_key
 
     def _ensure_timezone(self, dt: datetime) -> datetime:
         """Ensure datetime is timezone-aware."""
@@ -43,10 +45,25 @@ class DuckDBRepository(Repository):
         return dt
 
     def _get_connection(self, read_only: bool = False) -> duckdb.DuckDBPyConnection:
-        """Get a database connection."""
-        if read_only:
-            return duckdb.connect(str(self.db_path), read_only=True)
-        return duckdb.connect(str(self.db_path))
+        """Get a database connection.
+
+        For encrypted databases, uses in-memory connection with ATTACH.
+        For unencrypted databases, uses direct connection.
+        """
+        if self._encryption_key:
+            # Encrypted: connect to memory, attach encrypted DB
+            conn = duckdb.connect(":memory:")
+            ro_clause = ", READ_ONLY" if read_only else ""
+            conn.execute(
+                f"ATTACH '{self.db_path}' AS main_db (ENCRYPTION_KEY '{self._encryption_key}'{ro_clause})"
+            )
+            conn.execute("USE main_db")
+            return conn
+        else:
+            # Unencrypted: direct connect
+            if read_only:
+                return duckdb.connect(str(self.db_path), read_only=True)
+            return duckdb.connect(str(self.db_path))
 
     async def ensure_db_exists(self) -> Result:
         """Ensure the database directory exists."""
@@ -59,8 +76,8 @@ class DuckDBRepository(Repository):
     async def ensure_schema_upgraded(self) -> Result:
         """Ensure database schema is initialized with all migrations."""
         try:
-            # Create database if it doesn't exist
-            conn = duckdb.connect(str(self.db_path))
+            # Create database if it doesn't exist - use _get_connection for encryption support
+            conn = self._get_connection()
 
             migrations_dir = Path(__file__).parent / "migrations"
 
@@ -986,9 +1003,12 @@ class DuckDBRepository(Repository):
         Uses DuckDB's EXPORT/IMPORT DATABASE to create a fresh, optimized copy.
         This approach handles foreign key constraints properly by generating
         SQL scripts that respect table dependencies.
+
+        For encrypted databases, exports to unencrypted parquet files (in temp dir),
+        then re-imports into a new encrypted database.
         """
-        import tempfile
         import shutil
+        import tempfile
 
         try:
             # Get original file size
@@ -1006,14 +1026,27 @@ class DuckDBRepository(Repository):
 
                 try:
                     # Export original database to parquet files (more efficient)
-                    conn = duckdb.connect(str(self.db_path), read_only=True)
+                    # Use _get_connection for encryption support
+                    conn = self._get_connection(read_only=True)
                     conn.execute(f"EXPORT DATABASE '{export_dir}' (FORMAT PARQUET)")
                     conn.close()
 
                     # Import into fresh database
-                    new_conn = duckdb.connect(str(temp_db_path))
-                    new_conn.execute(f"IMPORT DATABASE '{export_dir}'")
-                    new_conn.close()
+                    # For encrypted DBs, need to re-encrypt the new database
+                    if self._encryption_key:
+                        # Create new encrypted database
+                        new_conn = duckdb.connect(":memory:")
+                        new_conn.execute(
+                            f"ATTACH '{temp_db_path}' AS new_db (ENCRYPTION_KEY '{self._encryption_key}')"
+                        )
+                        new_conn.execute("USE new_db")
+                        new_conn.execute(f"IMPORT DATABASE '{export_dir}'")
+                        new_conn.close()
+                    else:
+                        # Unencrypted - direct import
+                        new_conn = duckdb.connect(str(temp_db_path))
+                        new_conn.execute(f"IMPORT DATABASE '{export_dir}'")
+                        new_conn.close()
 
                     # Get compacted file size
                     compacted_size = temp_db_path.stat().st_size
