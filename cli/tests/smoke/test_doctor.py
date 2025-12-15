@@ -59,7 +59,7 @@ class TestDoctorCommand:
             assert "Duplicate Fingerprints" in result.stdout
             assert "Date Sanity" in result.stdout
             assert "Untagged Transactions" in result.stdout
-            assert "Balance Consistency" in result.stdout
+            assert "Integration Connectivity" in result.stdout
 
     def test_doctor_shows_summary(self):
         """Test that doctor shows summary line."""
@@ -92,7 +92,7 @@ class TestDoctorCommand:
             assert "duplicate_fingerprints" in data["checks"]
             assert "date_sanity" in data["checks"]
             assert "untagged_transactions" in data["checks"]
-            assert "balance_consistency" in data["checks"]
+            assert "integration_connectivity" in data["checks"]
 
             # Each check should have status and message
             for check_name, check_data in data["checks"].items():

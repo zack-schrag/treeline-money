@@ -43,10 +43,10 @@ def register(
         \b
         - Orphaned transactions (referencing deleted accounts)
         - Orphaned balance snapshots
-        - Duplicate transactions (same fingerprint)
+        - Duplicate transactions (same fingerprint, last 90 days)
         - Transactions with unreasonable dates
         - Untagged transactions
-        - Balance inconsistencies
+        - Integration connectivity issues
 
         Exit codes:
           0 = All checks pass (warnings are OK)
@@ -155,9 +155,10 @@ def display_check(check, verbose: bool) -> None:
         display_details(check)
 
 
-def display_details(check) -> None:
+def display_details(check, show_all: bool = True) -> None:
     """Display detailed findings for a check."""
-    for detail in check.details[:5]:  # Limit to first 5 details
+    details_to_show = check.details if show_all else check.details[:5]
+    for detail in details_to_show:
         if check.name == "orphaned_transactions":
             console.print(f"    [{theme.muted}]txn {detail['transaction_id'][:8]}... → account {detail['account_id'][:8]}...[/{theme.muted}]")
 
@@ -175,17 +176,10 @@ def display_details(check) -> None:
         elif check.name == "untagged_transactions":
             console.print(f"    [{theme.muted}]{detail['untagged_count']} of {detail['total_count']} transactions untagged[/{theme.muted}]")
 
-        elif check.name == "balance_consistency":
-            issue = detail.get("issue", "unknown")
-            account = detail.get("account_name", "Unknown")
-            if issue == "transactions_newer":
-                console.print(f"    [{theme.muted}]{account}: transactions updated {detail['latest_transaction']}, balance last updated {detail['latest_snapshot']}[/{theme.muted}]")
-            elif issue == "snapshot_newer":
-                console.print(f"    [{theme.muted}]{account}: balance updated {detail['latest_snapshot']}, transactions last on {detail['latest_transaction']}[/{theme.muted}]")
-            elif issue == "no_snapshots":
-                console.print(f"    [{theme.muted}]{account}: has transactions but no balance snapshots[/{theme.muted}]")
-            elif issue == "no_transactions":
-                console.print(f"    [{theme.muted}]{account}: has balance snapshot but no transactions[/{theme.muted}]")
+        elif check.name == "integration_connectivity":
+            integration = detail.get("integration", "unknown")
+            message = detail.get("message", "Unknown issue")
+            console.print(f"    [{theme.muted}]{integration}: {message}[/{theme.muted}]")
 
-    if check.details and len(check.details) > 5:
+    if not show_all and check.details and len(check.details) > 5:
         console.print(f"    [{theme.muted}]... and {len(check.details) - 5} more[/{theme.muted}]")

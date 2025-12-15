@@ -120,7 +120,10 @@ class Container:
     def doctor_service(self) -> DoctorService:
         """Get the doctor service instance."""
         if "doctor_service" not in self._instances:
-            self._instances["doctor_service"] = DoctorService(self.repository())
+            self._instances["doctor_service"] = DoctorService(
+                self.repository(),
+                sync_service=self.sync_service(),
+            )
         return self._instances["doctor_service"]
 
     def tagging_service(self) -> TaggingService:
