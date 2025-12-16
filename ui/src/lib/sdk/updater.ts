@@ -95,12 +95,27 @@ export async function checkForUpdate(force = false): Promise<Update | null> {
     return update;
   } catch (error) {
     console.error("Failed to check for updates:", error);
+
+    // Provide a user-friendly error message
+    // Check failures often happen when release assets aren't ready yet (~30 min after release)
+    const rawError = error instanceof Error ? error.message : String(error);
+    const isReleaseNotReady =
+      rawError.includes("404") ||
+      rawError.includes("fetch") ||
+      rawError.includes("release") ||
+      rawError.includes("JSON") ||
+      rawError.includes("Not Found");
+
+    const friendlyError = isReleaseNotReady
+      ? "Update not ready yet. Please try again in a few minutes."
+      : rawError;
+
     notifySubscribers({
       ...getState(),
-      error: error instanceof Error ? error.message : "Failed to check for updates",
+      error: friendlyError,
     });
     // Re-throw so callers know there was an error (vs no update available)
-    throw error;
+    throw new Error(friendlyError);
   }
 }
 
