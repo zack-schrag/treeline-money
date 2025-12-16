@@ -31,7 +31,7 @@
   } from "../sdk";
   import { invoke } from "@tauri-apps/api/core";
   import { getCorePluginManifests } from "../plugins";
-  import { checkForUpdate } from "../sdk/updater";
+  import { checkForUpdate, downloadAndInstall, restartApp, subscribeToUpdates, type UpdateState } from "../sdk/updater";
 
   interface Props {
     isOpen: boolean;
@@ -119,6 +119,16 @@
   // Update check state
   let isCheckingForUpdate = $state(false);
   let lastUpdateCheckResult = $state<string | null>(null);
+  let updateState = $state<UpdateState>({
+    available: false,
+    version: null,
+    notes: null,
+    isDownloading: false,
+    downloadProgress: 0,
+    error: null,
+  });
+  let isInstallingUpdate = $state(false);
+  let isRestartingApp = $state(false);
 
   // Active section
   type Section = "data" | "security" | "plugins" | "integrations" | "appearance" | "about";
@@ -563,7 +573,7 @@
       const update = await checkForUpdate(true);
       if (update) {
         lastUpdateCheckResult = `Update available: v${update.version}`;
-        toast.success("Update available", `Version ${update.version} is ready to download`);
+        // Don't show toast - we'll show inline UI instead
       } else {
         lastUpdateCheckResult = "You're up to date!";
         toast.info("No updates", "You're running the latest version");
@@ -575,6 +585,31 @@
       isCheckingForUpdate = false;
     }
   }
+
+  async function handleInstallUpdate() {
+    isInstallingUpdate = true;
+    try {
+      await downloadAndInstall();
+      // After download, updateState will be updated via subscription
+    } catch (e) {
+      toast.error("Update failed", e instanceof Error ? e.message : String(e));
+    } finally {
+      isInstallingUpdate = false;
+    }
+  }
+
+  async function handleRestartApp() {
+    isRestartingApp = true;
+    try {
+      await restartApp();
+    } catch (e) {
+      toast.error("Restart failed", e instanceof Error ? e.message : String(e));
+      isRestartingApp = false;
+    }
+  }
+
+  // Check if update is ready to install (downloaded)
+  let isUpdateReadyToInstall = $derived(updateState.downloadProgress === 100 && !updateState.isDownloading);
 
   async function handleSync() {
     isSyncing = true;
@@ -638,6 +673,7 @@
   $effect(() => {
     if (isOpen) {
       pluginsNeedReload = false; // Reset on open
+      lastUpdateCheckResult = null; // Reset update check result
       loadSettings();
       loadPlugins();
       loadCommunityPlugins();
@@ -647,6 +683,15 @@
         }
       });
       getVersion().then((v) => (appVersion = v));
+
+      // Subscribe to update state
+      const unsubscribe = subscribeToUpdates((state) => {
+        updateState = state;
+      });
+
+      return () => {
+        unsubscribe();
+      };
     }
   });
 </script>
@@ -740,21 +785,70 @@
                   </label>
                   <p class="group-desc">When enabled, Treeline will check for updates on startup and every 24 hours. You'll be notified when an update is available.</p>
 
-                  <button
-                    class="btn secondary"
-                    onclick={handleCheckForUpdate}
-                    disabled={isCheckingForUpdate}
-                  >
-                    {#if isCheckingForUpdate}
-                      <Icon name="refresh" size={14} class="spinning" />
-                      Checking...
-                    {:else}
-                      <Icon name="refresh" size={14} />
-                      Check for Updates
+                  {#if updateState.available || updateState.isDownloading || isUpdateReadyToInstall}
+                    <!-- Update available - show inline update UI -->
+                    <div class="update-card">
+                      {#if isUpdateReadyToInstall}
+                        <div class="update-card-content">
+                          <Icon name="check-circle" size={20} class="update-icon success" />
+                          <div class="update-info">
+                            <strong>Update ready!</strong>
+                            <span>Treeline v{updateState.version} has been downloaded. Restart to apply.</span>
+                          </div>
+                        </div>
+                        <button
+                          class="btn primary"
+                          onclick={handleRestartApp}
+                          disabled={isRestartingApp}
+                        >
+                          {isRestartingApp ? "Restarting..." : "Restart Now"}
+                        </button>
+                      {:else if updateState.isDownloading}
+                        <div class="update-card-content">
+                          <Icon name="download" size={20} class="update-icon" />
+                          <div class="update-info">
+                            <strong>Downloading update...</strong>
+                            <span>v{updateState.version} — {updateState.downloadProgress}%</span>
+                          </div>
+                        </div>
+                        <div class="update-progress">
+                          <div class="update-progress-fill" style="width: {updateState.downloadProgress}%"></div>
+                        </div>
+                      {:else}
+                        <div class="update-card-content">
+                          <Icon name="arrow-up-circle" size={20} class="update-icon" />
+                          <div class="update-info">
+                            <strong>Update available</strong>
+                            <span>Treeline v{updateState.version} is ready to download</span>
+                          </div>
+                        </div>
+                        <button
+                          class="btn primary"
+                          onclick={handleInstallUpdate}
+                          disabled={isInstallingUpdate}
+                        >
+                          {isInstallingUpdate ? "Starting..." : "Download & Install"}
+                        </button>
+                      {/if}
+                    </div>
+                  {:else}
+                    <!-- No update - show check button -->
+                    <button
+                      class="btn secondary"
+                      onclick={handleCheckForUpdate}
+                      disabled={isCheckingForUpdate}
+                    >
+                      {#if isCheckingForUpdate}
+                        <Icon name="refresh" size={14} class="spinning" />
+                        Checking...
+                      {:else}
+                        <Icon name="refresh" size={14} />
+                        Check for Updates
+                      {/if}
+                    </button>
+                    {#if lastUpdateCheckResult}
+                      <p class="update-result">{lastUpdateCheckResult}</p>
                     {/if}
-                  </button>
-                  {#if lastUpdateCheckResult}
-                    <p class="update-result">{lastUpdateCheckResult}</p>
                   {/if}
                 </div>
               </section>
@@ -2614,5 +2708,61 @@
     background: rgba(245, 158, 11, 0.1);
     padding: var(--spacing-md);
     border-radius: 6px;
+  }
+
+  /* Update card styles */
+  .update-card {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 8px;
+    padding: var(--spacing-md);
+  }
+
+  .update-card-content {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+  }
+
+  :global(.update-icon) {
+    color: var(--accent-primary);
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  :global(.update-icon.success) {
+    color: var(--accent-success, #22c55e);
+  }
+
+  .update-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .update-info strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .update-info span {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .update-progress {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: var(--spacing-sm);
+  }
+
+  .update-progress-fill {
+    height: 100%;
+    background: var(--accent-primary);
+    transition: width 0.2s ease;
   }
 </style>

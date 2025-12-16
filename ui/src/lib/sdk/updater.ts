@@ -6,7 +6,7 @@
  */
 
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { relaunch, exit } from "@tauri-apps/plugin-process";
 import { getAppSetting, setAppSetting } from "./settings";
 
 // Check interval: 24 hours in milliseconds
@@ -159,9 +159,18 @@ export async function downloadAndInstall(): Promise<void> {
 
 /**
  * Restart the application to apply the update
+ * Tries relaunch first, falls back to exit if it fails
+ * (relaunch has known issues on some platforms in Tauri v2)
  */
 export async function restartApp(): Promise<void> {
-  await relaunch();
+  try {
+    await relaunch();
+  } catch (error) {
+    console.warn("Relaunch failed, falling back to exit:", error);
+    // Fall back to just exiting - user will need to reopen the app
+    // The update will be applied on next launch
+    await exit(0);
+  }
 }
 
 /**
