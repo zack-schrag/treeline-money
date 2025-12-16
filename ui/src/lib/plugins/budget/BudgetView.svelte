@@ -313,13 +313,12 @@
 
     const accountFilter = buildAccountFilter();
     const subqueries = categories.map(cat => {
-      const defaultSign = cat.type === "income" ? "positive" : "negative";
-      const effectiveSign = cat.amount_sign || defaultSign;
+      // Only filter by amount sign if explicitly set - otherwise include all transactions matching tags
       let tagCondition = cat.require_all
         ? cat.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`).join(" AND ")
         : `list_has_any(tags, [${cat.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(", ")}])`;
-      let amountCondition = effectiveSign === "positive" ? "AND amount > 0" : effectiveSign === "negative" ? "AND amount < 0" : "";
-      return `SELECT '${cat.id}' as id, COALESCE(SUM(ABS(amount)), 0) as total FROM transactions WHERE strftime('%Y-%m', transaction_date) = '${month}' AND ${tagCondition} ${amountCondition} ${accountFilter}`;
+      let amountCondition = cat.amount_sign === "positive" ? "AND amount > 0" : cat.amount_sign === "negative" ? "AND amount < 0" : "";
+      return `SELECT '${cat.id}' as id, COALESCE(ABS(SUM(amount)), 0) as total FROM transactions WHERE strftime('%Y-%m', transaction_date) = '${month}' AND ${tagCondition} ${amountCondition} ${accountFilter}`;
     });
 
     try {
@@ -354,14 +353,13 @@
     // Build a single query that gets 6-month trends for ALL categories
     // Each subquery wrapped in parentheses to make LIMIT work
     const subqueries = categories.map(cat => {
-      const defaultSign = cat.type === "income" ? "positive" : "negative";
-      const effectiveSign = cat.amount_sign || defaultSign;
+      // Only filter by amount sign if explicitly set
       const tagCondition = cat.require_all
         ? cat.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`).join(" AND ")
         : `list_has_any(tags, [${cat.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(", ")}])`;
-      const amountCondition = effectiveSign === "positive" ? "AND amount > 0" : effectiveSign === "negative" ? "AND amount < 0" : "";
+      const amountCondition = cat.amount_sign === "positive" ? "AND amount > 0" : cat.amount_sign === "negative" ? "AND amount < 0" : "";
 
-      return `(SELECT '${cat.id}' as category_id, strftime('%Y-%m', transaction_date) as month, COALESCE(SUM(ABS(amount)), 0) as total
+      return `(SELECT '${cat.id}' as category_id, strftime('%Y-%m', transaction_date) as month, COALESCE(ABS(SUM(amount)), 0) as total
         FROM transactions
         WHERE ${tagCondition} ${amountCondition} ${accountFilter}
         GROUP BY month
@@ -441,12 +439,11 @@
     if (!category) { drillDownLoading = false; return; }
 
     const accountFilter = buildAccountFilter();
-    const defaultSign = category.type === "income" ? "positive" : "negative";
-    const effectiveSign = category.amount_sign || defaultSign;
+    // Only filter by amount sign if explicitly set
     let tagCondition = category.require_all
       ? category.tags.map(t => `list_contains(tags, '${t.replace(/'/g, "''")}')`).join(" AND ")
       : `list_has_any(tags, [${category.tags.map(t => `'${t.replace(/'/g, "''")}'`).join(", ")}])`;
-    let amountCondition = effectiveSign === "positive" ? "AND amount > 0" : effectiveSign === "negative" ? "AND amount < 0" : "";
+    let amountCondition = category.amount_sign === "positive" ? "AND amount > 0" : category.amount_sign === "negative" ? "AND amount < 0" : "";
 
     try {
       const result = await executeQuery(`SELECT transaction_id, transaction_date, description, amount, tags, account_name FROM transactions WHERE strftime('%Y-%m', transaction_date) = '${selectedMonth}' AND ${tagCondition} ${amountCondition} ${accountFilter} ORDER BY transaction_date DESC`);
