@@ -149,11 +149,26 @@ export async function downloadAndInstall(): Promise<void> {
   } catch (error) {
     isDownloading = false;
     downloadProgress = 0;
+
+    // Provide a user-friendly error message
+    // Download failures often happen when release assets aren't ready yet (~30 min after release)
+    const rawError = error instanceof Error ? error.message : String(error);
+    const isDownloadError =
+      rawError.includes("404") ||
+      rawError.includes("network") ||
+      rawError.includes("fetch") ||
+      rawError.includes("download") ||
+      rawError.includes("Not Found");
+
+    const friendlyError = isDownloadError
+      ? "Update not ready yet. Please try again in a few minutes."
+      : rawError;
+
     notifySubscribers({
       ...getState(),
-      error: error instanceof Error ? error.message : "Failed to download update",
+      error: friendlyError,
     });
-    throw error;
+    throw new Error(friendlyError);
   }
 }
 
