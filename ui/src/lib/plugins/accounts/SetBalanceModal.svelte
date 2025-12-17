@@ -3,7 +3,7 @@
    * SetBalanceModal - Modal for setting/updating account balance
    * Used both standalone (from account menu) and embedded in post-import flow
    */
-  import { Modal } from "../../shared";
+  import { Modal, formatUserCurrency, getUserCurrencySymbol } from "../../shared";
   import { executeQuery } from "../../sdk";
 
   interface Props {
@@ -104,7 +104,7 @@
     {#if hasExistingBalance}
       <div class="current-balance">
         <span class="current-label">Current balance:</span>
-        <span class="current-value">${Math.abs(currentBalance!).toFixed(2)}</span>
+        <span class="current-value">{formatUserCurrency(Math.abs(currentBalance!))}</span>
         {#if currentBalanceDate}
           <span class="current-date">as of {currentBalanceDate}</span>
         {/if}
@@ -114,7 +114,7 @@
     <div class="form-group">
       <label for="balance-input">Balance</label>
       <div class="input-with-prefix">
-        <span class="input-prefix">$</span>
+        <span class="input-prefix">{getUserCurrencySymbol("USD")}</span>
         <input
           id="balance-input"
           type="number"

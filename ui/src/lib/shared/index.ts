@@ -9,3 +9,26 @@ export type { RowMenuItem } from "./RowMenu.svelte";
 // Charts
 export { Sparkline, LineAreaChart } from "./charts";
 export type { DataPoint } from "./charts";
+
+// Currency
+export {
+  SUPPORTED_CURRENCIES,
+  DEFAULT_CURRENCY,
+  getCurrencySymbol,
+  getCurrencyLocale,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatAmount,
+  formatCurrencyCents,
+} from "./currency";
+
+// Currency store (reactive)
+export {
+  getCurrency,
+  setCurrency,
+  loadCurrency,
+  useCurrency,
+  formatUserCurrency,
+  formatUserCurrencyCompact,
+  getUserCurrencySymbol,
+} from "./currencyStore.svelte";

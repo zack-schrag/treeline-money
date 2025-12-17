@@ -9,6 +9,7 @@ from treeline.domain import Result, Transaction
 if TYPE_CHECKING:
     from treeline.app.account_service import AccountService
     from treeline.app.integration_service import IntegrationService
+    from treeline.app.preferences_service import PreferencesService
 
 
 class SyncService:
@@ -20,11 +21,13 @@ class SyncService:
         repository: Repository,
         account_service: "AccountService",
         integration_service: "IntegrationService",
+        preferences_service: "PreferencesService",
     ):
         self.provider_registry = provider_registry
         self.repository = repository
         self.account_service = account_service
         self.integration_service = integration_service
+        self.preferences_service = preferences_service
 
     def _get_provider(self, integration_name: str) -> DataAggregationProvider | None:
         """Get the provider for a given integration name."""
@@ -69,6 +72,28 @@ class SyncService:
             # Backwards compatibility with providers that return List[Account]
             discovered_accounts = result_data
             provider_errors = []
+
+        # Currency validation: filter accounts by user's configured currency
+        user_currency_result = self.preferences_service.get_currency()
+        user_currency = user_currency_result.data if user_currency_result.success else "USD"
+
+        currency_warnings = []
+        currency_filtered_accounts = []
+        for account in discovered_accounts:
+            account_currency = account.currency or "USD"
+            if account_currency.upper() != user_currency.upper():
+                # Warn about currency mismatch, skip the account
+                currency_warnings.append(
+                    f"Skipped '{account.name}' ({account.institution_name or 'Unknown institution'}): "
+                    f"Account currency is {account_currency}, but your configured currency is {user_currency}. "
+                    f"Multi-currency is not yet supported."
+                )
+            else:
+                currency_filtered_accounts.append(account)
+
+        # Add currency warnings to provider errors for display
+        provider_errors.extend(currency_warnings)
+        discovered_accounts = currency_filtered_accounts
 
         # Map discovered accounts to existing accounts by external ID
         updated_accounts = []

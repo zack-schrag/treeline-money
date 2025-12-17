@@ -5,6 +5,7 @@
   import UnlockModal from "./lib/core/UnlockModal.svelte";
   import { initializePlugins } from "./lib/plugins";
   import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry, activityStore, tryAutoUnlock, getEncryptionStatus } from "./lib/sdk";
+  import { loadCurrency } from "./lib/shared";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
@@ -43,6 +44,10 @@
       // Check if first-time user
       loadingStatus = "Checking setup...";
       const hasCompletedOnboarding = await getAppSetting("hasCompletedOnboarding");
+
+      // Load currency preference
+      loadingStatus = "Loading preferences...";
+      await loadCurrency();
 
       // Load all plugins
       loadingStatus = "Loading plugins...";

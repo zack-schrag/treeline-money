@@ -239,3 +239,4 @@ class Repository(ABC):
               - "compacted_size": int - size in bytes after compaction
         """
         pass
+

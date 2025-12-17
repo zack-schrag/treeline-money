@@ -16,6 +16,20 @@ import {
   readPluginState,
   writePluginState,
 } from "./settings";
+import {
+  SUPPORTED_CURRENCIES,
+  DEFAULT_CURRENCY,
+  getCurrencySymbol,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatAmount,
+} from "../shared/currency";
+import {
+  getCurrency,
+  formatUserCurrency,
+  formatUserCurrencyCompact,
+  getUserCurrencySymbol,
+} from "../shared/currencyStore.svelte";
 
 // Re-export types for plugin authors
 export type { Plugin, PluginManifest, PluginContext, PluginPermissions } from "./types";
@@ -95,6 +109,24 @@ export interface PluginSDK {
     read: <T>() => Promise<T | null>;
     write: <T>(state: T) => Promise<void>;
   };
+
+  /**
+   * Currency formatting utilities
+   */
+  currency: {
+    /** Format an amount with currency symbol (e.g., "$1,234.56") */
+    format: (amount: number, currency?: string) => string;
+    /** Format compactly for large amounts (e.g., "$1.2M", "$500K") */
+    formatCompact: (amount: number, currency?: string) => string;
+    /** Format just the number without currency symbol (e.g., "1,234.56") */
+    formatAmount: (amount: number) => string;
+    /** Get the symbol for a currency code (e.g., "USD" -> "$") */
+    getSymbol: (currency: string) => string;
+    /** Get the user's configured currency (currently always "USD" for MVP) */
+    getUserCurrency: () => string;
+    /** List of supported currency codes */
+    supportedCurrencies: string[];
+  };
 }
 
 /**
@@ -160,6 +192,16 @@ export function createPluginSDK(pluginId: string, allowedTables: string[]): Plug
     state: {
       read: <T>() => readPluginState<T>(pluginId),
       write: <T>(state: T) => writePluginState(pluginId, state),
+    },
+
+    // Currency formatting (uses user's currency preference by default)
+    currency: {
+      format: (amount: number, currency?: string) => currency ? formatCurrency(amount, currency) : formatUserCurrency(amount),
+      formatCompact: (amount: number, currency?: string) => currency ? formatCurrencyCompact(amount, currency) : formatUserCurrencyCompact(amount),
+      formatAmount: (amount: number) => formatAmount(amount),
+      getSymbol: (currency?: string) => currency ? getCurrencySymbol(currency) : getUserCurrencySymbol(),
+      getUserCurrency: () => getCurrency(),
+      supportedCurrencies: Object.keys(SUPPORTED_CURRENCIES),
     },
   };
 }
@@ -242,3 +284,13 @@ function validateWriteQuery(sql: string, pluginId: string, allowedTables: string
 
 // Also export individual functions for core plugins that import directly
 export { showToast, modKey, formatShortcut, isMac };
+
+// Currency utilities for core plugins
+export {
+  SUPPORTED_CURRENCIES,
+  DEFAULT_CURRENCY,
+  getCurrencySymbol,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatAmount,
+};

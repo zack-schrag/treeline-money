@@ -2,7 +2,7 @@
   /**
    * SplitTransactionModal - Modal for splitting a transaction into multiple parts
    */
-  import { Modal } from "../../shared";
+  import { Modal, formatUserCurrency } from "../../shared";
   import type { Transaction, SplitAmount } from "./types";
 
   interface Props {
@@ -44,13 +44,6 @@
     onsplit(splitAmounts);
   }
 
-  function formatAmount(amount: number): string {
-    return Math.abs(amount).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
   // Computed validation
   let splitTotal = $derived(
     splitAmounts.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)
@@ -65,9 +58,7 @@
       <div class="txn-preview">
         <div class="txn-preview-desc">{transaction.description}</div>
         <div class="txn-preview-amount" class:negative={transaction.amount < 0}>
-          Original: {transaction.amount < 0 ? "-" : ""}${formatAmount(
-            transaction.amount
-          )}
+          Original: {formatUserCurrency(transaction.amount)}
         </div>
       </div>
 
@@ -99,7 +90,7 @@
       </button>
 
       <div class="split-summary" class:error={!isValid}>
-        Total: ${splitTotal.toFixed(2)} | Remaining: ${remaining.toFixed(2)}
+        Total: {formatUserCurrency(splitTotal)} | Remaining: {formatUserCurrency(remaining)}
       </div>
     </div>
   {/if}

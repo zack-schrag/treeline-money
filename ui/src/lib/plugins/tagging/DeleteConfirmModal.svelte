@@ -2,7 +2,7 @@
   /**
    * DeleteConfirmModal - Confirmation dialog for deleting a transaction
    */
-  import { Modal } from "../../shared";
+  import { Modal, formatUserCurrency } from "../../shared";
   import type { Transaction } from "./types";
 
   interface Props {
@@ -13,13 +13,6 @@
   }
 
   let { open, transaction, onclose, onconfirm }: Props = $props();
-
-  function formatAmount(amount: number): string {
-    return Math.abs(amount).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
 </script>
 
 <Modal {open} title="Delete Transaction?" {onclose} width="400px">
@@ -29,7 +22,7 @@
       <div class="txn-preview">
         <div class="txn-preview-desc">{transaction.description}</div>
         <div class="txn-preview-amount" class:negative={transaction.amount < 0}>
-          {transaction.amount < 0 ? "-" : ""}${formatAmount(transaction.amount)}
+          {formatUserCurrency(transaction.amount)}
         </div>
       </div>
     {/if}

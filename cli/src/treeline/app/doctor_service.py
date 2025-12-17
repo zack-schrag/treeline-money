@@ -476,10 +476,21 @@ class DoctorService:
             for row in rows
         ]
 
+        # Get user's currency preference for formatting
+        from treeline.app.preferences_service import (
+            DEFAULT_CURRENCY,
+            PreferencesService,
+            format_currency,
+        )
+
+        prefs = PreferencesService()
+        currency_result = prefs.get_currency()
+        currency = currency_result.data if currency_result.success else DEFAULT_CURRENCY
+
         return HealthCheck(
             name="budget_double_counting",
             status="warning",
-            message=f"{count} transaction(s) match multiple budget categories (${total_amount:,.0f} affected)",
+            message=f"{count} transaction(s) match multiple budget categories ({format_currency(total_amount, currency, decimal_places=0)} affected)",
             details=details,
         )
 

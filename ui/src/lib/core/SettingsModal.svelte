@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { getVersion } from "@tauri-apps/api/app";
-  import { Icon } from "../shared";
+  import { Icon, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, setCurrency } from "../shared";
   import {
     getSettings,
     setAppSetting,
@@ -130,6 +130,9 @@
   let isInstallingUpdate = $state(false);
   let isRestartingApp = $state(false);
 
+  // Currency state
+  let currentCurrency = $state<string>(DEFAULT_CURRENCY);
+
   // Active section
   type Section = "data" | "security" | "plugins" | "integrations" | "appearance" | "about";
   let activeSection = $state<Section>("data");
@@ -160,6 +163,8 @@
     try {
       settings = await getSettings();
       isDemoMode = await getDemoMode();
+      // Load currency preference
+      currentCurrency = settings?.app?.currency || DEFAULT_CURRENCY;
       // Load encryption status
       await loadEncryptionStatus();
     } catch (e) {
@@ -554,6 +559,19 @@
     themeManager.setTheme(theme === "system" ? "dark" : theme);
   }
 
+  async function handleCurrencyChange(currency: string) {
+    if (!settings) return;
+    await setAppSetting("currency", currency);
+    currentCurrency = currency;
+    setCurrency(currency); // Update the reactive store
+    if (settings.app) {
+      settings.app.currency = currency;
+    }
+    // Refresh data to update currency formatting across the app
+    registry.emit("data:refresh");
+    toast.success("Currency updated", `Your currency is now ${SUPPORTED_CURRENCIES[currency]?.name || currency}`);
+  }
+
   async function handleAutoSyncChange(enabled: boolean) {
     if (!settings) return;
     await setAppSetting("autoSyncOnStartup", enabled);
@@ -770,6 +788,23 @@
                       Sync Now
                     {/if}
                   </button>
+                </div>
+
+                <div class="setting-group">
+                  <h4 class="group-title">Currency</h4>
+                  <p class="group-desc">Choose the currency for displaying amounts throughout the app. All your accounts should be in this currency.</p>
+
+                  <div class="currency-select-wrapper">
+                    <select
+                      class="currency-select"
+                      value={currentCurrency}
+                      onchange={(e) => handleCurrencyChange(e.currentTarget.value)}
+                    >
+                      {#each Object.entries(SUPPORTED_CURRENCIES) as [code, info]}
+                        <option value={code}>{info.symbol} {info.name} ({code})</option>
+                      {/each}
+                    </select>
+                  </div>
                 </div>
 
                 <div class="setting-group">
@@ -2764,5 +2799,37 @@
     height: 100%;
     background: var(--accent-primary);
     transition: width 0.2s ease;
+  }
+
+  /* Currency select */
+  .currency-select-wrapper {
+    max-width: 280px;
+  }
+
+  .currency-select {
+    width: 100%;
+    padding: 8px 28px 8px 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    cursor: pointer;
+  }
+
+  .currency-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  .currency-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 8px;
   }
 </style>

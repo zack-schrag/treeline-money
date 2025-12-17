@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { executeQuery, showToast, registry, modKey, getPluginSettings, updatePluginSettings } from "../../sdk";
-  import { RowMenu, type RowMenuItem, Icon } from "../../shared";
+  import { RowMenu, type RowMenuItem, Icon, formatUserCurrency } from "../../shared";
   import { FrequencyBasedSuggester } from "./suggestions";
   import type { Transaction, TagSuggestion, SplitAmount, AccountInfo } from "./types";
   import DeleteConfirmModal from "./DeleteConfirmModal.svelte";
@@ -1833,9 +1833,6 @@
     }
   }
 
-  function formatAmount(amount: number): string {
-    return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
 
   // Subscribe to global refresh events
   let unsubscribeRefresh: (() => void) | null = null;
@@ -2114,7 +2111,7 @@
               {txn.description}
             </div>
             <div class="row-amount" class:negative={txn.amount < 0} class:positive={txn.amount >= 0}>
-              {txn.amount < 0 ? '-' : ''}${formatAmount(txn.amount)}
+              {formatUserCurrency(txn.amount)}
             </div>
             <div
               class="row-tags"
@@ -2259,25 +2256,25 @@
             <div class="stat-row">
               <span class="stat-label">Sum</span>
               <span class="stat-value" class:negative={selectionStats.sum < 0} class:positive={selectionStats.sum >= 0}>
-                {selectionStats.sum < 0 ? '-' : ''}${formatAmount(selectionStats.sum)}
+                {formatUserCurrency(selectionStats.sum)}
               </span>
             </div>
             <div class="stat-row">
               <span class="stat-label">Average</span>
               <span class="stat-value" class:negative={selectionStats.avg < 0} class:positive={selectionStats.avg >= 0}>
-                {selectionStats.avg < 0 ? '-' : ''}${formatAmount(selectionStats.avg)}
+                {formatUserCurrency(selectionStats.avg)}
               </span>
             </div>
             <div class="stat-row">
               <span class="stat-label">Min</span>
               <span class="stat-value" class:negative={selectionStats.min < 0} class:positive={selectionStats.min >= 0}>
-                {selectionStats.min < 0 ? '-' : ''}${formatAmount(selectionStats.min)}
+                {formatUserCurrency(selectionStats.min)}
               </span>
             </div>
             <div class="stat-row">
               <span class="stat-label">Max</span>
               <span class="stat-value" class:negative={selectionStats.max < 0} class:positive={selectionStats.max >= 0}>
-                {selectionStats.max < 0 ? '-' : ''}${formatAmount(selectionStats.max)}
+                {formatUserCurrency(selectionStats.max)}
               </span>
             </div>
           </div>
@@ -2363,7 +2360,7 @@
               <div class="txn-detail-row">
                 <span class="txn-detail-label">Amount</span>
                 <span class="txn-detail-value" class:negative={currentTxn.amount < 0} class:positive={currentTxn.amount >= 0}>
-                  {currentTxn.amount < 0 ? '-' : ''}${formatAmount(currentTxn.amount)}
+                  {formatUserCurrency(currentTxn.amount)}
                 </span>
               </div>
               <div class="txn-detail-desc">
@@ -2402,13 +2399,13 @@
                 <div class="split-sibling" class:current={sibling.transaction_id === currentTxn.transaction_id}>
                   <span class="sibling-desc">{sibling.description}</span>
                   <span class="sibling-amount" class:negative={sibling.amount < 0}>
-                    ${Math.abs(sibling.amount).toFixed(2)}
+                    {formatUserCurrency(Math.abs(sibling.amount))}
                   </span>
                 </div>
               {/each}
               <div class="split-total">
                 <span class="total-label">Total:</span>
-                <span class="total-amount">${Math.abs(siblings.reduce((sum, s) => sum + s.amount, 0)).toFixed(2)}</span>
+                <span class="total-amount">{formatUserCurrency(Math.abs(siblings.reduce((sum, s) => sum + s.amount, 0)))}</span>
               </div>
             </div>
           </div>

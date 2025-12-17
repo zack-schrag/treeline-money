@@ -103,3 +103,13 @@ export type { Activity } from "./activity.svelte";
 
 // Platform utilities
 export { isMac, modKey, formatShortcut } from "./platform";
+
+// Currency utilities
+export {
+  SUPPORTED_CURRENCIES,
+  DEFAULT_CURRENCY,
+  getCurrencySymbol,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatAmount,
+} from "./public";

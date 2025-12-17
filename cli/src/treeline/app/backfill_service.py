@@ -94,8 +94,10 @@ class BackfillService:
                 starting_date = latest_snapshot.snapshot_time.date()
 
                 if verbose:
+                    from treeline.app.preferences_service import format_currency
+
                     verbose_logs.append(
-                        f"Account {account.name}: Starting from ${starting_balance} on {starting_date}"
+                        f"Account {account.name}: Starting from {format_currency(starting_balance, account.currency)} on {starting_date}"
                     )
 
                 # Get transactions for this account (ordered DESC by date)
@@ -158,8 +160,10 @@ class BackfillService:
                     current_balance = balance_before
 
                     if verbose:
+                        from treeline.app.preferences_service import format_currency
+
                         verbose_logs.append(
-                            f"Account {account.name}: {tx_date} = ${balance_before:.2f} (tx: ${transaction.amount})"
+                            f"Account {account.name}: {tx_date} = {format_currency(balance_before, account.currency)} (tx: {format_currency(transaction.amount, account.currency)})"
                         )
 
                 # Insert snapshots (unless dry-run)

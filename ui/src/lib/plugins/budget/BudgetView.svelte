@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { executeQuery, registry, modKey } from "../../sdk";
-  import { Modal, RowMenu, type RowMenuItem } from "../../shared";
+  import { Modal, RowMenu, type RowMenuItem, formatUserCurrency, formatAmount as formatAmountBase } from "../../shared";
   import type { BudgetCategory, BudgetActual, BudgetType, AmountSign, Transaction, Transfer } from "./types";
   import * as budgetDb from "./db";
 
@@ -524,15 +524,13 @@
     await Promise.all([calculateActuals(), loadAllTrends()]);
   }
 
-  // Currency configuration - will be user-configurable in the future
-  const currencyConfig = { code: 'USD', locale: 'en-US' };
-
+  // Currency formatting using shared utilities
   function formatCurrency(amount: number): string {
-    return amount.toLocaleString(currencyConfig.locale, { style: 'currency', currency: currencyConfig.code, minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return formatUserCurrency(amount, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
 
   function formatCurrencyCents(amount: number): string {
-    return amount.toLocaleString(currencyConfig.locale, { style: 'currency', currency: currencyConfig.code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatUserCurrency(amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   // Helper to round to cents (2 decimal places) - fixes floating point errors
@@ -541,7 +539,7 @@
   }
 
   function formatAmount(amount: number): string {
-    return Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatAmountBase(Math.abs(amount));
   }
 
   // Format "2025-12" as "Dec 2025"
@@ -1226,7 +1224,7 @@
           <div class="txn-row">
             <span class="txn-date">{txn.transaction_date}</span>
             <span class="txn-desc">{txn.description}</span>
-            <span class="txn-amount" class:negative={txn.amount < 0}>${formatAmount(txn.amount)}</span>
+            <span class="txn-amount" class:negative={txn.amount < 0}>{formatCurrency(txn.amount)}</span>
           </div>
         {/each}
       </div>

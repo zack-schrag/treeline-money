@@ -3,7 +3,7 @@
    * CsvImportModal - Modal for importing transactions from CSV files
    * After import, shows unified flow for setting balance and backfilling history
    */
-  import { Modal, Icon } from "../../shared";
+  import { Modal, Icon, formatUserCurrency, getUserCurrencySymbol } from "../../shared";
   import {
     pickCsvFile,
     getCsvHeaders,
@@ -337,7 +337,7 @@
 
           {#if existingBalance !== null}
             <div class="balance-current">
-              <span class="balance-amount">${Math.abs(existingBalance).toFixed(2)}</span>
+              <span class="balance-amount">{formatUserCurrency(Math.abs(existingBalance))}</span>
               <span class="balance-date">as of {existingBalanceDate}</span>
               <button class="btn-link" onclick={() => { existingBalance = null; }}>Update</button>
             </div>
@@ -353,7 +353,7 @@
                 <div class="input-group">
                   <label for="balance-amount">Balance</label>
                   <div class="input-with-prefix">
-                    <span class="input-prefix">$</span>
+                    <span class="input-prefix">{getUserCurrencySymbol("USD")}</span>
                     <input
                       id="balance-amount"
                       type="number"
@@ -523,7 +523,7 @@
                     <span class="preview-date">{txn.date}</span>
                     <span class="preview-desc">{txn.description || ""}</span>
                     <span class="preview-amount" class:negative={txn.amount < 0}>
-                      {txn.amount < 0 ? "-" : ""}${Math.abs(txn.amount).toFixed(2)}
+                      {formatUserCurrency(txn.amount)}
                     </span>
                   </div>
                 {/each}

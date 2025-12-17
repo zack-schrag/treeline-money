@@ -1067,3 +1067,4 @@ class DuckDBRepository(Repository):
 
         except Exception as e:
             return Fail(f"Failed to compact database: {str(e)}")
+

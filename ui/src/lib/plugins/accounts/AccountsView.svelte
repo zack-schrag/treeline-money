@@ -6,7 +6,7 @@
     showToast,
     runBackfill,
   } from "../../sdk";
-  import { Modal, RowMenu, type RowMenuItem, Icon, Sparkline, LineAreaChart, type DataPoint } from "../../shared";
+  import { Modal, RowMenu, type RowMenuItem, Icon, Sparkline, LineAreaChart, type DataPoint, formatUserCurrency, formatUserCurrencyCompact } from "../../shared";
   import type {
     AccountWithStats,
     BalanceClassification,
@@ -1325,25 +1325,6 @@ LIMIT 100`;
     menuOpenForAccount = null;
   }
 
-  function formatCurrency(amount: number): string {
-    return amount.toLocaleString("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
-  function formatCurrencyCompact(amount: number): string {
-    const absAmount = Math.abs(amount);
-    if (absAmount >= 1000000) {
-      return (amount / 1000000).toFixed(1) + "M";
-    } else if (absAmount >= 1000) {
-      return (amount / 1000).toFixed(1) + "K";
-    }
-    return formatCurrency(amount);
-  }
-
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return "";
     const date = new Date(dateStr);
@@ -1459,11 +1440,11 @@ LIMIT 100`;
             <div class="net-worth-left">
               <span class="net-worth-label">NET WORTH</span>
               <span class="net-worth-value" class:negative={netWorth < 0}>
-                {formatCurrency(netWorth)}
+                {formatUserCurrency(netWorth)}
               </span>
               {#if momChange}
                 <span class="net-worth-change" class:positive={momChange.change >= 0} class:negative={momChange.change < 0}>
-                  {momChange.change >= 0 ? "+" : ""}{formatCurrency(momChange.change)} this month
+                  {momChange.change >= 0 ? "+" : ""}{formatUserCurrency(momChange.change)} this month
                 </span>
               {/if}
             </div>
@@ -1483,11 +1464,11 @@ LIMIT 100`;
           <div class="net-worth-breakdown-inline">
             <span class="breakdown-item">
               <span class="breakdown-dot asset"></span>
-              Assets {formatCurrencyCompact(totalAssets)}
+              Assets {formatUserCurrencyCompact(totalAssets)}
             </span>
             <span class="breakdown-item">
               <span class="breakdown-dot liability"></span>
-              Liabilities {formatCurrencyCompact(totalLiabilities)}
+              Liabilities {formatUserCurrencyCompact(totalLiabilities)}
             </span>
           </div>
 
@@ -1513,11 +1494,11 @@ LIMIT 100`;
                 showLine={true}
                 showLabels={true}
                 showZeroLine={true}
-                formatValue={formatCurrency}
+                formatValue={formatUserCurrency}
               />
               {#if periodChange}
                 <div class="chart-summary" class:positive={periodChange.change >= 0} class:negative={periodChange.change < 0}>
-                  {periodChange.change >= 0 ? "+" : ""}{formatCurrency(periodChange.change)}
+                  {periodChange.change >= 0 ? "+" : ""}{formatUserCurrency(periodChange.change)}
                   ({periodChange.percent >= 0 ? "+" : ""}{periodChange.percent.toFixed(1)}%)
                   over {periodChange.days} days
                 </div>
@@ -1531,7 +1512,7 @@ LIMIT 100`;
           <div class="section">
             <div class="section-header asset-header">
               <div class="section-title">ASSETS</div>
-              <div class="section-total">{formatCurrency(totalAssets)}</div>
+              <div class="section-total">{formatUserCurrency(totalAssets)}</div>
             </div>
             {#each assetAccounts as account, i}
               {@const globalIndex = i}
@@ -1555,11 +1536,11 @@ LIMIT 100`;
                     <span class="account-subtitle">{getSubtitle(account)}</span>
                   {/if}
                 </div>
-                <div class="row-balance">{account.balance !== null ? formatCurrency(getBalanceForDisplay(account)) : "—"}</div>
+                <div class="row-balance">{account.balance !== null ? formatUserCurrency(getBalanceForDisplay(account)) : "—"}</div>
                 {#if monthChange}
                   {@const isGoodChange = monthChange.change >= 0}
                   <div class="row-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
-                    <span class="change-value">{monthChange.change >= 0 ? "+" : ""}{formatCurrencyCompact(monthChange.change)}</span>
+                    <span class="change-value">{monthChange.change >= 0 ? "+" : ""}{formatUserCurrencyCompact(monthChange.change)}</span>
                     <span class="change-label">MoM</span>
                   </div>
                 {:else}
@@ -1587,7 +1568,7 @@ LIMIT 100`;
           <div class="section">
             <div class="section-header liability-header">
               <div class="section-title">LIABILITIES</div>
-              <div class="section-total">{formatCurrency(totalLiabilities)}</div>
+              <div class="section-total">{formatUserCurrency(totalLiabilities)}</div>
             </div>
             {#each liabilityAccounts as account, i}
               {@const globalIndex = assetAccounts.length + i}
@@ -1611,11 +1592,11 @@ LIMIT 100`;
                     <span class="account-subtitle">{getSubtitle(account)}</span>
                   {/if}
                 </div>
-                <div class="row-balance liability">{account.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
+                <div class="row-balance liability">{account.balance !== null ? formatUserCurrency(Math.abs(getBalanceForDisplay(account))) : "—"}</div>
                 {#if monthChange}
                   {@const isGoodChange = monthChange.change <= 0}
                   <div class="row-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
-                    <span class="change-value">{monthChange.change > 0 ? "+" : ""}{formatCurrencyCompact(monthChange.change)}</span>
+                    <span class="change-value">{monthChange.change > 0 ? "+" : ""}{formatUserCurrencyCompact(monthChange.change)}</span>
                     <span class="change-label">MoM</span>
                   </div>
                 {:else}
@@ -1657,7 +1638,7 @@ LIMIT 100`;
             <div class="detail-balance-section">
               <div class="detail-balance-main">
                 <span class="detail-balance-value" class:liability={currentAccount.classification === 'liability'}>
-                  {currentAccount.balance !== null ? formatCurrency(Math.abs(getBalanceForDisplay(currentAccount))) : "—"}
+                  {currentAccount.balance !== null ? formatUserCurrency(Math.abs(getBalanceForDisplay(currentAccount))) : "—"}
                 </span>
               </div>
               {#if balanceTrend.length >= 2}
@@ -1668,7 +1649,7 @@ LIMIT 100`;
                 {@const isLiability = currentAccount.classification === 'liability'}
                 {@const isGoodChange = isLiability ? change <= 0 : change >= 0}
                 <div class="detail-balance-change" class:positive={isGoodChange} class:negative={!isGoodChange}>
-                  {change >= 0 ? "+" : ""}{formatCurrency(change)} ({percent >= 0 ? "+" : ""}{percent.toFixed(1)}%) vs last month
+                  {change >= 0 ? "+" : ""}{formatUserCurrency(change)} ({percent >= 0 ? "+" : ""}{percent.toFixed(1)}%) vs last month
                 </div>
               {/if}
             </div>
@@ -1682,7 +1663,7 @@ LIMIT 100`;
                   showArea={true}
                   showLine={true}
                   showLabels={true}
-                  formatValue={formatCurrency}
+                  formatValue={formatUserCurrency}
                   invertTrend={currentAccount.classification === 'liability'}
                 />
               </div>
@@ -1742,7 +1723,7 @@ LIMIT 100`;
                   {#each detailSnapshots as snapshot}
                     <div class="snapshot-row">
                       <span class="snapshot-col-date">{snapshot.snapshot_time.split("T")[0]}</span>
-                      <span class="snapshot-col-balance">{formatCurrency(snapshot.balance)}</span>
+                      <span class="snapshot-col-balance">{formatUserCurrency(snapshot.balance)}</span>
                       <span class="snapshot-col-source">{snapshot.source || "—"}</span>
                       <span class="snapshot-col-actions">
                         <button
@@ -1792,7 +1773,7 @@ LIMIT 100`;
           <div class="txn-row">
             <span class="txn-date">{txn.transaction_date}</span>
             <span class="txn-desc">{txn.description}</span>
-            <span class="txn-amount" class:negative={txn.amount < 0}>{formatCurrency(txn.amount)}</span>
+            <span class="txn-amount" class:negative={txn.amount < 0}>{formatUserCurrency(txn.amount)}</span>
           </div>
         {/each}
       </div>

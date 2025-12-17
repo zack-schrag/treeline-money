@@ -5,7 +5,7 @@
    * Simple pattern matching by default with match type options,
    * SQL editing available for power users.
    */
-  import { Modal } from "../../shared";
+  import { Modal, formatUserCurrency } from "../../shared";
   import type { Transaction } from "./types";
   import type { TagRule, RuleTestResult } from "./rules";
   import {
@@ -442,7 +442,7 @@
                 <div class="test-sample">
                   <span class="sample-desc">{match.description}</span>
                   <span class="sample-amount" class:negative={match.amount < 0} class:positive={match.amount >= 0}>
-                    {match.amount < 0 ? '-' : ''}${Math.abs(match.amount).toFixed(2)}
+                    {formatUserCurrency(match.amount)}
                   </span>
                 </div>
               {/each}

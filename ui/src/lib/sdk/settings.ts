@@ -23,6 +23,7 @@ export interface AppSettings {
   hasCompletedOnboarding?: boolean;
   sidebarCollapsed?: boolean;
   hideDemoBanner?: boolean;
+  currency?: string;
 }
 
 /**

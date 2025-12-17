@@ -77,6 +77,13 @@ def register(
 
         report = result.data
 
+        # Get currency preference for display formatting
+        from treeline.app.preferences_service import DEFAULT_CURRENCY
+
+        preferences_service = container.preferences_service()
+        currency_result = preferences_service.get_currency()
+        currency = currency_result.data if currency_result.success else DEFAULT_CURRENCY
+
         if json_output:
             output = {
                 "summary": {
@@ -95,20 +102,20 @@ def register(
             }
             print(json_module.dumps(output, indent=2))
         else:
-            display_report(report, verbose)
+            display_report(report, verbose, currency)
 
         # Exit with error code if any errors found
         if report.errors > 0:
             raise typer.Exit(1)
 
 
-def display_report(report, verbose: bool) -> None:
+def display_report(report, verbose: bool, currency: str) -> None:
     """Display health report in human-readable format."""
     console.print(f"\n[{theme.ui_header}]🩺 Database Health Check[/{theme.ui_header}]\n")
 
     # Display each check
     for check in report.checks:
-        display_check(check, verbose)
+        display_check(check, verbose, currency)
 
     # Summary line
     console.print()
@@ -131,8 +138,10 @@ def display_report(report, verbose: bool) -> None:
     console.print()
 
 
-def display_check(check, verbose: bool) -> None:
+def display_check(check, verbose: bool, currency: str) -> None:
     """Display a single health check result."""
+    from treeline.app.preferences_service import format_currency
+
     # Choose icon and color based on status
     if check.status == "pass":
         icon = ICON_PASS
@@ -152,11 +161,13 @@ def display_check(check, verbose: bool) -> None:
 
     # Details in verbose mode
     if verbose and check.details:
-        display_details(check)
+        display_details(check, currency=currency)
 
 
-def display_details(check, show_all: bool = True) -> None:
+def display_details(check, show_all: bool = True, currency: str = "USD") -> None:
     """Display detailed findings for a check."""
+    from treeline.app.preferences_service import format_currency
+
     details_to_show = check.details if show_all else check.details[:5]
     for detail in details_to_show:
         if check.name == "orphaned_transactions":
@@ -170,12 +181,12 @@ def display_details(check, show_all: bool = True) -> None:
             for txn in detail.get("transactions", [])[:3]:
                 amount = txn['amount'] if txn['amount'] is not None else 0
                 desc = (txn['description'] or "")[:30]
-                console.print(f"      [{theme.muted}]{txn['date']}  ${amount:,.2f}  {desc}[/{theme.muted}]")
+                console.print(f"      [{theme.muted}]{txn['date']}  {format_currency(amount, currency)}  {desc}[/{theme.muted}]")
 
         elif check.name == "date_sanity":
             amount = detail['amount'] if detail['amount'] is not None else 0
             desc = (detail['description'] or "")[:30]
-            console.print(f"    [{theme.muted}]{detail['date']}  ${amount:,.2f}  {desc}[/{theme.muted}]")
+            console.print(f"    [{theme.muted}]{detail['date']}  {format_currency(amount, currency)}  {desc}[/{theme.muted}]")
 
         elif check.name == "untagged_transactions":
             console.print(f"    [{theme.muted}]{detail['untagged_count']} of {detail['total_count']} transactions untagged[/{theme.muted}]")
@@ -186,7 +197,7 @@ def display_details(check, show_all: bool = True) -> None:
             matches = detail.get('category_matches', 0)
             tags = detail.get('tags', [])
             tag_str = ", ".join(tags[:3]) + ("..." if len(tags) > 3 else "") if tags else "no tags"
-            console.print(f"    [{theme.muted}]{detail['date']}  ${abs(amount):,.2f}  {desc}  ({matches} categories, tags: {tag_str})[/{theme.muted}]")
+            console.print(f"    [{theme.muted}]{detail['date']}  {format_currency(abs(amount), currency)}  {desc}  ({matches} categories, tags: {tag_str})[/{theme.muted}]")
 
         elif check.name == "integration_connectivity":
             integration = detail.get("integration", "unknown")

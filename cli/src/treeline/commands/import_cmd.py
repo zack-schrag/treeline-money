@@ -55,9 +55,16 @@ def register(app: typer.Typer, get_container: callable, ensure_initialized: call
         import_service = container.import_service()
         account_service = container.account_service()
 
+        # Get user's currency preference for display
+        from treeline.app.preferences_service import DEFAULT_CURRENCY
+
+        preferences_service = container.preferences_service()
+        currency_result = preferences_service.get_currency()
+        user_currency = currency_result.data if currency_result.success else DEFAULT_CURRENCY
+
         # Interactive mode - collect parameters interactively
         if file_path is None:
-            params = _collect_params_interactive(import_service, account_service)
+            params = _collect_params_interactive(import_service, account_service, user_currency)
             if params is None:
                 return  # User cancelled
 
@@ -90,7 +97,7 @@ def register(app: typer.Typer, get_container: callable, ensure_initialized: call
 
         # Preview mode
         if preview:
-            _do_preview(import_service, file_path, column_mapping, flip_signs, debit_negative, json_output)
+            _do_preview(import_service, file_path, column_mapping, flip_signs, debit_negative, json_output, user_currency)
             return
 
         # Import mode
@@ -127,6 +134,7 @@ def _do_preview(
     flip_signs: bool,
     debit_negative: bool,
     json_output: bool,
+    currency: str = "USD",
 ) -> None:
     """Preview transactions without importing."""
     preview_result = asyncio.run(
@@ -162,7 +170,7 @@ def _do_preview(
         if debit_negative:
             console.print(f"Debit negative: {debit_negative}")
         console.print()
-        _display_preview_table(preview_result.data[:10])
+        _display_preview_table(preview_result.data[:10], currency)
         console.print(f"\n[{theme.muted}]Remove --preview flag to import[/{theme.muted}]\n")
 
 
@@ -217,7 +225,7 @@ def _do_import(
 # =============================================================================
 
 def _collect_params_interactive(
-    import_service: ImportService, account_service: AccountService
+    import_service: ImportService, account_service: AccountService, currency: str = "USD"
 ) -> Optional[Dict[str, Any]]:
     """Interactively collect all parameters needed for import.
 
@@ -357,7 +365,7 @@ def _interactive_preview_loop(
 
         if show_initial_preview:
             console.print(f"\n[{theme.ui_header}]Preview - First 5 Transactions:[/{theme.ui_header}]\n")
-            _display_preview_table(preview_txs[:5])
+            _display_preview_table(preview_txs[:5], currency)
             console.print(f"\n[{theme.muted}]({len(preview_txs)} total transactions in file)[/{theme.muted}]")
             console.print(f"[{theme.ui_header}]Preview Check[/{theme.ui_header}]")
             console.print(f"[{theme.muted}]Spending should appear as NEGATIVE ({theme.negative_amount}), income/refunds as POSITIVE ({theme.positive_amount})[/{theme.muted}]\n")
@@ -380,7 +388,7 @@ def _interactive_preview_loop(
             return flip_signs, debit_negative
         elif choice == "2":
             console.print(f"\n[{theme.ui_header}]Extended Preview - First 15 Transactions:[/{theme.ui_header}]\n")
-            _display_preview_table(preview_txs[:15])
+            _display_preview_table(preview_txs[:15], currency)
             console.print()
             show_initial_preview = False
         elif choice == "3":
@@ -425,8 +433,10 @@ def _build_column_mapping(
     return mapping
 
 
-def _display_preview_table(transactions: List[Transaction]) -> None:
+def _display_preview_table(transactions: List[Transaction], currency: str = "USD") -> None:
     """Display transaction preview table."""
+    from treeline.app.preferences_service import format_currency
+
     table = Table(show_header=True, box=None, padding=(0, 1))
     table.add_column("Date", width=12)
     table.add_column("Description", width=40)
@@ -436,12 +446,8 @@ def _display_preview_table(transactions: List[Transaction]) -> None:
         date_str = tx.transaction_date.strftime("%Y-%m-%d")
         desc = (tx.description or "")[:38]
 
-        if tx.amount < 0:
-            amount_str = f"-${abs(tx.amount):,.2f}"
-            amount_style = theme.negative_amount
-        else:
-            amount_str = f"${tx.amount:,.2f}"
-            amount_style = theme.positive_amount
+        amount_str = format_currency(tx.amount, currency)
+        amount_style = theme.negative_amount if tx.amount < 0 else theme.positive_amount
 
         table.add_row(date_str, desc, f"[{amount_style}]{amount_str}[/{amount_style}]")
 

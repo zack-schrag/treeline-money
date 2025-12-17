@@ -24,6 +24,7 @@ from treeline.app.doctor_service import DoctorService
 from treeline.app.import_service import ImportService
 from treeline.app.integration_service import IntegrationService
 from treeline.app.plugin_service import PluginService
+from treeline.app.preferences_service import PreferencesService
 from treeline.app.status_service import StatusService
 from treeline.app.sync_service import SyncService
 from treeline.app.tagging_service import TaggingService
@@ -158,6 +159,7 @@ class Container:
                 self.repository(),
                 self.account_service(),
                 self.integration_service(),
+                self.preferences_service(),
             )
         return self._instances["sync_service"]
 
@@ -233,6 +235,12 @@ class Container:
             plugins_dir = Path(self.treeline_dir) / "plugins"
             self._instances["plugin_service"] = PluginService(plugins_dir)
         return self._instances["plugin_service"]
+
+    def preferences_service(self) -> PreferencesService:
+        """Get the preferences service instance."""
+        if "preferences_service" not in self._instances:
+            self._instances["preferences_service"] = PreferencesService()
+        return self._instances["preferences_service"]
 
     def backup_storage_provider(self) -> BackupStorageProvider:
         """Get the backup storage provider instance.
