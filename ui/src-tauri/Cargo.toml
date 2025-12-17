@@ -1,6 +1,6 @@
 [package]
 name = "treeline"
-version = "0.1.41"
+version = "0.1.42"
 description = "A plugin-based personal finance application"
 authors = ["treeline"]
 edition = "2021"
