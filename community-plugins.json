@@ -15,6 +15,13 @@
       "description": "Track savings goals like emergency funds, house down payments, and more",
       "author": "Treeline",
       "repo": "https://github.com/zack-schrag/treeline-goals"
+    },
+    {
+      "id": "emergency-fund",
+      "name": "Emergency Fund",
+      "description": "Track emergency fund runway based on your actual expenses",
+      "author": "Treeline",
+      "repo": "https://github.com/zack-schrag/treeline-emergency-fund"
     }
   ]
 }
