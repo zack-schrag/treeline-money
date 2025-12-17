@@ -5,10 +5,10 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 from pathlib import Path
 from typing import Dict, Any
-from urllib.parse import urlparse
+
+import httpx
 
 from treeline.domain import Result
 
@@ -92,9 +92,7 @@ class PluginService:
             manifest["name"] = display_name
             # Update permissions to use the new plugin ID
             manifest["permissions"] = {
-                "tables": {
-                    "write": [f"sys_plugin_{table_safe_name}"]
-                }
+                "tables": {"write": [f"sys_plugin_{table_safe_name}"]}
             }
 
             with open(manifest_path, "w") as f:
@@ -109,10 +107,12 @@ class PluginService:
                 content = index_ts_path.read_text()
                 # Update the manifest in TypeScript to match
                 content = content.replace('id: "hello-world"', f'id: "{name}"')
-                content = content.replace('name: "Hello World"', f'name: "{display_name}"')
+                content = content.replace(
+                    'name: "Hello World"', f'name: "{display_name}"'
+                )
                 content = content.replace(
                     'write: ["sys_plugin_hello_world"]',
-                    f'write: ["sys_plugin_{table_safe_name}"]'
+                    f'write: ["sys_plugin_{table_safe_name}"]',
                 )
                 index_ts_path.write_text(content)
             except Exception as e:
@@ -235,7 +235,9 @@ class PluginService:
             Tuple of (owner, repo) or None if invalid
         """
         # Handle HTTPS URLs: https://github.com/owner/repo
-        https_match = re.match(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+        https_match = re.match(
+            r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", url
+        )
         if https_match:
             return https_match.group(1), https_match.group(2)
 
@@ -272,42 +274,57 @@ class PluginService:
 
         # Get release info from GitHub API
         if version:
-            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
+            api_url = (
+                f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
+            )
         else:
             api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
 
         try:
-            req = urllib.request.Request(
-                api_url,
-                headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "Treeline-CLI"},
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                release_data = json.loads(response.read().decode())
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                if version:
-                    return Result(success=False, error=f"Release {version} not found for {owner}/{repo}")
-                else:
-                    return Result(success=False, error=f"No releases found for {owner}/{repo}. The plugin author needs to create a release.")
+            with httpx.Client(timeout=30) as client:
+                response = client.get(
+                    api_url,
+                    headers={
+                        "Accept": "application/vnd.github.v3+json",
+                        "User-Agent": "Treeline-CLI",
+                    },
+                )
+                if response.status_code == 404:
+                    if version:
+                        return Result(
+                            success=False,
+                            error=f"Release {version} not found for {owner}/{repo}",
+                        )
+                    else:
+                        return Result(
+                            success=False,
+                            error=f"No releases found for {owner}/{repo}. The plugin author needs to create a release.",
+                        )
+                response.raise_for_status()
+                release_data = response.json()
+        except httpx.HTTPStatusError as e:
             return Result(success=False, error=f"GitHub API error: {e}")
-        except urllib.error.URLError as e:
+        except httpx.RequestError as e:
             return Result(success=False, error=f"Network error: {e}")
 
         # Find manifest.json and index.js in release assets
-        assets = {asset["name"]: asset["browser_download_url"] for asset in release_data.get("assets", [])}
+        assets = {
+            asset["name"]: asset["browser_download_url"]
+            for asset in release_data.get("assets", [])
+        }
 
         if "manifest.json" not in assets:
             return Result(
                 success=False,
                 error=f"Release {release_data.get('tag_name', 'unknown')} is missing manifest.json asset. "
-                      f"Available assets: {list(assets.keys()) or 'none'}",
+                f"Available assets: {list(assets.keys()) or 'none'}",
             )
 
         if "index.js" not in assets:
             return Result(
                 success=False,
                 error=f"Release {release_data.get('tag_name', 'unknown')} is missing index.js asset. "
-                      f"Available assets: {list(assets.keys()) or 'none'}",
+                f"Available assets: {list(assets.keys()) or 'none'}",
             )
 
         # Download files to temp directory
@@ -315,22 +332,31 @@ class PluginService:
             temp_path = Path(temp_dir)
 
             try:
-                # Download manifest.json
-                manifest_path = temp_path / "manifest.json"
-                urllib.request.urlretrieve(assets["manifest.json"], manifest_path)
+                with httpx.Client(timeout=60, follow_redirects=True) as client:
+                    # Download manifest.json
+                    manifest_path = temp_path / "manifest.json"
+                    response = client.get(assets["manifest.json"])
+                    response.raise_for_status()
+                    manifest_path.write_bytes(response.content)
 
-                # Download index.js
-                index_path = temp_path / "index.js"
-                urllib.request.urlretrieve(assets["index.js"], index_path)
-            except Exception as e:
-                return Result(success=False, error=f"Failed to download release assets: {e}")
+                    # Download index.js
+                    index_path = temp_path / "index.js"
+                    response = client.get(assets["index.js"])
+                    response.raise_for_status()
+                    index_path.write_bytes(response.content)
+            except httpx.RequestError as e:
+                return Result(
+                    success=False, error=f"Failed to download release assets: {e}"
+                )
 
             # Read manifest to get plugin ID
             try:
                 with open(manifest_path, "r") as f:
                     manifest = json.load(f)
             except Exception as e:
-                return Result(success=False, error=f"Failed to parse manifest.json: {e}")
+                return Result(
+                    success=False, error=f"Failed to parse manifest.json: {e}"
+                )
 
             plugin_id = manifest.get("id")
             if not plugin_id:
@@ -351,7 +377,9 @@ class PluginService:
                 data={
                     "plugin_id": plugin_id,
                     "plugin_name": manifest.get("name", plugin_id),
-                    "version": release_data.get("tag_name", manifest.get("version", "unknown")),
+                    "version": release_data.get(
+                        "tag_name", manifest.get("version", "unknown")
+                    ),
                     "install_dir": str(install_dir),
                     "source": f"github:{owner}/{repo}",
                 },
