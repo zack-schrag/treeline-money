@@ -95,7 +95,7 @@ export async function initializePlugins(): Promise<void> {
   // Register core sidebar sections
   registry.registerSidebarSection({
     id: "main",
-    title: "Views",
+    title: "Core",
     order: 1,
   });
 

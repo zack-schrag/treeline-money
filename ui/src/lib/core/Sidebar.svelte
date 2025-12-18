@@ -80,13 +80,24 @@
 
   function handleDragOver(e: DragEvent, itemId: string) {
     e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
     if (draggedItemId && draggedItemId !== itemId) {
       dragOverItemId = itemId;
     }
   }
 
-  function handleDragLeave() {
-    dragOverItemId = null;
+  function handleDragLeave(e: DragEvent, itemId: string) {
+    // Only clear if we're actually leaving the element (not entering a child)
+    const relatedTarget = e.relatedTarget as Node | null;
+    const currentTarget = e.currentTarget as Node | null;
+    if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
+      return; // Still inside the same element
+    }
+    if (dragOverItemId === itemId) {
+      dragOverItemId = null;
+    }
   }
 
   function handleDragEnd() {
@@ -142,7 +153,7 @@
     {/if}
   </div>
 
-  <nav class="sidebar-nav">
+  <nav class="sidebar-nav" class:dragging={draggedItemId !== null}>
     {#each sections as section}
       <div class="sidebar-section">
         {#if !isCollapsed}
@@ -154,7 +165,7 @@
               draggable="true"
               ondragstart={(e) => handleDragStart(e, item.id)}
               ondragover={(e) => handleDragOver(e, item.id)}
-              ondragleave={handleDragLeave}
+              ondragleave={(e) => handleDragLeave(e, item.id)}
               ondragend={handleDragEnd}
               ondrop={(e) => handleDrop(e, item.id, section.id)}
               class:drag-over={dragOverItemId === item.id}
@@ -325,7 +336,23 @@
   }
 
   .section-items li.drag-over {
-    border-top: 2px solid var(--accent-primary);
+    position: relative;
+  }
+
+  .section-items li.drag-over::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: var(--spacing-md);
+    right: var(--spacing-md);
+    height: 2px;
+    background: var(--accent-primary);
+    border-radius: 1px;
+  }
+
+  /* Prevent buttons from intercepting drag events during drag */
+  .sidebar-nav.dragging .sidebar-item {
+    pointer-events: none;
   }
 
   .sidebar-item {

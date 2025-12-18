@@ -77,6 +77,12 @@ export interface PluginSDK {
   emitDataRefresh: () => void;
 
   /**
+   * Update the badge count shown on this plugin's sidebar item
+   * @param count The badge count (0 or undefined to hide badge)
+   */
+  updateBadge: (count: number | undefined) => void;
+
+  /**
    * Theme utilities
    */
   theme: {
@@ -170,6 +176,11 @@ export function createPluginSDK(pluginId: string, allowedTables: string[]): Plug
 
     emitDataRefresh: () => {
       registry.emit("data:refresh");
+    },
+
+    // Badge - update sidebar badge for this plugin
+    updateBadge: (count: number | undefined) => {
+      registry.updateSidebarBadge(pluginId, count);
     },
 
     // Theme
