@@ -112,6 +112,20 @@
   let installingPluginId = $state<string | null>(null);
   let uninstallingPluginId = $state<string | null>(null);
 
+  // Plugin detail modal state
+  interface PluginDetail {
+    id: string;
+    name: string;
+    description: string;
+    author: string;
+    repo: string;
+    version?: string;
+    installed: boolean;
+  }
+  let selectedPlugin = $state<PluginDetail | null>(null);
+  let pluginReadme = $state<string | null>(null);
+  let isLoadingReadme = $state(false);
+
   // Demo mode state
   let isDemoMode = $state(false);
   let isExitingDemo = $state(false);
@@ -393,6 +407,72 @@
   function getInstalledVersion(pluginId: string): string | null {
     const installed = installedCommunityPlugins.find(p => p.id === pluginId);
     return installed?.version || null;
+  }
+
+  // Open plugin detail modal
+  function openPluginDetail(plugin: CommunityPluginInfo | InstalledPluginInfo, fromRegistry: boolean) {
+    const installed = isPluginInstalled(plugin.id);
+    const version = getInstalledVersion(plugin.id) || (plugin as InstalledPluginInfo).version;
+
+    selectedPlugin = {
+      id: plugin.id,
+      name: plugin.name,
+      description: plugin.description,
+      author: plugin.author,
+      repo: fromRegistry ? (plugin as CommunityPluginInfo).repo : "",
+      version: version || undefined,
+      installed,
+    };
+
+    // Find repo URL if not from registry
+    if (!fromRegistry) {
+      const registryPlugin = communityPlugins.find(p => p.id === plugin.id);
+      if (registryPlugin) {
+        selectedPlugin.repo = registryPlugin.repo;
+      }
+    }
+
+    pluginReadme = null;
+    if (selectedPlugin.repo) {
+      fetchPluginReadme(selectedPlugin.repo);
+    }
+  }
+
+  function closePluginDetail() {
+    selectedPlugin = null;
+    pluginReadme = null;
+  }
+
+  // Fetch README from GitHub
+  async function fetchPluginReadme(repoUrl: string) {
+    isLoadingReadme = true;
+    try {
+      // Parse repo URL: https://github.com/owner/repo -> owner/repo
+      const match = repoUrl.match(/github\.com\/([^/]+\/[^/]+)/);
+      if (!match) {
+        pluginReadme = null;
+        return;
+      }
+
+      const repoPath = match[1];
+      const response = await fetch(`https://api.github.com/repos/${repoPath}/readme`, {
+        headers: { Accept: "application/vnd.github.v3+json" },
+      });
+
+      if (!response.ok) {
+        pluginReadme = null;
+        return;
+      }
+
+      const data = await response.json();
+      // README is base64 encoded
+      pluginReadme = atob(data.content);
+    } catch (e) {
+      console.error("Failed to fetch README:", e);
+      pluginReadme = null;
+    } finally {
+      isLoadingReadme = false;
+    }
   }
 
   let isSimplefinConnected = $derived(
@@ -1005,7 +1085,7 @@
                       {#each communityPlugins as plugin}
                         {@const installed = isPluginInstalled(plugin.id)}
                         {@const installedVersion = getInstalledVersion(plugin.id)}
-                        <div class="plugin-item community">
+                        <div class="plugin-item community clickable" onclick={() => openPluginDetail(plugin, true)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openPluginDetail(plugin, true)}>
                           <div class="plugin-info">
                             <div class="plugin-header">
                               <span class="plugin-name">{plugin.name}</span>
@@ -1016,7 +1096,7 @@
                             <span class="plugin-desc">{plugin.description}</span>
                             <span class="plugin-author">by {plugin.author}</span>
                           </div>
-                          <div class="plugin-actions">
+                          <div class="plugin-actions" onclick={(e) => e.stopPropagation()}>
                             {#if installed}
                               <button
                                 class="btn secondary small"
@@ -1042,7 +1122,7 @@
                       {/each}
 
                       {#each installedCommunityPlugins.filter(p => !communityPlugins.some(cp => cp.id === p.id)) as plugin}
-                        <div class="plugin-item community installed-only">
+                        <div class="plugin-item community installed-only clickable" onclick={() => openPluginDetail(plugin, false)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openPluginDetail(plugin, false)}>
                           <div class="plugin-info">
                             <div class="plugin-header">
                               <span class="plugin-name">{plugin.name}</span>
@@ -1053,7 +1133,7 @@
                               <span class="plugin-author">by {plugin.author}</span>
                             {/if}
                           </div>
-                          <div class="plugin-actions">
+                          <div class="plugin-actions" onclick={(e) => e.stopPropagation()}>
                             <button
                               class="btn secondary small"
                               onclick={() => handleUninstallPlugin(plugin)}
@@ -1557,6 +1637,84 @@
               Disable Encryption
             {/if}
           </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Plugin Detail Modal -->
+  {#if selectedPlugin}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="sub-modal-overlay plugin-detail-overlay" onclick={closePluginDetail} onkeydown={(e) => e.key === 'Escape' && closePluginDetail()} role="dialog" aria-modal="true" tabindex="-1">
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="sub-modal plugin-detail-modal" onclick={(e) => e.stopPropagation()} role="document">
+        <div class="sub-modal-header">
+          <span class="sub-modal-title">{selectedPlugin.name}</span>
+          <button class="close-btn" onclick={closePluginDetail}>
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+        <div class="sub-modal-body plugin-detail-body">
+          <div class="plugin-detail-meta">
+            {#if selectedPlugin.version}
+              <span class="plugin-detail-version">v{selectedPlugin.version}</span>
+            {/if}
+            <span class="plugin-detail-author">by {selectedPlugin.author}</span>
+            {#if selectedPlugin.installed}
+              <span class="plugin-detail-badge installed">Installed</span>
+            {/if}
+          </div>
+          <p class="plugin-detail-desc">{selectedPlugin.description}</p>
+
+          {#if selectedPlugin.repo}
+            <button class="link-btn repo-link" onclick={() => openUrl(selectedPlugin!.repo)}>
+              <Icon name="external-link" size={14} />
+              View on GitHub
+            </button>
+          {/if}
+
+          {#if isLoadingReadme}
+            <div class="readme-loading">
+              <div class="loading-spinner"></div>
+              <span>Loading README...</span>
+            </div>
+          {:else if pluginReadme}
+            <div class="plugin-readme">
+              <h4 class="readme-title">README</h4>
+              <pre class="readme-content">{pluginReadme}</pre>
+            </div>
+          {/if}
+        </div>
+        <div class="sub-modal-actions">
+          {#if selectedPlugin.installed}
+            <button
+              class="btn secondary"
+              onclick={() => {
+                const p = installedCommunityPlugins.find(ip => ip.id === selectedPlugin!.id);
+                if (p) {
+                  handleUninstallPlugin(p);
+                  closePluginDetail();
+                }
+              }}
+              disabled={uninstallingPluginId === selectedPlugin.id}
+            >
+              {uninstallingPluginId === selectedPlugin.id ? "Removing..." : "Remove Plugin"}
+            </button>
+          {:else}
+            <button
+              class="btn primary"
+              onclick={() => {
+                const p = communityPlugins.find(cp => cp.id === selectedPlugin!.id);
+                if (p) {
+                  handleInstallPlugin(p);
+                  closePluginDetail();
+                }
+              }}
+              disabled={installingPluginId === selectedPlugin.id}
+            >
+              {installingPluginId === selectedPlugin.id ? "Installing..." : "Install Plugin"}
+            </button>
+          {/if}
         </div>
       </div>
     </div>
@@ -2656,6 +2814,143 @@
   .plugin-item.installed-only {
     opacity: 0.8;
     border-style: dashed;
+  }
+
+  .plugin-item.clickable {
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .plugin-item.clickable:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+  }
+
+  .plugin-item.clickable:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+  }
+
+  /* Plugin detail modal */
+  .plugin-detail-overlay {
+    z-index: 1100;
+  }
+
+  .plugin-detail-modal {
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .plugin-detail-body {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .plugin-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+  }
+
+  .plugin-detail-version {
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .plugin-detail-author {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .plugin-detail-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .plugin-detail-badge.installed {
+    background: var(--accent-success);
+    color: white;
+  }
+
+  .plugin-detail-desc {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .repo-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 13px;
+    color: var(--accent-primary);
+  }
+
+  .repo-link:hover {
+    text-decoration: underline;
+  }
+
+  .readme-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-primary);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .plugin-readme {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: var(--spacing-md);
+  }
+
+  .readme-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin: 0 0 var(--spacing-sm) 0;
+  }
+
+  .readme-content {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
   }
 
   /* Encryption/Security styles */
