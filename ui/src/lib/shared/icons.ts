@@ -2,6 +2,7 @@
  * Shared icon utilities
  *
  * Maps emoji icons (used in plugin manifests) to Icon component names.
+ * Also supports direct icon names for modern plugins.
  */
 
 /**
@@ -17,12 +18,35 @@ export const emojiToIconName: Record<string, string> = {
   "⚙": "settings",
   "📊": "chart",
   "🔍": "search",
+  "🎯": "target",
+  "🔄": "repeat",
+  "🛡": "shield",
 };
 
 /**
- * Convert an emoji to an Icon component name.
- * Returns "database" as fallback for unknown emojis.
+ * Known icon names that can be used directly in plugin manifests.
  */
-export function getIconName(emoji: string): string {
-  return emojiToIconName[emoji] || "database";
+const validIconNames = new Set([
+  "bank", "wallet", "credit-card", "chart", "tag", "tags",
+  "target", "repeat", "shield",
+  "database", "refresh", "link", "zap",
+  "settings", "command", "search",
+  "palette", "info", "play", "arrow-right", "log-out", "beaker",
+  "check", "x", "chevron-down", "chevron-right",
+  "plus", "minus", "edit", "trash", "eye", "external-link", "pin",
+]);
+
+/**
+ * Convert an emoji or icon name to an Icon component name.
+ * - If input is a valid icon name, returns it directly
+ * - If input is an emoji, maps it to icon name
+ * - Returns "database" as fallback for unknown values
+ */
+export function getIconName(iconOrEmoji: string): string {
+  // If it's already a valid icon name, use it directly
+  if (validIconNames.has(iconOrEmoji)) {
+    return iconOrEmoji;
+  }
+  // Otherwise try emoji mapping
+  return emojiToIconName[iconOrEmoji] || "database";
 }
