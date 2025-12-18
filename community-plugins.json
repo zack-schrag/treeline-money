@@ -22,6 +22,13 @@
       "description": "Track emergency fund runway based on your actual expenses",
       "author": "Treeline",
       "repo": "https://github.com/zack-schrag/treeline-emergency-fund"
+    },
+    {
+      "id": "treeline-cashflow",
+      "name": "Cash Flow",
+      "description": "Plan your future balance by scheduling expected income and expenses",
+      "author": "Treeline",
+      "repo": "https://github.com/zack-schrag/treeline-cashflow"
     }
   ]
 }
