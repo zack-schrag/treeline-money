@@ -88,12 +88,62 @@ icon: "🎯"       // Also works - emoji
 
 **Available icons:** `target`, `repeat`, `shield`, `bank`, `wallet`, `credit-card`, `chart`, `tag`, `tags`, `database`, `refresh`, `link`, `zap`, `calendar`, `file-text`, `settings`, `plus`, `search`, `check`, `x`, `alert-triangle`, `info`, `help-circle`
 
+## Styling
+
+### Form Select Dropdowns
+All `<select>` elements MUST use this styling pattern for consistent appearance:
+
+```css
+select {
+  padding: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 8px;
+}
+```
+
+**Key requirements:**
+- `appearance: none` removes native browser styling
+- Custom SVG arrow via `background-image`
+- `padding-right: 28px` makes room for the arrow
+- Style `option` elements for dropdown menu consistency
+
+### CSS Variables
+Always use theme CSS variables:
+- `--bg-primary`, `--bg-secondary`, `--bg-tertiary` - Backgrounds
+- `--text-primary`, `--text-secondary`, `--text-muted` - Text
+- `--border-primary` - Borders
+- `--accent-primary`, `--accent-success`, `--accent-danger` - Accents
+- `--spacing-xs/sm/md/lg/xl` - Spacing
+- `--radius-sm/md/lg` - Border radius
+
 ## Don't Do
 
 - Don't write to tables not in your permissions (will throw error)
 - Don't forget dark mode support (test with both themes)
 - Don't bundle heavy dependencies (keep plugins lightweight)
 - Don't use `sdk.execute()` for SELECT queries (use `sdk.query()`)
+- Don't use native select styling (always use the pattern above)
 
 ## Releasing
 
