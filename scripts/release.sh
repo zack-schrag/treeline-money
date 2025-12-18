@@ -167,7 +167,14 @@ NOTES_FILE=$(mktemp)
 trap "rm -f $NOTES_FILE" EXIT
 
 # Check if claude CLI is available for AI-generated notes
-if command -v claude &> /dev/null; then
+CLAUDE_CMD=""
+if [ -x "$HOME/.claude/local/claude" ]; then
+    CLAUDE_CMD="$HOME/.claude/local/claude"
+elif command -v claude &> /dev/null; then
+    CLAUDE_CMD="claude"
+fi
+
+if [ -n "$CLAUDE_CMD" ]; then
     echo -e "${YELLOW}Using Claude to generate user-friendly release notes...${NC}"
 
     PROMPT="Generate concise, user-friendly release notes for Treeline (a personal finance app) version ${VERSION}.
@@ -184,11 +191,18 @@ Write release notes in this format:
 Keep it concise (max 10 bullet points). Focus on what users will notice, not implementation details.
 Skip version bump commits. If there are no user-facing changes, just write 'Minor improvements and bug fixes.'"
 
-    # Use claude CLI to generate notes (with timeout)
-    if timeout 30 claude -p "$PROMPT" > "$NOTES_FILE" 2>/dev/null; then
+    # Use claude CLI to generate notes
+    # Note: Using background job + wait with timeout for macOS compatibility
+    if ( "$CLAUDE_CMD" -p "$PROMPT" > "$NOTES_FILE" 2>/dev/null ) &
+       CLAUDE_PID=$!
+       ( sleep 60 && kill $CLAUDE_PID 2>/dev/null ) &
+       TIMEOUT_PID=$!
+       wait $CLAUDE_PID 2>/dev/null
+       kill $TIMEOUT_PID 2>/dev/null
+       [ -s "$NOTES_FILE" ]; then
         echo -e "${GREEN}✓ Generated AI release notes${NC}"
     else
-        echo -e "${YELLOW}Claude generation timed out, using commit list${NC}"
+        echo -e "${YELLOW}Claude generation failed or timed out, using commit list${NC}"
         echo "## What's New in ${VERSION}" > "$NOTES_FILE"
         echo "" >> "$NOTES_FILE"
         echo "${COMMITS}" >> "$NOTES_FILE"
