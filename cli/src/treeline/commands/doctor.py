@@ -199,6 +199,22 @@ def display_details(check, show_all: bool = True, currency: str = "USD") -> None
             tag_str = ", ".join(tags[:3]) + ("..." if len(tags) > 3 else "") if tags else "no tags"
             console.print(f"    [{theme.muted}]{detail['date']}  {format_currency(abs(amount), currency)}  {desc}  ({matches} categories, tags: {tag_str})[/{theme.muted}]")
 
+        elif check.name == "uncategorized_expenses":
+            # First item is summary
+            if "uncategorized_count" in detail:
+                uncategorized = detail.get('uncategorized_count', 0)
+                uncategorized_amt = detail.get('uncategorized_amount', 0)
+                total = detail.get('total_expense_count', 0)
+                total_amt = detail.get('total_expense_amount', 0)
+                console.print(f"    [{theme.muted}]{uncategorized} of {total} expenses ({format_currency(uncategorized_amt, currency)} of {format_currency(total_amt, currency)})[/{theme.muted}]")
+            else:
+                # Individual transaction
+                amount = detail['amount'] if detail['amount'] is not None else 0
+                desc = (detail['description'] or "")[:30]
+                tags = detail.get('tags', [])
+                tag_str = ", ".join(tags[:3]) + ("..." if len(tags) > 3 else "") if tags else "no tags"
+                console.print(f"    [{theme.muted}]{detail['date']}  {format_currency(abs(amount), currency)}  {desc}  (tags: {tag_str})[/{theme.muted}]")
+
         elif check.name == "integration_connectivity":
             integration = detail.get("integration", "unknown")
             message = detail.get("message", "Unknown issue")

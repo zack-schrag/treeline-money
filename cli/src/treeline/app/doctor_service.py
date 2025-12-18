@@ -47,6 +47,7 @@ class DoctorService:
             await self._check_date_sanity(),
             await self._check_untagged_transactions(),
             await self._check_budget_double_counting(),
+            await self._check_uncategorized_expenses(),
             await self._check_integration_connectivity(),
         ]
 
@@ -491,6 +492,170 @@ class DoctorService:
             name="budget_double_counting",
             status="warning",
             message=f"{count} transaction(s) match multiple budget categories ({format_currency(total_amount, currency, decimal_places=0)} affected)",
+            details=details,
+        )
+
+    async def _check_uncategorized_expenses(self) -> HealthCheck:
+        """Check for expense transactions not included in any budget category.
+
+        This helps identify spending that isn't being tracked in the budget.
+        Only checks the current month's budget if budget data exists.
+        """
+        # Check if budget table exists
+        table_check = await self.repository.execute_query("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_name = 'sys_plugin_budget_categories'
+        """)
+
+        if not table_check.success or not table_check.data.get("rows"):
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="pass",
+                message="No budget configured",
+            )
+
+        # Get current month
+        current_month = date.today().strftime("%Y-%m")
+
+        # Load expense categories for the current month
+        categories_result = await self.repository.execute_query(f"""
+            SELECT category_id, name, tags, require_all
+            FROM sys_plugin_budget_categories
+            WHERE month = '{current_month}' AND type = 'expense'
+        """)
+
+        if not categories_result.success:
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="error",
+                message=f"Failed to check: {categories_result.error}",
+            )
+
+        categories = categories_result.data.get("rows", [])
+        if not categories:
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="pass",
+                message="No budget categories for current month",
+            )
+
+        # Build conditions for matching ANY category
+        category_conditions = []
+        for cat in categories:
+            tags = cat[2] if cat[2] else []
+            require_all = cat[3]
+
+            if not tags:
+                continue
+
+            if require_all:
+                # All tags must be present
+                conditions = " AND ".join(
+                    f"list_contains(tags, '{tag}')" for tag in tags
+                )
+                category_conditions.append(f"({conditions})")
+            else:
+                # Any tag matches
+                tag_list = ", ".join(f"'{tag}'" for tag in tags)
+                category_conditions.append(f"list_has_any(tags, [{tag_list}])")
+
+        if not category_conditions:
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="pass",
+                message="No tag-based budget categories",
+            )
+
+        # Query to find expense transactions that match ZERO categories
+        match_any = " OR ".join(category_conditions)
+        query = f"""
+            SELECT
+                transaction_id,
+                transaction_date,
+                description,
+                amount,
+                tags
+            FROM sys_transactions
+            WHERE deleted_at IS NULL
+              AND strftime('%Y-%m', transaction_date) = '{current_month}'
+              AND amount < 0
+              AND NOT ({match_any})
+            ORDER BY ABS(amount) DESC
+            LIMIT 50
+        """
+
+        result = await self.repository.execute_query(query)
+
+        if not result.success:
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="error",
+                message=f"Failed to check: {result.error}",
+            )
+
+        rows = result.data.get("rows", [])
+        count = len(rows)
+
+        if count == 0:
+            return HealthCheck(
+                name="uncategorized_expenses",
+                status="pass",
+                message="All expenses are categorized in budget",
+            )
+
+        # Get total uncategorized amount
+        total_amount = sum(abs(float(row[3])) for row in rows if row[3])
+
+        # Get total expense count for context
+        total_query = f"""
+            SELECT COUNT(*), SUM(ABS(amount))
+            FROM sys_transactions
+            WHERE deleted_at IS NULL
+              AND strftime('%Y-%m', transaction_date) = '{current_month}'
+              AND amount < 0
+        """
+        total_result = await self.repository.execute_query(total_query)
+        total_count = 0
+        total_expense_amount = 0
+        if total_result.success and total_result.data.get("rows"):
+            row = total_result.data["rows"][0]
+            total_count = row[0] or 0
+            total_expense_amount = float(row[1]) if row[1] else 0
+
+        details = [
+            {
+                "transaction_id": row[0],
+                "date": str(row[1]) if row[1] else None,
+                "description": (row[2] or "")[:40],
+                "amount": float(row[3]) if row[3] else None,
+                "tags": row[4] if row[4] else [],
+            }
+            for row in rows[:20]  # Limit details
+        ]
+
+        # Add summary as first detail
+        details.insert(0, {
+            "uncategorized_count": count if count < 50 else "50+",
+            "uncategorized_amount": total_amount,
+            "total_expense_count": total_count,
+            "total_expense_amount": total_expense_amount,
+        })
+
+        # Get user's currency preference for formatting
+        from treeline.app.preferences_service import (
+            DEFAULT_CURRENCY,
+            PreferencesService,
+            format_currency,
+        )
+
+        prefs = PreferencesService()
+        currency_result = prefs.get_currency()
+        currency = currency_result.data if currency_result.success else DEFAULT_CURRENCY
+
+        return HealthCheck(
+            name="uncategorized_expenses",
+            status="warning",
+            message=f"{count}+ expense(s) not in any budget category ({format_currency(total_amount, currency, decimal_places=0)} untracked)",
             details=details,
         )
 
