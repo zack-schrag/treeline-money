@@ -34,6 +34,7 @@ const validIconNames = new Set([
   "palette", "info", "play", "arrow-right", "log-out", "beaker",
   "check", "x", "chevron-down", "chevron-right",
   "plus", "minus", "edit", "trash", "eye", "external-link", "pin",
+  "activity", "trending-up",
 ]);
 
 /**
