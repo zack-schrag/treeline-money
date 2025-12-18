@@ -150,11 +150,84 @@ git push origin main
 git push origin "${VERSION}"
 echo -e "${GREEN}✓ Pushed commits and tags${NC}"
 
-# Create GitHub release
+# Generate release notes
+echo -e "${YELLOW}Generating release notes...${NC}"
+
+# Get the previous tag
+PREV_TAG=$(git describe --tags --abbrev=0 "${VERSION}^" 2>/dev/null || echo "")
+
+if [ -n "$PREV_TAG" ]; then
+    COMMITS=$(git log --pretty=format:"- %s" "${PREV_TAG}..${VERSION}" 2>/dev/null | head -50)
+else
+    COMMITS=$(git log --pretty=format:"- %s" -20 2>/dev/null)
+fi
+
+# Create release notes file
+NOTES_FILE=$(mktemp)
+trap "rm -f $NOTES_FILE" EXIT
+
+# Check if claude CLI is available for AI-generated notes
+if command -v claude &> /dev/null; then
+    echo -e "${YELLOW}Using Claude to generate user-friendly release notes...${NC}"
+
+    PROMPT="Generate concise, user-friendly release notes for Treeline (a personal finance app) version ${VERSION}.
+
+Here are the commits since the last release:
+${COMMITS}
+
+Write release notes in this format:
+## What's New in ${VERSION}
+
+### [Category like 'Bug Fixes', 'New Features', 'Improvements']
+- Brief, user-friendly description of change (no technical jargon)
+
+Keep it concise (max 10 bullet points). Focus on what users will notice, not implementation details.
+Skip version bump commits. If there are no user-facing changes, just write 'Minor improvements and bug fixes.'"
+
+    # Use claude CLI to generate notes (with timeout)
+    if timeout 30 claude -p "$PROMPT" > "$NOTES_FILE" 2>/dev/null; then
+        echo -e "${GREEN}✓ Generated AI release notes${NC}"
+    else
+        echo -e "${YELLOW}Claude generation timed out, using commit list${NC}"
+        echo "## What's New in ${VERSION}" > "$NOTES_FILE"
+        echo "" >> "$NOTES_FILE"
+        echo "${COMMITS}" >> "$NOTES_FILE"
+    fi
+else
+    echo -e "${YELLOW}Claude CLI not found, using commit list${NC}"
+    echo "## What's New in ${VERSION}" > "$NOTES_FILE"
+    echo "" >> "$NOTES_FILE"
+    echo "${COMMITS}" >> "$NOTES_FILE"
+fi
+
+echo ""
+echo -e "${YELLOW}Generated release notes:${NC}"
+echo "----------------------------------------"
+cat "$NOTES_FILE"
+echo "----------------------------------------"
+echo ""
+
+# Ask user to confirm or edit
+read -p "Proceed with these release notes? (y/n/e to edit): " CONFIRM
+case $CONFIRM in
+    [eE])
+        # Open in default editor
+        ${EDITOR:-nano} "$NOTES_FILE"
+        ;;
+    [yY])
+        # Continue
+        ;;
+    *)
+        echo -e "${RED}Release cancelled${NC}"
+        exit 1
+        ;;
+esac
+
+# Create GitHub release with generated notes
 echo -e "${YELLOW}Creating GitHub release...${NC}"
 gh release create "${VERSION}" \
     --title "Release ${VERSION}" \
-    --generate-notes \
+    --notes-file "$NOTES_FILE" \
     --verify-tag
 
 echo ""

@@ -1,16 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { getVersion } from "@tauri-apps/api/app";
   import Shell from "./lib/core/Shell.svelte";
   import WelcomeModal from "./lib/core/WelcomeModal.svelte";
   import UnlockModal from "./lib/core/UnlockModal.svelte";
+  import WhatsNewModal from "./lib/core/WhatsNewModal.svelte";
   import { initializePlugins } from "./lib/plugins";
-  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, registry, activityStore, tryAutoUnlock, getEncryptionStatus } from "./lib/sdk";
+  import { themeManager, isSyncNeeded, runSync, toast, getAppSetting, setAppSetting, registry, activityStore, tryAutoUnlock, getEncryptionStatus } from "./lib/sdk";
   import { loadCurrency } from "./lib/shared";
 
   let isLoading = $state(true);
   let loadingStatus = $state("Initializing...");
   let showWelcome = $state(false);
   let showUnlock = $state(false);
+  let showWhatsNew = $state(false);
   let openSettingsAfterWelcome = $state(false);
 
   onMount(async () => {
@@ -59,6 +62,9 @@
       if (!hasCompletedOnboarding) {
         showWelcome = true;
       } else {
+        // Check if we should show "What's New" (version changed since last seen)
+        await checkForWhatsNew();
+
         // Check if sync is needed (after UI is loaded so user sees the app)
         checkAndRunSync();
       }
@@ -89,6 +95,29 @@
       // Emit refresh to update views
       registry.emit("data:refresh");
     }
+  }
+
+  async function checkForWhatsNew() {
+    try {
+      const currentVersion = await getVersion();
+      const lastSeenVersion = await getAppSetting("lastSeenVersion");
+
+      // Show "What's New" if:
+      // 1. User has seen a previous version (not first launch)
+      // 2. Current version is different from last seen
+      if (lastSeenVersion && lastSeenVersion !== currentVersion) {
+        showWhatsNew = true;
+      } else if (!lastSeenVersion) {
+        // First time seeing version tracking - record current version without showing modal
+        await setAppSetting("lastSeenVersion", currentVersion);
+      }
+    } catch (e) {
+      console.error("Failed to check for what's new:", e);
+    }
+  }
+
+  function handleWhatsNewClose() {
+    showWhatsNew = false;
   }
 
   async function checkAndRunSync() {
@@ -152,6 +181,9 @@
   <Shell />
   {#if showWelcome}
     <WelcomeModal onComplete={handleWelcomeComplete} />
+  {/if}
+  {#if showWhatsNew}
+    <WhatsNewModal onclose={handleWhatsNewClose} />
   {/if}
 {/if}
 
