@@ -59,21 +59,24 @@ class Container:
         self._instances: Dict[str, Any] = {}
         self._password_callback = password_callback
         self._encryption_key: str | None = None
-
-        # Initialize encryption if database is encrypted
-        self._init_encryption()
+        self._encryption_initialized = False
 
     @property
     def is_demo_mode(self) -> bool:
         """Check if this container is configured for demo mode."""
         return self.db_filename == "demo.duckdb"
 
-    def _init_encryption(self) -> None:
-        """Initialize encryption key if database is encrypted.
+    def _ensure_encryption_initialized(self) -> None:
+        """Lazily initialize encryption key if database is encrypted.
 
+        This is called automatically when accessing services that need database access.
         Demo mode databases are never encrypted. For encrypted databases,
         gets password from TL_DB_PASSWORD env var or password_callback.
         """
+        if self._encryption_initialized:
+            return
+        self._encryption_initialized = True
+
         # Demo mode is never encrypted
         if self.is_demo_mode:
             return
@@ -131,6 +134,8 @@ class Container:
     def repository(self) -> Repository:
         """Get the repository instance."""
         if "repository" not in self._instances:
+            # Initialize encryption lazily when repository is first accessed
+            self._ensure_encryption_initialized()
             self._instances["repository"] = DuckDBRepository(
                 self.db_file_path,
                 encryption_key=self._encryption_key,
@@ -166,7 +171,9 @@ class Container:
     def integration_service(self) -> IntegrationService:
         """Get the integration service instance."""
         if "integration_service" not in self._instances:
-            self._instances["integration_service"] = IntegrationService(self.repository())
+            self._instances["integration_service"] = IntegrationService(
+                self.repository()
+            )
         return self._instances["integration_service"]
 
     def get_integration_provider(self, integration_name: str) -> IntegrationProvider:

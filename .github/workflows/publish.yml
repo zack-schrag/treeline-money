@@ -306,15 +306,15 @@ jobs:
       - name: Generate and upload latest.json for auto-updater
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: ${{ github.event.release.body }}
         run: |
           VERSION="${{ github.event.release.tag_name }}"
           # Remove 'v' prefix if present
           VERSION_NUM="${VERSION#v}"
           REPO="${{ github.repository }}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          NOTES="${{ github.event.release.body }}"
-          # Escape notes for JSON
-          NOTES_ESCAPED=$(echo "$NOTES" | jq -Rs '.')
+          # Escape notes for JSON (using env var to handle multiline properly)
+          NOTES_ESCAPED=$(echo "$RELEASE_NOTES" | jq -Rs '.')
 
           # Read signatures
           LINUX_SIG=""
