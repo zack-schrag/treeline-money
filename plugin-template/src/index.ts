@@ -22,10 +22,11 @@ export const plugin: Plugin = {
     console.log("Hello World plugin activated!");
 
     // Register the view with a mount function
+    // Use Lucide icon names like "target", "shield", "repeat", etc.
     context.registerView({
       id: "hello-world-view",
       name: "Hello World",
-      icon: "👋",
+      icon: "zap",
       mount: (target: HTMLElement, props: Record<string, any>) => {
         // Mount the Svelte component using our bundled Svelte runtime
         const instance = mount(HelloWorldView, {
@@ -45,7 +46,7 @@ export const plugin: Plugin = {
       sectionId: "main",
       id: "hello-world",
       label: "Hello World",
-      icon: "👋",
+      icon: "zap",  // Lucide icon name (or emoji like "👋")
       viewId: "hello-world-view",
     });
 

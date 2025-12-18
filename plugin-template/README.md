@@ -43,6 +43,23 @@ my-plugin/
 └── package.json
 ```
 
+## Icons
+
+Plugins can use Lucide-style icon names for sidebar items and views:
+
+```typescript
+context.registerSidebarItem({
+  id: "my-plugin",
+  label: "My Plugin",
+  icon: "target",  // Use icon name instead of emoji
+  viewId: "my-plugin-view",
+});
+```
+
+**Available icons:** `target`, `repeat`, `shield`, `bank`, `wallet`, `credit-card`, `chart`, `tag`, `tags`, `database`, `refresh`, `link`, `zap`, `calendar`, `file-text`, `settings`, `plus`, `search`, `check`, `x`, `alert-triangle`, `info`, `help-circle`, `arrow-up`, `arrow-down`, `arrow-left`, `arrow-right`, `external-link`, `download`, `upload`, `trash`, `edit`, `copy`, `filter`, `sort`
+
+Emojis also work but icon names are preferred for visual consistency.
+
 ## Releasing
 
 When ready to share your plugin:

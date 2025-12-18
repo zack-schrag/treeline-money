@@ -77,6 +77,17 @@ try {
 }
 ```
 
+## Icons
+
+Use Lucide icon names for sidebar items and views:
+
+```typescript
+icon: "target"   // Preferred - icon name
+icon: "🎯"       // Also works - emoji
+```
+
+**Available icons:** `target`, `repeat`, `shield`, `bank`, `wallet`, `credit-card`, `chart`, `tag`, `tags`, `database`, `refresh`, `link`, `zap`, `calendar`, `file-text`, `settings`, `plus`, `search`, `check`, `x`, `alert-triangle`, `info`, `help-circle`
+
 ## Don't Do
 
 - Don't write to tables not in your permissions (will throw error)
