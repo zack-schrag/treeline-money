@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getVersion } from "@tauri-apps/api/app";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { Modal } from "../shared";
   import { getAppSetting, setAppSetting } from "../sdk/settings";
 
@@ -12,6 +13,7 @@
 
   let appVersion = $state<string>("");
   let releaseNotes = $state<string>("");
+  let releaseUrl = $state<string>("");
   let isLoading = $state(true);
   let error = $state<string | null>(null);
 
@@ -36,16 +38,26 @@
 
       if (response.ok) {
         const data = await response.json();
-        releaseNotes = data.body || "No release notes available.";
+        releaseUrl = data.html_url || "";
+        let notes = data.body || "";
+
+        // Clean up GitHub's auto-generated "Full Changelog" link
+        notes = notes.replace(/\*\*Full Changelog\*\*:.*$/gm, "").trim();
+
+        if (!notes) {
+          notes = "Bug fixes and improvements.";
+        }
+
+        releaseNotes = notes;
       } else if (response.status === 404) {
         // Version might not have a release yet (dev build)
-        releaseNotes = "You're running the latest version!";
+        releaseNotes = "You're running a development build.";
       } else {
         throw new Error(`HTTP ${response.status}`);
       }
     } catch (e) {
       console.error("Failed to fetch release notes:", e);
-      releaseNotes = "Unable to fetch release notes. Check your internet connection.";
+      releaseNotes = "Unable to fetch release notes.";
     }
   }
 
@@ -53,6 +65,12 @@
     // Mark this version as seen
     await setAppSetting("lastSeenVersion", appVersion);
     onclose();
+  }
+
+  function handleViewOnGitHub() {
+    if (releaseUrl) {
+      openUrl(releaseUrl);
+    }
   }
 
   // Simple markdown-like rendering (headers and bullets)
@@ -68,12 +86,16 @@
       .replace(/(<li>.*<\/li>\n?)+/g, '<ul class="notes-list">$&</ul>')
       // Convert **bold** to strong
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      // Convert line breaks
-      .replace(/\n/g, '');
+      // Convert URLs to links
+      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" class="notes-link">$1</a>')
+      // Preserve paragraph breaks
+      .replace(/\n\n/g, '</p><p>')
+      // Convert remaining line breaks
+      .replace(/\n/g, '<br>');
   }
 </script>
 
-<Modal open={true} title="What's New" onclose={handleClose} width="500px">
+<Modal open={true} title="What's New" onclose={handleClose} width="520px">
   <div class="whats-new-content">
     {#if isLoading}
       <div class="loading">
@@ -83,9 +105,16 @@
     {:else if error}
       <div class="error">{error}</div>
     {:else}
-      <div class="version-badge">v{appVersion}</div>
+      <div class="version-header">
+        <span class="version-badge">v{appVersion}</span>
+        {#if releaseUrl}
+          <button class="link-btn" onclick={handleViewOnGitHub}>
+            View on GitHub
+          </button>
+        {/if}
+      </div>
       <div class="release-notes">
-        {@html renderNotes(releaseNotes)}
+        <p>{@html renderNotes(releaseNotes)}</p>
       </div>
     {/if}
   </div>
@@ -97,7 +126,8 @@
 
 <style>
   .whats-new-content {
-    min-height: 150px;
+    min-height: 120px;
+    padding: var(--spacing-md) var(--spacing-lg);
   }
 
   .loading {
@@ -131,41 +161,69 @@
     text-align: center;
   }
 
+  .version-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+  }
+
   .version-badge {
     display: inline-block;
-    padding: 4px 12px;
+    padding: 6px 14px;
     background: var(--accent-primary);
     color: white;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
-    border-radius: 12px;
-    margin-bottom: var(--spacing-md);
+    border-radius: 16px;
+  }
+
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .link-btn:hover {
+    color: var(--accent-primary);
   }
 
   .release-notes {
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--text-primary);
   }
 
+  .release-notes :global(p) {
+    margin: 0;
+  }
+
   .release-notes :global(h2.notes-title) {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     margin: 0 0 var(--spacing-md) 0;
     color: var(--text-primary);
   }
 
   .release-notes :global(h3.notes-section) {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
-    margin: var(--spacing-md) 0 var(--spacing-sm) 0;
-    color: var(--text-secondary);
+    margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
+    color: var(--accent-primary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
+  .release-notes :global(h3.notes-section:first-child) {
+    margin-top: 0;
+  }
+
   .release-notes :global(ul.notes-list) {
-    margin: 0 0 var(--spacing-md) 0;
+    margin: 0 0 var(--spacing-sm) 0;
     padding-left: var(--spacing-lg);
   }
 
@@ -174,8 +232,18 @@
     color: var(--text-primary);
   }
 
+  .release-notes :global(a.notes-link) {
+    color: var(--accent-primary);
+    text-decoration: none;
+    word-break: break-all;
+  }
+
+  .release-notes :global(a.notes-link:hover) {
+    text-decoration: underline;
+  }
+
   .btn {
-    padding: 8px 16px;
+    padding: 8px 20px;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 500;
