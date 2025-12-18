@@ -7,20 +7,11 @@
   // Collapsed state
   let isCollapsed = $state(false);
 
-  // Custom order for sidebar items (persisted)
-  let sidebarOrder = $state<string[]>([]);
-
   onMount(async () => {
     // Load collapsed state from settings
     const collapsed = await getAppSetting("sidebarCollapsed");
     if (collapsed !== undefined) {
       isCollapsed = collapsed;
-    }
-
-    // Load custom sidebar order
-    const order = await getAppSetting("sidebarOrder");
-    if (order && Array.isArray(order)) {
-      sidebarOrder = order;
     }
   });
 
@@ -43,20 +34,7 @@
 
   function getItemsForSection(sectionId: string): SidebarItem[] {
     // Filter out settings - it's now in the footer as a modal
-    const sectionItems = items.filter((item) => item.sectionId === sectionId && item.viewId !== "settings");
-
-    // Apply custom order if available
-    if (sidebarOrder.length > 0) {
-      return sectionItems.sort((a, b) => {
-        const aIndex = sidebarOrder.indexOf(a.id);
-        const bIndex = sidebarOrder.indexOf(b.id);
-        // Items not in order go to the end
-        const aOrder = aIndex === -1 ? 999 : aIndex;
-        const bOrder = bIndex === -1 ? 999 : bIndex;
-        return aOrder - bOrder;
-      });
-    }
-    return sectionItems;
+    return items.filter((item) => item.sectionId === sectionId && item.viewId !== "settings");
   }
 
   function handleItemClick(viewId: string) {
@@ -65,77 +43,6 @@
 
   // Track active view for highlighting
   let activeViewId = $derived(registry.activeTab?.viewId ?? null);
-
-  // Drag and drop state
-  let draggedItemId = $state<string | null>(null);
-  let dragOverItemId = $state<string | null>(null);
-
-  function handleDragStart(e: DragEvent, itemId: string) {
-    draggedItemId = itemId;
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", itemId);
-    }
-  }
-
-  function handleDragOver(e: DragEvent, itemId: string) {
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = "move";
-    }
-    if (draggedItemId && draggedItemId !== itemId) {
-      dragOverItemId = itemId;
-    }
-  }
-
-  function handleDragLeave(e: DragEvent, itemId: string) {
-    // Only clear if we're actually leaving the element (not entering a child)
-    const relatedTarget = e.relatedTarget as Node | null;
-    const currentTarget = e.currentTarget as Node | null;
-    if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
-      return; // Still inside the same element
-    }
-    if (dragOverItemId === itemId) {
-      dragOverItemId = null;
-    }
-  }
-
-  function handleDragEnd() {
-    draggedItemId = null;
-    dragOverItemId = null;
-  }
-
-  async function handleDrop(e: DragEvent, targetItemId: string, sectionId: string) {
-    e.preventDefault();
-    if (!draggedItemId || draggedItemId === targetItemId) {
-      dragOverItemId = null;
-      return;
-    }
-
-    // Get current items in section
-    const sectionItems = getItemsForSection(sectionId);
-    const itemIds = sectionItems.map(item => item.id);
-
-    // Find positions
-    const draggedIndex = itemIds.indexOf(draggedItemId);
-    const targetIndex = itemIds.indexOf(targetItemId);
-
-    if (draggedIndex === -1 || targetIndex === -1) {
-      dragOverItemId = null;
-      return;
-    }
-
-    // Reorder
-    itemIds.splice(draggedIndex, 1);
-    itemIds.splice(targetIndex, 0, draggedItemId);
-
-    // Update and persist order
-    sidebarOrder = itemIds;
-    await setAppSetting("sidebarOrder", itemIds);
-
-    draggedItemId = null;
-    dragOverItemId = null;
-  }
 </script>
 
 <aside class="sidebar" class:collapsed={isCollapsed}>
@@ -153,7 +60,7 @@
     {/if}
   </div>
 
-  <nav class="sidebar-nav" class:dragging={draggedItemId !== null}>
+  <nav class="sidebar-nav">
     {#each sections as section}
       <div class="sidebar-section">
         {#if !isCollapsed}
@@ -161,16 +68,7 @@
         {/if}
         <ul class="section-items">
           {#each getItemsForSection(section.id) as item (item.id)}
-            <li
-              draggable="true"
-              ondragstart={(e) => handleDragStart(e, item.id)}
-              ondragover={(e) => handleDragOver(e, item.id)}
-              ondragleave={(e) => handleDragLeave(e, item.id)}
-              ondragend={handleDragEnd}
-              ondrop={(e) => handleDrop(e, item.id, section.id)}
-              class:drag-over={dragOverItemId === item.id}
-              class:dragging={draggedItemId === item.id}
-            >
+            <li>
               <button
                 class="sidebar-item"
                 class:active={activeViewId === item.viewId}
@@ -325,34 +223,6 @@
     list-style: none;
     margin: 0;
     padding: 0;
-  }
-
-  .section-items li {
-    transition: transform 0.1s ease, opacity 0.1s ease;
-  }
-
-  .section-items li.dragging {
-    opacity: 0.5;
-  }
-
-  .section-items li.drag-over {
-    position: relative;
-  }
-
-  .section-items li.drag-over::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: var(--spacing-md);
-    right: var(--spacing-md);
-    height: 2px;
-    background: var(--accent-primary);
-    border-radius: 1px;
-  }
-
-  /* Prevent buttons from intercepting drag events during drag */
-  .sidebar-nav.dragging .sidebar-item {
-    pointer-events: none;
   }
 
   .sidebar-item {
