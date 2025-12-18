@@ -32,6 +32,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getCorePluginManifests } from "../plugins";
   import { checkForUpdate, downloadAndInstall, restartApp, subscribeToUpdates, type UpdateState } from "../sdk/updater";
+  import { marked } from "marked";
 
   interface Props {
     isOpen: boolean;
@@ -1681,7 +1682,7 @@
           {:else if pluginReadme}
             <div class="plugin-readme">
               <h4 class="readme-title">README</h4>
-              <pre class="readme-content">{pluginReadme}</pre>
+              <div class="readme-content">{@html marked(pluginReadme)}</div>
             </div>
           {/if}
         </div>
@@ -2942,15 +2943,74 @@
   }
 
   .readme-content {
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.6;
     color: var(--text-secondary);
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    margin: 0;
     max-height: 300px;
     overflow-y: auto;
+  }
+
+  .readme-content :global(h1),
+  .readme-content :global(h2),
+  .readme-content :global(h3),
+  .readme-content :global(h4) {
+    color: var(--text-primary);
+    margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+    font-weight: 600;
+  }
+
+  .readme-content :global(h1) { font-size: 18px; }
+  .readme-content :global(h2) { font-size: 16px; }
+  .readme-content :global(h3) { font-size: 14px; }
+  .readme-content :global(h4) { font-size: 13px; }
+
+  .readme-content :global(h1:first-child),
+  .readme-content :global(h2:first-child),
+  .readme-content :global(h3:first-child) {
+    margin-top: 0;
+  }
+
+  .readme-content :global(p) {
+    margin: 0 0 var(--spacing-sm) 0;
+  }
+
+  .readme-content :global(ul),
+  .readme-content :global(ol) {
+    margin: 0 0 var(--spacing-sm) 0;
+    padding-left: var(--spacing-lg);
+  }
+
+  .readme-content :global(li) {
+    margin-bottom: 4px;
+  }
+
+  .readme-content :global(code) {
     font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+
+  .readme-content :global(pre) {
+    background: var(--bg-primary);
+    padding: var(--spacing-sm);
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0 0 var(--spacing-sm) 0;
+  }
+
+  .readme-content :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .readme-content :global(a) {
+    color: var(--accent-primary);
+  }
+
+  .readme-content :global(a:hover) {
+    text-decoration: underline;
   }
 
   /* Encryption/Security styles */
