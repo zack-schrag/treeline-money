@@ -131,6 +131,19 @@ class PluginRegistry {
     this.notify();
   }
 
+  /**
+   * Update the badge count for a sidebar item
+   * @param itemId The sidebar item ID
+   * @param count The badge count (0 or undefined to hide badge)
+   */
+  updateSidebarBadge(itemId: string, count: number | undefined) {
+    const item = this._sidebarItems.find((i) => i.id === itemId);
+    if (item) {
+      item.badge = count && count > 0 ? count : undefined;
+      this.notify();
+    }
+  }
+
   registerView(view: ViewDefinition, pluginId?: string) {
     this._views.set(view.id, view);
     if (pluginId) {

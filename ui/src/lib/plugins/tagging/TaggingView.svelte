@@ -1139,6 +1139,9 @@
       // Refresh global stats after persisting
       await loadGlobalStats();
 
+      // Notify other components (e.g., sidebar badge) of the change
+      registry.emit("data:refresh");
+
       // Update hasAnyTags flag if we just added tags
       if (tagAdded && txns.some(t => t.tags.length > 0)) {
         hasAnyTags = true;

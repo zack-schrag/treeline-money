@@ -2,15 +2,25 @@
   import { onMount } from "svelte";
   import { registry, getAppSetting, setAppSetting, modKey } from "../sdk";
   import { Icon, getIconName } from "../shared";
+  import type { SidebarItem } from "../sdk/types";
 
   // Collapsed state
   let isCollapsed = $state(false);
+
+  // Custom order for sidebar items (persisted)
+  let sidebarOrder = $state<string[]>([]);
 
   onMount(async () => {
     // Load collapsed state from settings
     const collapsed = await getAppSetting("sidebarCollapsed");
     if (collapsed !== undefined) {
       isCollapsed = collapsed;
+    }
+
+    // Load custom sidebar order
+    const order = await getAppSetting("sidebarOrder");
+    if (order && Array.isArray(order)) {
+      sidebarOrder = order;
     }
   });
 
@@ -31,9 +41,22 @@
     });
   });
 
-  function getItemsForSection(sectionId: string) {
+  function getItemsForSection(sectionId: string): SidebarItem[] {
     // Filter out settings - it's now in the footer as a modal
-    return items.filter((item) => item.sectionId === sectionId && item.viewId !== "settings");
+    const sectionItems = items.filter((item) => item.sectionId === sectionId && item.viewId !== "settings");
+
+    // Apply custom order if available
+    if (sidebarOrder.length > 0) {
+      return sectionItems.sort((a, b) => {
+        const aIndex = sidebarOrder.indexOf(a.id);
+        const bIndex = sidebarOrder.indexOf(b.id);
+        // Items not in order go to the end
+        const aOrder = aIndex === -1 ? 999 : aIndex;
+        const bOrder = bIndex === -1 ? 999 : bIndex;
+        return aOrder - bOrder;
+      });
+    }
+    return sectionItems;
   }
 
   function handleItemClick(viewId: string) {
@@ -42,6 +65,66 @@
 
   // Track active view for highlighting
   let activeViewId = $derived(registry.activeTab?.viewId ?? null);
+
+  // Drag and drop state
+  let draggedItemId = $state<string | null>(null);
+  let dragOverItemId = $state<string | null>(null);
+
+  function handleDragStart(e: DragEvent, itemId: string) {
+    draggedItemId = itemId;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", itemId);
+    }
+  }
+
+  function handleDragOver(e: DragEvent, itemId: string) {
+    e.preventDefault();
+    if (draggedItemId && draggedItemId !== itemId) {
+      dragOverItemId = itemId;
+    }
+  }
+
+  function handleDragLeave() {
+    dragOverItemId = null;
+  }
+
+  function handleDragEnd() {
+    draggedItemId = null;
+    dragOverItemId = null;
+  }
+
+  async function handleDrop(e: DragEvent, targetItemId: string, sectionId: string) {
+    e.preventDefault();
+    if (!draggedItemId || draggedItemId === targetItemId) {
+      dragOverItemId = null;
+      return;
+    }
+
+    // Get current items in section
+    const sectionItems = getItemsForSection(sectionId);
+    const itemIds = sectionItems.map(item => item.id);
+
+    // Find positions
+    const draggedIndex = itemIds.indexOf(draggedItemId);
+    const targetIndex = itemIds.indexOf(targetItemId);
+
+    if (draggedIndex === -1 || targetIndex === -1) {
+      dragOverItemId = null;
+      return;
+    }
+
+    // Reorder
+    itemIds.splice(draggedIndex, 1);
+    itemIds.splice(targetIndex, 0, draggedItemId);
+
+    // Update and persist order
+    sidebarOrder = itemIds;
+    await setAppSetting("sidebarOrder", itemIds);
+
+    draggedItemId = null;
+    dragOverItemId = null;
+  }
 </script>
 
 <aside class="sidebar" class:collapsed={isCollapsed}>
@@ -66,8 +149,17 @@
           <div class="section-title">{section.title}</div>
         {/if}
         <ul class="section-items">
-          {#each getItemsForSection(section.id) as item}
-            <li>
+          {#each getItemsForSection(section.id) as item (item.id)}
+            <li
+              draggable="true"
+              ondragstart={(e) => handleDragStart(e, item.id)}
+              ondragover={(e) => handleDragOver(e, item.id)}
+              ondragleave={handleDragLeave}
+              ondragend={handleDragEnd}
+              ondrop={(e) => handleDrop(e, item.id, section.id)}
+              class:drag-over={dragOverItemId === item.id}
+              class:dragging={draggedItemId === item.id}
+            >
               <button
                 class="sidebar-item"
                 class:active={activeViewId === item.viewId}
@@ -76,10 +168,15 @@
               >
                 <span class="item-icon">
                   <Icon name={getIconName(item.icon)} size={16} />
+                  {#if item.badge && isCollapsed}
+                    <span class="badge badge-collapsed">{item.badge > 99 ? '99+' : item.badge}</span>
+                  {/if}
                 </span>
                 {#if !isCollapsed}
                   <span class="item-label">{item.label}</span>
-                  {#if item.shortcut}
+                  {#if item.badge}
+                    <span class="badge">{item.badge > 99 ? '99+' : item.badge}</span>
+                  {:else if item.shortcut}
                     <span class="item-shortcut">{item.shortcut}</span>
                   {/if}
                 {/if}
@@ -219,6 +316,18 @@
     padding: 0;
   }
 
+  .section-items li {
+    transition: transform 0.1s ease, opacity 0.1s ease;
+  }
+
+  .section-items li.dragging {
+    opacity: 0.5;
+  }
+
+  .section-items li.drag-over {
+    border-top: 2px solid var(--accent-primary);
+  }
+
   .sidebar-item {
     width: 100%;
     display: flex;
@@ -257,6 +366,7 @@
   }
 
   .item-icon {
+    position: relative;
     width: 18px;
     text-align: center;
     flex-shrink: 0;
@@ -273,6 +383,31 @@
     font-size: 12px;
     color: var(--text-muted);
     font-family: var(--font-mono);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    background: var(--accent-primary);
+    border-radius: 9px;
+    font-family: var(--font-mono);
+  }
+
+  .badge-collapsed {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 9px;
   }
 
   .sidebar-footer {

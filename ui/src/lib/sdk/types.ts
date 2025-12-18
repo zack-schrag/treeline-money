@@ -81,6 +81,9 @@ export interface SidebarItem {
 
   /** Sort order within section */
   order?: number;
+
+  /** Optional badge count (e.g., unread count). Set via registry.updateSidebarBadge() */
+  badge?: number;
 }
 
 // ============================================================================

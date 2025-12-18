@@ -99,6 +99,18 @@ export async function initializePlugins(): Promise<void> {
     order: 1,
   });
 
+  // Register community plugins section (only if we have external plugins)
+  if (externalPlugins.length > 0) {
+    registry.registerSidebarSection({
+      id: "community",
+      title: "Plugins",
+      order: 10,
+    });
+  }
+
+  // Track which plugins are external
+  const externalPluginIds = new Set(externalPlugins.map(p => p.manifest.id));
+
   for (const plugin of allPlugins) {
     // Skip disabled plugins
     if (disabledPlugins.includes(plugin.manifest.id)) {
@@ -113,10 +125,16 @@ export async function initializePlugins(): Promise<void> {
       const writeTables = plugin.manifest.permissions?.tables?.write ?? [];
       registry.setPluginPermissions(pluginId, writeTables);
 
+      // Check if this is an external (community) plugin
+      const isExternal = externalPluginIds.has(pluginId);
+
       // Create context with plugin API
       const context: PluginContext = {
         registerSidebarSection: registry.registerSidebarSection.bind(registry),
-        registerSidebarItem: registry.registerSidebarItem.bind(registry),
+        // External plugins get their sidebar items redirected to "community" section
+        registerSidebarItem: isExternal
+          ? (item) => registry.registerSidebarItem({ ...item, sectionId: "community" })
+          : registry.registerSidebarItem.bind(registry),
         // Pass pluginId to registerView for permission tracking
         registerView: (view) => registry.registerView(view, pluginId),
         registerCommand: registry.registerCommand.bind(registry),
