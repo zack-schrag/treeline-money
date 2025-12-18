@@ -42,7 +42,7 @@ async def test_create_backup_success(temp_backup_dir, temp_db_file):
 
     backup = result.data
     assert backup.name.startswith("treeline-")
-    assert backup.name.endswith(".duckdb")
+    assert backup.name.endswith(".zip")
     assert backup.size_bytes > 0
     assert backup.created_at is not None
     assert backup.created_at.tzinfo is not None  # Timezone-aware
@@ -243,12 +243,12 @@ async def test_backup_name_format(temp_backup_dir, temp_db_file):
     assert result.success
     backup_name = result.data.name
 
-    # Should match pattern: treeline-YYYY-MM-DDTHH-MM-SS-ffffff.duckdb
+    # Should match pattern: treeline-YYYY-MM-DDTHH-MM-SS-ffffff.zip
     assert backup_name.startswith("treeline-")
-    assert backup_name.endswith(".duckdb")
+    assert backup_name.endswith(".zip")
 
     # Extract and validate timestamp portion
-    timestamp_str = backup_name[9:-7]  # Remove "treeline-" and ".duckdb"
+    timestamp_str = backup_name[9:-4]  # Remove "treeline-" and ".zip"
     # Should be parseable as datetime with microseconds
     parsed = datetime.strptime(timestamp_str, "%Y-%m-%dT%H-%M-%S-%f")
     assert parsed is not None

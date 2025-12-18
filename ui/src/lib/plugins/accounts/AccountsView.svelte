@@ -221,7 +221,10 @@
   });
 
   function formatDateShort(dateStr: string): string {
-    const date = new Date(dateStr);
+    // Parse date parts manually to avoid timezone issues with date-only strings
+    // new Date("2025-11-29") interprets as UTC, which shows as previous day in US timezones
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const date = new Date(year, month - 1, day); // Creates local date
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
 

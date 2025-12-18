@@ -254,7 +254,10 @@ class Container:
             else:
                 backup_dir = Path(self.treeline_dir) / "backups"
 
-            self._instances["backup_storage_provider"] = LocalBackupStorage(backup_dir)
+            self._instances["backup_storage_provider"] = LocalBackupStorage(
+                backup_dir=backup_dir,
+                treeline_dir=Path(self.treeline_dir),
+            )
         return self._instances["backup_storage_provider"]
 
     def backup_service(self, max_backups: int = DEFAULT_MAX_BACKUPS) -> BackupService:
