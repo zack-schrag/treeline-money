@@ -5474,7 +5474,7 @@ dependencies = [
 
 [[package]]
 name = "treeline"
-version = "0.1.47"
+version = "0.1.48"
 dependencies = [
  "argon2",
  "arrow",
