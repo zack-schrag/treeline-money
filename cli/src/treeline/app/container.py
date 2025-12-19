@@ -92,7 +92,13 @@ class Container:
             if not metadata.get("encrypted", False):
                 return
 
-            # Database is encrypted - need password
+            # Database is encrypted - check for pre-computed key first (from UI)
+            precomputed_key = self._get_precomputed_key()
+            if precomputed_key:
+                self._encryption_key = precomputed_key
+                return
+
+            # Otherwise, need password to derive key
             password = self._get_password()
             if not password:
                 raise RuntimeError(
@@ -130,6 +136,14 @@ class Container:
                 return None
 
         return None
+
+    def _get_precomputed_key(self) -> str | None:
+        """Get pre-computed encryption key from environment variable.
+
+        This is used when the UI has already derived the key and wants to
+        pass it to CLI commands without re-deriving.
+        """
+        return os.environ.get("TL_DB_KEY")
 
     def repository(self) -> Repository:
         """Get the repository instance."""

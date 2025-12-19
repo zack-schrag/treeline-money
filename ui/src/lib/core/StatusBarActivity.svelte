@@ -1,8 +1,10 @@
 <script lang="ts">
   import { activityStore } from "../sdk/activity.svelte";
 
-  let currentActivity = $derived(activityStore.currentActivity);
-  let activityCount = $derived(activityStore.activities.length);
+  // Access activities array directly for proper Svelte 5 reactivity tracking
+  let activities = $derived(activityStore.activities);
+  let currentActivity = $derived(activities[0] ?? null);
+  let activityCount = $derived(activities.length);
 </script>
 
 {#if currentActivity}

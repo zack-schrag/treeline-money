@@ -27,21 +27,35 @@ interface ExternalPluginInfo {
     description: string;
     author: string;
     main: string;
+    permissions?: {
+      tables?: {
+        read?: string[];
+        write?: string[];
+        create?: string[];
+      };
+    };
   };
   path: string;
 }
 
+interface LoadedExternalPlugin {
+  plugin: Plugin;
+  discoveredManifest: ExternalPluginInfo["manifest"];
+}
+
 /**
  * Load external plugins from ~/.treeline/plugins/
+ * Returns both the plugin module and the discovered manifest (from manifest.json file)
+ * so we can use the file-based permissions rather than bundled ones.
  */
-async function loadExternalPlugins(): Promise<Plugin[]> {
+async function loadExternalPlugins(): Promise<LoadedExternalPlugin[]> {
   try {
     // Get the plugins directory path
     const pluginsDir = await invoke<string>("get_plugins_dir");
 
-    // Discover all available plugins
+    // Discover all available plugins (reads manifest.json files)
     const discovered = await invoke<ExternalPluginInfo[]>("discover_plugins");
-    const plugins: Plugin[] = [];
+    const plugins: LoadedExternalPlugin[] = [];
 
     for (const pluginInfo of discovered) {
       try {
@@ -57,7 +71,10 @@ async function loadExternalPlugins(): Promise<Plugin[]> {
         const module = await import(/* @vite-ignore */ assetUrl);
 
         if (module.plugin) {
-          plugins.push(module.plugin);
+          plugins.push({
+            plugin: module.plugin,
+            discoveredManifest: pluginInfo.manifest,
+          });
           console.log(`✓ Discovered external plugin: ${pluginInfo.manifest.name}`);
         } else {
           console.error(`✗ External plugin ${pluginInfo.manifest.id} does not export 'plugin'`);
@@ -78,11 +95,20 @@ async function loadExternalPlugins(): Promise<Plugin[]> {
  * Initialize all plugins (core + external)
  */
 export async function initializePlugins(): Promise<void> {
-  // Load external plugins
-  const externalPlugins = await loadExternalPlugins();
+  // Load external plugins (with discovered manifest info)
+  const loadedExternalPlugins = await loadExternalPlugins();
 
   // Get list of disabled plugins
   const disabledPlugins = await getDisabledPlugins();
+
+  // Extract just the plugin objects for the combined list
+  const externalPlugins = loadedExternalPlugins.map(lep => lep.plugin);
+
+  // Create a map of external plugin ID -> discovered manifest (from manifest.json file)
+  // This is used to get permissions from the file rather than the bundled JS
+  const externalManifestMap = new Map(
+    loadedExternalPlugins.map(lep => [lep.plugin.manifest.id, lep.discoveredManifest])
+  );
 
   // Combine core and external plugins
   const allPlugins = [...corePlugins, ...externalPlugins];
@@ -120,13 +146,19 @@ export async function initializePlugins(): Promise<void> {
 
     try {
       const pluginId = plugin.manifest.id;
+      const isExternal = externalPluginIds.has(pluginId);
 
       // Register plugin permissions (read/write/create)
-      const tablePermissions = plugin.manifest.permissions?.tables ?? {};
+      // For external plugins, use permissions from the manifest.json file (not bundled JS)
+      // This ensures locally-installed plugins get their updated permissions
+      let tablePermissions;
+      if (isExternal) {
+        const discoveredManifest = externalManifestMap.get(pluginId);
+        tablePermissions = discoveredManifest?.permissions?.tables ?? {};
+      } else {
+        tablePermissions = plugin.manifest.permissions?.tables ?? {};
+      }
       registry.setPluginPermissions(pluginId, tablePermissions);
-
-      // Check if this is an external (community) plugin
-      const isExternal = externalPluginIds.has(pluginId);
 
       // Create context with plugin API
       const context: PluginContext = {

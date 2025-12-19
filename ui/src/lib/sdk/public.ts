@@ -242,21 +242,46 @@ export function createPluginSDK(pluginId: string, permissions: PluginTablePermis
 /**
  * Extract table names from a SELECT query.
  * Returns all tables referenced in FROM and JOIN clauses.
+ * Excludes CTE (Common Table Expression) aliases defined in WITH clauses.
  */
 function extractReadTables(sql: string): string[] {
-  const normalizedSql = sql.toLowerCase();
+  // Remove SQL comments to simplify parsing
+  const sqlNoComments = sql
+    .replace(/--[^\n]*/g, " ")  // Remove single-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, " ");  // Remove multi-line comments
+
+  const normalizedSql = sqlNoComments.toLowerCase();
   const tables: string[] = [];
+
+  // Extract all CTE names from WITH clauses
+  // Matches: WITH name AS, and subsequent name AS patterns
+  const cteNames = new Set<string>();
+
+  // Match all "name AS (" patterns that could be CTEs
+  // This handles: WITH cte1 AS (...), cte2 AS (...), cte3 AS (...)
+  const allCteMatches = normalizedSql.matchAll(/(\w+)\s+as\s*\(/gi);
+  for (const match of allCteMatches) {
+    cteNames.add(match[1]);
+  }
 
   // Match FROM table_name (with optional alias)
   const fromMatches = normalizedSql.matchAll(/\bfrom\s+(\w+)(?:\s+(?:as\s+)?(\w+))?/gi);
   for (const match of fromMatches) {
-    tables.push(match[1]);
+    const tableName = match[1];
+    // Exclude CTE aliases - they're not real tables
+    if (!cteNames.has(tableName)) {
+      tables.push(tableName);
+    }
   }
 
   // Match JOIN table_name (with optional alias)
   const joinMatches = normalizedSql.matchAll(/\bjoin\s+(\w+)(?:\s+(?:as\s+)?(\w+))?/gi);
   for (const match of joinMatches) {
-    tables.push(match[1]);
+    const tableName = match[1];
+    // Exclude CTE aliases
+    if (!cteNames.has(tableName)) {
+      tables.push(tableName);
+    }
   }
 
   return [...new Set(tables)]; // Deduplicate

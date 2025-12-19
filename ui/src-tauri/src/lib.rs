@@ -101,6 +101,8 @@ struct PluginManifest {
     description: String,
     author: String,
     main: String,
+    #[serde(default)]
+    permissions: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -643,17 +645,30 @@ fn set_demo_mode(enabled: bool) -> Result<(), String> {
 
 /// Run the sync command via CLI
 #[tauri::command]
-async fn run_sync(app: AppHandle, dry_run: Option<bool>) -> Result<String, String> {
+async fn run_sync(app: AppHandle, dry_run: Option<bool>, encryption_state: State<'_, EncryptionState>) -> Result<String, String> {
     let mut args = vec!["sync", "--json"];
     if dry_run.unwrap_or(false) {
         args.push("--dry-run");
     }
 
-    let output = run_cli(&app, &args).await?;
+    // Pass encryption key to CLI if database is encrypted and unlocked
+    let key = {
+        let key_guard = encryption_state.key.lock()
+            .map_err(|_| "Failed to lock encryption state")?;
+        key_guard.clone()
+    };
+
+    let output = if let Some(k) = key {
+        run_cli_with_env(&app, &args, vec![("TL_DB_KEY", &k)]).await?
+    } else {
+        run_cli(&app, &args).await?
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Sync failed: {}", stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let error_msg = if !stdout.is_empty() { stdout } else { stderr };
+        return Err(format!("Sync failed: {}", error_msg));
     }
 
     String::from_utf8(output.stdout)
