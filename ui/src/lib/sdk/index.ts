@@ -22,7 +22,7 @@ export type {
 
 // Public SDK (for external plugins)
 export { createPluginSDK } from "./public";
-export type { PluginSDK } from "./public";
+export type { PluginSDK, PluginTablePermissions } from "./public";
 
 // Registry (for core use)
 export { registry } from "./registry";

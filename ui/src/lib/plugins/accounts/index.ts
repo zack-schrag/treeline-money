@@ -10,7 +10,9 @@ export const plugin: Plugin = {
     author: "Treeline",
     permissions: {
       tables: {
-        write: ["sys_accounts", "sys_balance_snapshots", "sys_plugin_accounts_overrides"],
+        read: ["accounts", "sys_accounts", "sys_balance_snapshots", "transactions"],
+        write: ["sys_accounts", "sys_balance_snapshots"],
+        create: ["sys_plugin_accounts_overrides"],
       },
     },
   },

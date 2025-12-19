@@ -472,6 +472,100 @@ class PluginService:
             },
         )
 
+    def fetch_manifest(
+        self, url: str, version: str | None = None
+    ) -> Result[Dict[str, Any]]:
+        """Fetch manifest.json from a GitHub release without installing.
+
+        Args:
+            url: GitHub repository URL
+            version: Version tag to fetch (e.g., "v1.0.0"). None = latest release.
+
+        Returns:
+            Result with manifest data and release info
+        """
+        # Parse GitHub URL
+        parsed = self._parse_github_url(url)
+        if not parsed:
+            return Result(
+                success=False,
+                error=f"Invalid GitHub URL: {url}. Expected https://github.com/owner/repo",
+            )
+
+        owner, repo = parsed
+
+        # Get release info from GitHub API
+        if version:
+            api_url = (
+                f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
+            )
+        else:
+            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+
+        try:
+            with httpx.Client(timeout=30) as client:
+                response = client.get(
+                    api_url,
+                    headers={
+                        "Accept": "application/vnd.github.v3+json",
+                        "User-Agent": "Treeline-CLI",
+                    },
+                )
+                if response.status_code == 404:
+                    if version:
+                        return Result(
+                            success=False,
+                            error=f"Release {version} not found for {owner}/{repo}",
+                        )
+                    else:
+                        return Result(
+                            success=False,
+                            error=f"No releases found for {owner}/{repo}. The plugin author needs to create a release.",
+                        )
+                response.raise_for_status()
+                release_data = response.json()
+        except httpx.HTTPStatusError as e:
+            return Result(success=False, error=f"GitHub API error: {e}")
+        except httpx.RequestError as e:
+            return Result(success=False, error=f"Network error: {e}")
+
+        # Find manifest.json in release assets
+        assets = {
+            asset["name"]: asset["browser_download_url"]
+            for asset in release_data.get("assets", [])
+        }
+
+        if "manifest.json" not in assets:
+            return Result(
+                success=False,
+                error=f"Release {release_data.get('tag_name', 'unknown')} is missing manifest.json asset. "
+                f"Available assets: {list(assets.keys()) or 'none'}",
+            )
+
+        # Download manifest.json
+        try:
+            with httpx.Client(timeout=30, follow_redirects=True) as client:
+                response = client.get(assets["manifest.json"])
+                response.raise_for_status()
+                manifest = response.json()
+        except httpx.RequestError as e:
+            return Result(
+                success=False, error=f"Failed to download manifest.json: {e}"
+            )
+        except json.JSONDecodeError as e:
+            return Result(
+                success=False, error=f"Failed to parse manifest.json: {e}"
+            )
+
+        return Result(
+            success=True,
+            data={
+                "manifest": manifest,
+                "version": release_data.get("tag_name", manifest.get("version", "unknown")),
+                "source": f"github:{owner}/{repo}",
+            },
+        )
+
     def list_plugins(self) -> Result[list[Dict[str, Any]]]:
         """List all installed plugins.
 

@@ -39,8 +39,8 @@ class PluginRegistry {
   // View to plugin mapping (for permissions lookup)
   private _viewToPlugin: Map<string, string> = new Map();
 
-  // Plugin permissions (pluginId -> allowed write tables)
-  private _pluginPermissions: Map<string, string[]> = new Map();
+  // Plugin permissions (pluginId -> full table permissions)
+  private _pluginPermissions: Map<string, { read?: string[]; write?: string[]; create?: string[] }> = new Map();
 
   // Commands
   private _commands: Map<string, Command> = new Map();
@@ -155,8 +155,8 @@ class PluginRegistry {
   /**
    * Set permissions for a plugin (call before activating)
    */
-  setPluginPermissions(pluginId: string, writeTables: string[]) {
-    this._pluginPermissions.set(pluginId, writeTables);
+  setPluginPermissions(pluginId: string, permissions: { read?: string[]; write?: string[]; create?: string[] }) {
+    this._pluginPermissions.set(pluginId, permissions);
   }
 
   /**
@@ -167,10 +167,17 @@ class PluginRegistry {
   }
 
   /**
-   * Get allowed write tables for a plugin
+   * Get full permissions for a plugin
    */
-  getPluginWriteTables(pluginId: string): string[] {
-    return this._pluginPermissions.get(pluginId) ?? [];
+  getPluginPermissions(pluginId: string): { read?: string[]; write?: string[]; create?: string[] } {
+    return this._pluginPermissions.get(pluginId) ?? {};
+  }
+
+  /**
+   * Get all installed plugin permissions (for dependency checking)
+   */
+  getAllPluginPermissions(): Map<string, { read?: string[]; write?: string[]; create?: string[] }> {
+    return new Map(this._pluginPermissions);
   }
 
   registerCommand(command: Command) {

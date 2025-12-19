@@ -41,11 +41,30 @@ Views receive `sdk` via props:
 | `sdk.theme.current()` | Get "light" or "dark" |
 | `sdk.settings.get/set()` | Persist plugin settings |
 
-## Database Access
+## Database Access & Permissions
 
-- **Read anything**: `sdk.query("SELECT * FROM transactions")`
-- **Write only to your tables**: Must be declared in `manifest.json` permissions
-- **Table naming**: Use `sys_plugin_{your_plugin_id}_*` for your tables
+Plugins must declare all table permissions in `manifest.json`:
+
+```json
+{
+  "permissions": {
+    "tables": {
+      "read": ["transactions", "accounts"],  // Tables you can SELECT from
+      "create": ["sys_plugin_my_plugin"]     // Tables you can CREATE/DROP (implicitly writable)
+    }
+  }
+}
+```
+
+| Permission | Description |
+|------------|-------------|
+| `read` | Tables your plugin can SELECT from. Required - no implicit access. Use `["*"]` for all tables. |
+| `write` | Tables you can INSERT/UPDATE/DELETE (but not create). Rarely needed. |
+| `create` | Tables you can CREATE/DROP. Must match `sys_plugin_{id}_*` pattern. Implicitly writable. |
+
+- **Table naming**: Your tables must use `sys_plugin_{your_plugin_id}_*` pattern
+- **Core tables**: Common readable tables include `transactions`, `accounts`, `sys_balance_snapshots`
+- **Cross-plugin reads**: You can read other plugins' tables if declared (e.g., `sys_plugin_goals`)
 
 ## Common Patterns
 
@@ -139,7 +158,9 @@ Always use theme CSS variables:
 
 ## Don't Do
 
+- Don't read from tables not declared in your `read` permissions (will throw error)
 - Don't write to tables not in your permissions (will throw error)
+- Don't create tables that don't match `sys_plugin_{your_id}_*` pattern
 - Don't forget dark mode support (test with both themes)
 - Don't bundle heavy dependencies (keep plugins lightweight)
 - Don't use `sdk.execute()` for SELECT queries (use `sdk.query()`)

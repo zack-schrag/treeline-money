@@ -24,7 +24,9 @@ export const plugin: Plugin = {
     author: "Treeline",
     permissions: {
       tables: {
-        write: ["sys_transactions", "sys_plugin_transactions_rules"],
+        read: ["transactions", "accounts", "sys_transactions", "sys_plugin_transactions_rules"],
+        write: ["sys_transactions"],
+        create: ["sys_plugin_transactions_rules"],
       },
     },
   },

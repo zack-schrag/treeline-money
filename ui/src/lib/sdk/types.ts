@@ -39,9 +39,14 @@ export interface PluginManifest {
 }
 
 export interface PluginPermissions {
-  /** Tables this plugin needs write access to */
+  /** Table permissions for this plugin */
   tables?: {
+    /** Tables this plugin can SELECT from (if omitted, all reads allowed for backwards compat) */
+    read?: string[];
+    /** Tables this plugin can INSERT/UPDATE/DELETE */
     write?: string[];
+    /** Tables this plugin can CREATE/DROP (must match sys_plugin_{id}_* pattern for community plugins) */
+    create?: string[];
   };
 }
 

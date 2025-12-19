@@ -32,10 +32,10 @@
     if (activeView?.mount && mountContainer && activeTab) {
       // Get plugin ID and permissions for this view
       const pluginId = registry.getPluginIdForView(activeTab.viewId);
-      const allowedTables = pluginId ? registry.getPluginWriteTables(pluginId) : [];
+      const permissions = pluginId ? registry.getPluginPermissions(pluginId) : {};
 
       // Create SDK instance for this plugin
-      const sdk = pluginId ? createPluginSDK(pluginId, allowedTables) : null;
+      const sdk = pluginId ? createPluginSDK(pluginId, permissions) : null;
 
       // Pass SDK and original props to the view
       const props = {

@@ -127,6 +127,27 @@
   let pluginReadme = $state<string | null>(null);
   let isLoadingReadme = $state(false);
 
+  // Uninstall confirmation state
+  interface UninstallConfirmation {
+    plugin: InstalledPluginInfo;
+    tablesToDelete: string[];
+    dependentPlugins: { pluginId: string; pluginName: string; tables: string[] }[];
+  }
+  let uninstallConfirmation = $state<UninstallConfirmation | null>(null);
+  let deletePluginData = $state(true);
+
+  // Install confirmation state
+  interface InstallConfirmation {
+    plugin: CommunityPluginInfo;
+    permissions: {
+      read?: string[];
+      write?: string[];
+      create?: string[];
+    };
+  }
+  let installConfirmation = $state<InstallConfirmation | null>(null);
+  let loadingManifestPluginId = $state<string | null>(null);
+
   // Demo mode state
   let isDemoMode = $state(false);
   let isExitingDemo = $state(false);
@@ -367,14 +388,70 @@
     }
   }
 
-  async function handleInstallPlugin(plugin: CommunityPluginInfo) {
+  /**
+   * Fetch manifest from GitHub to get permissions before install.
+   * Uses Tauri backend to avoid CORS restrictions.
+   */
+  async function fetchPluginManifest(repo: string): Promise<{ read?: string[]; write?: string[]; create?: string[] } | null> {
+    try {
+      const resultStr = await invoke<string>("fetch_plugin_manifest", { url: repo });
+      const result = JSON.parse(resultStr);
+
+      if (!result.success) {
+        console.error("Failed to fetch manifest:", result.error);
+        return null;
+      }
+
+      return result.manifest?.permissions?.tables || {};
+    } catch (e) {
+      console.error("Failed to fetch plugin manifest:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Show install confirmation with permissions.
+   */
+  async function showInstallConfirmation(plugin: CommunityPluginInfo) {
+    loadingManifestPluginId = plugin.id;
+    try {
+      const permissions = await fetchPluginManifest(plugin.repo);
+      if (permissions) {
+        installConfirmation = {
+          plugin,
+          permissions,
+        };
+      } else {
+        // Can't fetch permissions, install directly
+        await executeInstallPlugin(plugin);
+      }
+    } catch (e) {
+      // If we can't fetch permissions, install directly
+      await executeInstallPlugin(plugin);
+    } finally {
+      loadingManifestPluginId = null;
+    }
+  }
+
+  /**
+   * Cancel install confirmation.
+   */
+  function cancelInstall() {
+    installConfirmation = null;
+  }
+
+  /**
+   * Execute the actual plugin install.
+   */
+  async function executeInstallPlugin(plugin: CommunityPluginInfo) {
     installingPluginId = plugin.id;
+    installConfirmation = null;
     try {
       const result = await installPlugin(plugin.repo);
       if (result.success) {
-        toast.success("Plugin installed", `${result.plugin_name} v${result.version} installed`);
+        toast.success("Plugin installed", `${result.plugin_name} ${result.version} installed`);
         pluginsNeedReload = true;
-        await loadCommunityPlugins(); // Refresh the list
+        await loadCommunityPlugins();
       } else {
         throw new Error(result.error || "Unknown error");
       }
@@ -385,18 +462,109 @@
     }
   }
 
-  async function handleUninstallPlugin(plugin: InstalledPluginInfo) {
+  /**
+   * Handle install button click - shows confirmation with permissions.
+   */
+  async function handleInstallPlugin(plugin: CommunityPluginInfo) {
+    await showInstallConfirmation(plugin);
+  }
+
+  /**
+   * Find plugins that depend on tables being deleted.
+   */
+  function findDependentPlugins(tablesToDelete: string[], excludePluginId: string): { pluginId: string; pluginName: string; tables: string[] }[] {
+    const dependent: { pluginId: string; pluginName: string; tables: string[] }[] = [];
+    const allPermissions = registry.getAllPluginPermissions();
+
+    for (const [pluginId, permissions] of allPermissions) {
+      if (pluginId === excludePluginId) continue;
+
+      const readTables = permissions.read || [];
+      const overlappingTables = readTables.filter(t =>
+        tablesToDelete.some(d => d.toLowerCase() === t.toLowerCase())
+      );
+
+      if (overlappingTables.length > 0) {
+        // Find the plugin name
+        const installedPlugin = installedCommunityPlugins.find(p => p.id === pluginId);
+        const corePlugin = plugins.find(p => p.id === pluginId);
+        const pluginName = installedPlugin?.name || corePlugin?.name || pluginId;
+
+        dependent.push({ pluginId, pluginName, tables: overlappingTables });
+      }
+    }
+
+    return dependent;
+  }
+
+  /**
+   * Show uninstall confirmation dialog with table cleanup options.
+   */
+  function showUninstallConfirmation(plugin: InstalledPluginInfo) {
+    // Get the plugin's create tables from registry
+    const permissions = registry.getPluginPermissions(plugin.id);
+    const tablesToDelete = permissions.create || [];
+
+    // Find dependent plugins
+    const dependentPlugins = findDependentPlugins(tablesToDelete, plugin.id);
+
+    uninstallConfirmation = {
+      plugin,
+      tablesToDelete,
+      dependentPlugins,
+    };
+    deletePluginData = true;
+  }
+
+  /**
+   * Cancel uninstall confirmation.
+   */
+  function cancelUninstall() {
+    uninstallConfirmation = null;
+    deletePluginData = true;
+  }
+
+  /**
+   * Confirm and execute plugin uninstall.
+   */
+  async function confirmUninstall() {
+    if (!uninstallConfirmation) return;
+
+    const plugin = uninstallConfirmation.plugin;
+    const tablesToDrop = deletePluginData ? uninstallConfirmation.tablesToDelete : [];
+
     uninstallingPluginId = plugin.id;
+    uninstallConfirmation = null;
+
     try {
+      // Drop plugin tables if requested
+      if (tablesToDrop.length > 0) {
+        for (const table of tablesToDrop) {
+          try {
+            await executeQuery(`DROP TABLE IF EXISTS ${table}`, { readonly: false });
+          } catch (e) {
+            console.warn(`Failed to drop table ${table}:`, e);
+          }
+        }
+      }
+
       await uninstallPlugin(plugin.id);
-      toast.success("Plugin uninstalled", `${plugin.name} has been removed`);
+      const dataMsg = tablesToDrop.length > 0 ? " and its data" : "";
+      toast.success("Plugin uninstalled", `${plugin.name}${dataMsg} has been removed`);
       pluginsNeedReload = true;
-      await loadCommunityPlugins(); // Refresh the list
+      await loadCommunityPlugins();
     } catch (e) {
       toast.error("Failed to uninstall plugin", e instanceof Error ? e.message : String(e));
     } finally {
       uninstallingPluginId = null;
     }
+  }
+
+  /**
+   * Handle uninstall - shows confirmation dialog.
+   */
+  async function handleUninstallPlugin(plugin: InstalledPluginInfo) {
+    showUninstallConfirmation(plugin);
   }
 
   // Check if a community plugin is installed
@@ -1113,9 +1281,15 @@
                               <button
                                 class="btn primary small"
                                 onclick={() => handleInstallPlugin(plugin)}
-                                disabled={installingPluginId === plugin.id}
+                                disabled={installingPluginId === plugin.id || loadingManifestPluginId === plugin.id}
                               >
-                                {installingPluginId === plugin.id ? "Installing..." : "Install"}
+                                {#if installingPluginId === plugin.id}
+                                  Installing...
+                                {:else if loadingManifestPluginId === plugin.id}
+                                  Loading...
+                                {:else}
+                                  Install
+                                {/if}
                               </button>
                             {/if}
                           </div>
@@ -1707,15 +1881,145 @@
               onclick={() => {
                 const p = communityPlugins.find(cp => cp.id === selectedPlugin!.id);
                 if (p) {
-                  handleInstallPlugin(p);
                   closePluginDetail();
+                  handleInstallPlugin(p);
                 }
               }}
-              disabled={installingPluginId === selectedPlugin.id}
+              disabled={installingPluginId === selectedPlugin.id || loadingManifestPluginId === selectedPlugin.id}
             >
-              {installingPluginId === selectedPlugin.id ? "Installing..." : "Install Plugin"}
+              {#if installingPluginId === selectedPlugin.id}
+                Installing...
+              {:else if loadingManifestPluginId === selectedPlugin.id}
+                Loading...
+              {:else}
+                Install Plugin
+              {/if}
             </button>
           {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Uninstall Confirmation Modal -->
+  {#if uninstallConfirmation}
+    <div class="sub-modal-overlay" onclick={cancelUninstall} role="presentation">
+      <div class="sub-modal uninstall-confirm-modal" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === 'Escape' && cancelUninstall()} role="dialog" tabindex="-1">
+        <div class="sub-modal-header">
+          <h3>Remove {uninstallConfirmation.plugin.name}?</h3>
+          <button class="close-btn" onclick={cancelUninstall}>✕</button>
+        </div>
+        <div class="sub-modal-content">
+          {#if uninstallConfirmation.tablesToDelete.length > 0}
+            <div class="uninstall-option">
+              <label class="checkbox-label">
+                <input type="checkbox" bind:checked={deletePluginData} />
+                <span>Also delete plugin data</span>
+              </label>
+              <div class="tables-list">
+                <span class="tables-label">Tables:</span>
+                {#each uninstallConfirmation.tablesToDelete as table}
+                  <code class="table-name">{table}</code>
+                {/each}
+              </div>
+            </div>
+
+            {#if deletePluginData && uninstallConfirmation.dependentPlugins.length > 0}
+              <div class="dependency-warning">
+                <div class="warning-header">
+                  <Icon name="alert-triangle" size={16} />
+                  <span>Warning: Other plugins depend on this data</span>
+                </div>
+                <ul class="dependent-list">
+                  {#each uninstallConfirmation.dependentPlugins as dep}
+                    <li>
+                      <strong>{dep.pluginName}</strong> reads: {dep.tables.join(", ")}
+                    </li>
+                  {/each}
+                </ul>
+                <p class="warning-note">Deleting this data may break these plugins.</p>
+              </div>
+            {/if}
+          {:else}
+            <p class="no-data-note">This plugin has no data to delete.</p>
+          {/if}
+        </div>
+        <div class="sub-modal-actions">
+          <button class="btn secondary" onclick={cancelUninstall}>Cancel</button>
+          <button
+            class="btn danger"
+            onclick={confirmUninstall}
+            disabled={uninstallingPluginId === uninstallConfirmation.plugin.id}
+          >
+            {uninstallingPluginId === uninstallConfirmation.plugin.id ? "Removing..." : "Remove"}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Install Confirmation Modal -->
+  {#if installConfirmation}
+    <div class="sub-modal-overlay" onclick={cancelInstall} role="presentation">
+      <div class="sub-modal install-confirm-modal" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === 'Escape' && cancelInstall()} role="dialog" tabindex="-1">
+        <div class="sub-modal-header">
+          <h3>Install {installConfirmation.plugin.name}?</h3>
+          <button class="close-btn" onclick={cancelInstall}>✕</button>
+        </div>
+        <div class="sub-modal-content">
+          <p class="install-desc">{installConfirmation.plugin.description}</p>
+          <p class="install-author">by {installConfirmation.plugin.author}</p>
+
+          <div class="permissions-section">
+            <h4 class="permissions-title">Permissions</h4>
+
+            {#if installConfirmation.permissions.read?.length}
+              <div class="permission-group">
+                <span class="permission-label">Can read:</span>
+                <div class="permission-tables">
+                  {#each installConfirmation.permissions.read as table}
+                    <code class="table-name">{table === "*" ? "all tables" : table}</code>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if installConfirmation.permissions.write?.length}
+              <div class="permission-group">
+                <span class="permission-label">Can write:</span>
+                <div class="permission-tables">
+                  {#each installConfirmation.permissions.write as table}
+                    <code class="table-name">{table}</code>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if installConfirmation.permissions.create?.length}
+              <div class="permission-group">
+                <span class="permission-label">Creates tables:</span>
+                <div class="permission-tables">
+                  {#each installConfirmation.permissions.create as table}
+                    <code class="table-name">{table}</code>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if !installConfirmation.permissions.read?.length && !installConfirmation.permissions.write?.length && !installConfirmation.permissions.create?.length}
+              <p class="no-permissions">No special permissions required.</p>
+            {/if}
+          </div>
+        </div>
+        <div class="sub-modal-actions">
+          <button class="btn secondary" onclick={cancelInstall}>Cancel</button>
+          <button
+            class="btn primary"
+            onclick={() => executeInstallPlugin(installConfirmation!.plugin)}
+            disabled={installingPluginId === installConfirmation.plugin.id}
+          >
+            {installingPluginId === installConfirmation.plugin.id ? "Installing..." : "Install"}
+          </button>
         </div>
       </div>
     </div>
@@ -2474,6 +2778,10 @@
     padding: var(--spacing-lg);
   }
 
+  .sub-modal-content {
+    padding: var(--spacing-lg);
+  }
+
   .sub-modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -2649,6 +2957,154 @@
   .confirm-note {
     font-size: 12px !important;
     color: var(--text-muted) !important;
+  }
+
+  /* Uninstall confirmation modal */
+  .uninstall-confirm-modal {
+    max-width: 450px;
+  }
+
+  .uninstall-option {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+  }
+
+  .tables-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding-left: 24px;
+  }
+
+  .tables-label {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .table-name {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+
+  .dependency-warning {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 6px;
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+  }
+
+  .warning-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent-danger);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .dependent-list {
+    margin: 0 0 var(--spacing-sm) var(--spacing-lg);
+    padding: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .dependent-list li {
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .warning-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .no-data-note {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  /* Install confirmation modal */
+  .install-confirm-modal {
+    max-width: 480px;
+  }
+
+  .install-desc {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin: 0;
+    line-height: 1.4;
+  }
+
+  .install-author {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: var(--spacing-xs) 0 var(--spacing-lg) 0;
+  }
+
+  .permissions-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+
+  .permissions-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 var(--spacing-md) 0;
+  }
+
+  .permission-group {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .permission-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .permission-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .permission-tables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .no-permissions {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0;
   }
 
   /* Plugins section */

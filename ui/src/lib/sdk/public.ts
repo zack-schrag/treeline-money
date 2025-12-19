@@ -36,6 +36,15 @@ export type { Plugin, PluginManifest, PluginContext, PluginPermissions } from ".
 export type { QueryResult } from "./api";
 
 /**
+ * Full permissions object for a plugin
+ */
+export interface PluginTablePermissions {
+  read?: string[];   // Tables allowed for SELECT (undefined = all allowed for backwards compat)
+  write?: string[];  // Tables allowed for INSERT/UPDATE/DELETE
+  create?: string[]; // Tables allowed for CREATE/DROP (implicitly writable)
+}
+
+/**
  * The SDK object passed to external plugin views via props.
  * Access it via: const { sdk } = $props();
  */
@@ -138,11 +147,24 @@ export interface PluginSDK {
 /**
  * Create an SDK instance for a specific plugin.
  * This is called internally when mounting external plugin views.
+ *
+ * @param pluginId - The plugin's unique identifier
+ * @param permissions - Table permissions (read is required)
  */
-export function createPluginSDK(pluginId: string, allowedTables: string[]): PluginSDK {
+export function createPluginSDK(pluginId: string, permissions: PluginTablePermissions): PluginSDK {
+  // Compute effective write tables: explicit write + create (create implies write)
+  const effectiveWriteTables = [
+    ...(permissions.write ?? []),
+    ...(permissions.create ?? []),
+  ];
+
+  // Read permissions are required - empty array means no reads allowed
+  const allowedReadTables = permissions.read ?? [];
+
   return {
-    // Database - read-only queries
+    // Database - read-only queries (with table restriction)
     query: async <T = Record<string, any>>(sql: string): Promise<T[]> => {
+      validateReadQuery(sql, pluginId, allowedReadTables);
       const result = await executeQuery(sql, { readonly: true });
       return result.rows as T[];
     },
@@ -150,7 +172,7 @@ export function createPluginSDK(pluginId: string, allowedTables: string[]): Plug
     // Database - write queries (with table restriction)
     execute: async (sql: string): Promise<{ rowsAffected: number }> => {
       // Validate that query only targets allowed tables
-      validateWriteQuery(sql, pluginId, allowedTables);
+      validateWriteQuery(sql, pluginId, effectiveWriteTables, permissions.create ?? []);
       const result = await executeQuery(sql, { readonly: false });
       return { rowsAffected: result.rows.length };
     },
@@ -218,15 +240,72 @@ export function createPluginSDK(pluginId: string, allowedTables: string[]): Plug
 }
 
 /**
+ * Extract table names from a SELECT query.
+ * Returns all tables referenced in FROM and JOIN clauses.
+ */
+function extractReadTables(sql: string): string[] {
+  const normalizedSql = sql.toLowerCase();
+  const tables: string[] = [];
+
+  // Match FROM table_name (with optional alias)
+  const fromMatches = normalizedSql.matchAll(/\bfrom\s+(\w+)(?:\s+(?:as\s+)?(\w+))?/gi);
+  for (const match of fromMatches) {
+    tables.push(match[1]);
+  }
+
+  // Match JOIN table_name (with optional alias)
+  const joinMatches = normalizedSql.matchAll(/\bjoin\s+(\w+)(?:\s+(?:as\s+)?(\w+))?/gi);
+  for (const match of joinMatches) {
+    tables.push(match[1]);
+  }
+
+  return [...new Set(tables)]; // Deduplicate
+}
+
+/**
+ * Validate that a read query only accesses allowed tables.
+ * Throws an error if the query attempts to read from unauthorized tables.
+ * Use "*" in allowedTables to allow reading any table.
+ */
+function validateReadQuery(sql: string, pluginId: string, allowedTables: string[]): void {
+  // Wildcard allows all reads
+  if (allowedTables.includes("*")) {
+    return;
+  }
+
+  const referencedTables = extractReadTables(sql);
+  const normalizedAllowed = allowedTables.map(t => t.toLowerCase());
+
+  for (const table of referencedTables) {
+    if (!normalizedAllowed.includes(table)) {
+      throw new Error(
+        `Plugin "${pluginId}" does not have permission to read from table "${table}". ` +
+        `Allowed tables: ${allowedTables.join(", ")}`
+      );
+    }
+  }
+}
+
+/**
  * Validate that a write query only targets allowed tables.
  * Throws an error if the query attempts to write to unauthorized tables.
+ *
+ * @param sql - The SQL query to validate
+ * @param pluginId - The plugin's ID for error messages
+ * @param allowedWriteTables - Tables allowed for INSERT/UPDATE/DELETE
+ * @param allowedCreateTables - Tables allowed for CREATE/DROP/ALTER
  */
-function validateWriteQuery(sql: string, pluginId: string, allowedTables: string[]): void {
+function validateWriteQuery(
+  sql: string,
+  pluginId: string,
+  allowedWriteTables: string[],
+  allowedCreateTables: string[]
+): void {
   // Normalize SQL for parsing
   const normalizedSql = sql.toLowerCase().trim();
 
-  // Extract target table from common write operations
-  // Use early returns to avoid "DO UPDATE SET" being parsed as UPDATE to table "set"
+  // Track if this is a DDL operation (CREATE/DROP/ALTER)
+  let isDDL = false;
   let targetTable: string | null = null;
 
   // INSERT INTO table_name (check first, handles ON CONFLICT ... DO UPDATE)
@@ -251,27 +330,30 @@ function validateWriteQuery(sql: string, pluginId: string, allowedTables: string
     }
   }
 
-  // CREATE TABLE table_name
+  // CREATE TABLE table_name (DDL)
   if (!targetTable) {
     const createMatch = normalizedSql.match(/^create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)/);
     if (createMatch) {
       targetTable = createMatch[1];
+      isDDL = true;
     }
   }
 
-  // DROP TABLE table_name
+  // DROP TABLE table_name (DDL)
   if (!targetTable) {
     const dropMatch = normalizedSql.match(/^drop\s+table\s+(?:if\s+exists\s+)?(\w+)/);
     if (dropMatch) {
       targetTable = dropMatch[1];
+      isDDL = true;
     }
   }
 
-  // ALTER TABLE table_name
+  // ALTER TABLE table_name (DDL)
   if (!targetTable) {
     const alterMatch = normalizedSql.match(/^alter\s+table\s+(\w+)/);
     if (alterMatch) {
       targetTable = alterMatch[1];
+      isDDL = true;
     }
   }
 
@@ -283,12 +365,15 @@ function validateWriteQuery(sql: string, pluginId: string, allowedTables: string
     );
   }
 
-  // Check if the table is in the allowed list
+  // DDL operations check against create tables; DML against write tables
+  const allowedTables = isDDL ? allowedCreateTables : allowedWriteTables;
   const normalizedAllowed = allowedTables.map(t => t.toLowerCase());
+
   if (!normalizedAllowed.includes(targetTable)) {
+    const operationType = isDDL ? "create/drop/alter" : "write to";
     throw new Error(
-      `Plugin "${pluginId}" does not have permission to write to table "${targetTable}". ` +
-      `Allowed tables: ${allowedTables.join(", ")}`
+      `Plugin "${pluginId}" does not have permission to ${operationType} table "${targetTable}". ` +
+      `Allowed tables: ${allowedTables.join(", ") || "(none)"}`
     );
   }
 }

@@ -208,3 +208,30 @@ def register(app: typer.Typer, get_container: callable) -> None:
                 if plugin.get("author"):
                     console.print(f"  [{theme.muted}]by {plugin['author']}[/{theme.muted}]")
                 console.print()
+
+    @plugin_app.command(name="manifest")
+    def plugin_manifest_command(
+        source: str = typer.Argument(..., help="GitHub URL of the plugin"),
+        version: str = typer.Option(
+            None, "--version", "-v", help="Version to fetch (e.g., v1.0.0). Defaults to latest release."
+        ),
+    ) -> None:
+        """Fetch plugin manifest from GitHub release.
+
+        Outputs the manifest.json contents as JSON. This is used by the UI
+        to preview plugin permissions before installing.
+
+        Examples:
+          tl plugin manifest https://github.com/user/my-plugin
+          tl plugin manifest https://github.com/user/my-plugin --version v1.0.0
+        """
+        container = get_container()
+        plugin_service = container.plugin_service()
+
+        result = plugin_service.fetch_manifest(source, version=version)
+
+        if not result.success:
+            output_json({"success": False, "error": result.error})
+            raise typer.Exit(1)
+
+        output_json({"success": True, **result.data})

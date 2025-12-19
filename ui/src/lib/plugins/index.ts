@@ -121,9 +121,9 @@ export async function initializePlugins(): Promise<void> {
     try {
       const pluginId = plugin.manifest.id;
 
-      // Register plugin permissions
-      const writeTables = plugin.manifest.permissions?.tables?.write ?? [];
-      registry.setPluginPermissions(pluginId, writeTables);
+      // Register plugin permissions (read/write/create)
+      const tablePermissions = plugin.manifest.permissions?.tables ?? {};
+      registry.setPluginPermissions(pluginId, tablePermissions);
 
       // Check if this is an external (community) plugin
       const isExternal = externalPluginIds.has(pluginId);

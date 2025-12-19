@@ -10,7 +10,8 @@ export const plugin: Plugin = {
     author: "Treeline",
     permissions: {
       tables: {
-        write: ["sys_plugin_query_history"],
+        read: ["*"],  // Query editor can read any table
+        create: ["sys_plugin_query_history"],
       },
     },
   },

@@ -7,7 +7,8 @@
   "main": "index.js",
   "permissions": {
     "tables": {
-      "write": ["sys_plugin_hello_world"]
+      "read": ["transactions", "accounts"],
+      "create": ["sys_plugin_hello_world"]
     }
   }
 }
